@@ -263,7 +263,7 @@ export function attachGatewayWsMessageHandler(params: {
   setHandshakeState: (state: "pending" | "connected" | "failed") => void;
   setCloseCause: (cause: string, meta?: Record<string, unknown>) => void;
   setLastFrameMeta: (meta: { type?: string; method?: string; id?: string }) => void;
-  originCheckMetrics: WsOriginCheckMetrics;
+  originCheckMetrics?: WsOriginCheckMetrics;
   logGateway: SubsystemLogger;
   logHealth: SubsystemLogger;
   logWsControl: SubsystemLogger;
@@ -515,12 +515,12 @@ export function attachGatewayWsMessageHandler(params: {
             configSnapshot.gateway?.controlUi?.dangerouslyAllowHostHeaderOriginFallback === true;
           const originCheck = checkBrowserOrigin({
             requestHost,
-            // Only trust X-Forwarded-Host from trusted proxies
-            requestForwardedHost: remoteIsTrustedProxy ? requestForwardedHost : undefined,
+            requestForwardedHost,
             origin: requestOrigin,
             allowedOrigins: configSnapshot.gateway?.controlUi?.allowedOrigins,
             allowHostHeaderOriginFallback: hostHeaderOriginFallbackEnabled,
             isLocalClient,
+            isTrustedProxy: remoteIsTrustedProxy,
           });
           if (!originCheck.ok) {
             const errorMessage =
@@ -534,10 +534,19 @@ export function attachGatewayWsMessageHandler(params: {
             close(1008, truncateCloseReason(errorMessage));
             return;
           }
+
+          // Security warning: if wildcard "*" bypass was used, log it
+          if (originCheck.ok && originCheck.wildcardMatched) {
+            logGateway.warn(
+              "security warning: allowedOrigins includes wildcard '*'. " +
+                "This disables all origin checking and opens all WebSocket endpoints to CSRF attacks. " +
+                "Only use in fully air-gapped or non-browser environments where cross-site requests are impossible.",
+            );
+          }
           if (originCheck.matchedBy === "host-header-fallback") {
-            originCheckMetrics.hostHeaderFallbackAccepted += 1;
+            originCheckMetrics && (originCheckMetrics.hostHeaderFallbackAccepted += 1);
             logWsControl.warn(
-              `security warning: websocket origin accepted via Host-header fallback conn=${connId} count=${originCheckMetrics.hostHeaderFallbackAccepted} host=${requestHost ?? "n/a"} origin=${requestOrigin ?? "n/a"}`,
+              `security warning: websocket origin accepted via host-header fallback conn=${connId} count=${originCheckMetrics?.hostHeaderFallbackAccepted ?? 0} host=${requestHost ?? "n/a"} origin=${requestOrigin ?? "n/a"}`,
             );
             if (hostHeaderOriginFallbackEnabled) {
               logGateway.warn(
