@@ -113,6 +113,7 @@ export function attachGatewayWsConnectionHandler(params: {
     const headerValue = (value: string | string[] | undefined) =>
       Array.isArray(value) ? value[0] : value;
     const requestHost = headerValue(upgradeReq.headers.host);
+    const forwardedHost = headerValue(upgradeReq.headers["x-forwarded-host"]);
     const requestOrigin = headerValue(upgradeReq.headers.origin);
     const requestUserAgent = headerValue(upgradeReq.headers["user-agent"]);
     const forwardedFor = headerValue(upgradeReq.headers["x-forwarded-for"]);
@@ -274,7 +275,7 @@ export function attachGatewayWsConnectionHandler(params: {
       remoteAddr,
       forwardedFor,
       realIp,
-      requestHost,
+      requestHost: forwardedHost || requestHost,
       requestOrigin,
       requestUserAgent,
       canvasHostUrl,
