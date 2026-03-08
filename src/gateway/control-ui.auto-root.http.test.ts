@@ -4,8 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { resolveControlUiRootSyncMock } = vi.hoisted(() => ({
+const { resolveControlUiRootSyncMock, isPackageProvenControlUiRootSyncMock } = vi.hoisted(() => ({
   resolveControlUiRootSyncMock: vi.fn(),
+  isPackageProvenControlUiRootSyncMock: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock("../infra/control-ui-assets.js", async (importOriginal) => {
@@ -13,6 +14,7 @@ vi.mock("../infra/control-ui-assets.js", async (importOriginal) => {
   return {
     ...actual,
     resolveControlUiRootSync: resolveControlUiRootSyncMock,
+    isPackageProvenControlUiRootSync: isPackageProvenControlUiRootSyncMock,
   };
 });
 
@@ -31,6 +33,8 @@ async function withControlUiRoot<T>(fn: (tmp: string) => Promise<T>) {
 
 afterEach(() => {
   resolveControlUiRootSyncMock.mockReset();
+  isPackageProvenControlUiRootSyncMock.mockReset();
+  isPackageProvenControlUiRootSyncMock.mockReturnValue(true);
 });
 
 describe("handleControlUiHttpRequest auto-detected root", () => {
@@ -72,6 +76,26 @@ describe("handleControlUiHttpRequest auto-detected root", () => {
       expect(handled).toBe(true);
       expect(res.statusCode).toBe(200);
       expect(String(end.mock.calls[0]?.[0] ?? "")).toBe("<html>fallback-hardlink</html>\n");
+    });
+  });
+
+  it("rejects hardlinked assets for non-package-proven auto-detected roots", async () => {
+    isPackageProvenControlUiRootSyncMock.mockReturnValue(false);
+    await withControlUiRoot(async (tmp) => {
+      const assetsDir = path.join(tmp, "assets");
+      await fs.mkdir(assetsDir, { recursive: true });
+      await fs.writeFile(path.join(assetsDir, "app.js"), "console.log('hi');");
+      await fs.link(path.join(assetsDir, "app.js"), path.join(assetsDir, "app.hl.js"));
+      resolveControlUiRootSyncMock.mockReturnValue(tmp);
+
+      const { res } = makeMockHttpResponse();
+      const handled = handleControlUiHttpRequest(
+        { url: "/assets/app.hl.js", method: "GET" } as IncomingMessage,
+        res,
+      );
+
+      expect(handled).toBe(true);
+      expect(res.statusCode).toBe(404);
     });
   });
 });

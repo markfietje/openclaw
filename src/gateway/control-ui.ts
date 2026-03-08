@@ -3,7 +3,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
 import { openBoundaryFileSync } from "../infra/boundary-file-read.js";
-import { resolveControlUiRootSync } from "../infra/control-ui-assets.js";
+import {
+  isPackageProvenControlUiRootSync,
+  resolveControlUiRootSync,
+} from "../infra/control-ui-assets.js";
 import { isWithinDir } from "../infra/path-safety.js";
 import { openVerifiedFileSync } from "../infra/safe-open-sync.js";
 import { AVATAR_MAX_BYTES } from "../shared/avatar-policy.js";
@@ -427,7 +430,10 @@ export function handleControlUiHttpRequest(
     return true;
   }
 
-  const rejectHardlinks = rootState?.kind !== "bundled" && rootState !== undefined;
+  const isBundledRoot =
+    rootState?.kind === "bundled" ||
+    (rootState === undefined && isPackageProvenControlUiRootSync(root));
+  const rejectHardlinks = !isBundledRoot;
   const safeFile = resolveSafeControlUiFile(rootReal, filePath, rejectHardlinks);
   if (safeFile) {
     try {
