@@ -432,7 +432,12 @@ export function handleControlUiHttpRequest(
 
   const isBundledRoot =
     rootState?.kind === "bundled" ||
-    (rootState === undefined && isPackageProvenControlUiRootSync(root));
+    (rootState === undefined &&
+      isPackageProvenControlUiRootSync(root, {
+        moduleUrl: import.meta.url,
+        argv1: process.argv[1],
+        cwd: process.cwd(),
+      }));
   const rejectHardlinks = !isBundledRoot;
   const safeFile = resolveSafeControlUiFile(rootReal, filePath, rejectHardlinks);
   if (safeFile) {
