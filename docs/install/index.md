@@ -149,6 +149,9 @@ For VPS/cloud hosts, avoid third-party "1-click" marketplace images when possibl
   <Card title="Podman" href="/install/podman" icon="container">
     Rootless container: run `setup-podman.sh` once, then the launch script.
   </Card>
+  <Card title="Apple Container" href="/install/apple-container" icon="container">
+    Apple's container CLI on macOS 26+.
+  </Card>
   <Card title="Nix" href="/install/nix" icon="snowflake">
     Declarative install via Nix.
   </Card>

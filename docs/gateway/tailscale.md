@@ -69,12 +69,10 @@ Use this when you want the Gateway to listen directly on the Tailnet IP (no Serv
 }
 ```
 
-Connect from another Tailnet device:
+Connect from another Tailnet device via the Serve URL:
 
-- Control UI: `http://<tailscale-ip>:18789/`
-- WebSocket: `ws://<tailscale-ip>:18789`
-
-Note: loopback (`http://127.0.0.1:18789`) will **not** work in this mode.
+- Control UI: `https://<magicdns>/` (or your configured `gateway.controlUi.basePath`)
+- WebSocket: `wss://<magicdns>/ws`
 
 ### Public internet (Funnel + shared password)
 
