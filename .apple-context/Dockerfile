@@ -32,6 +32,7 @@ COPY extensions ./extensions
 COPY skills ./skills
 COPY apps ./apps
 COPY docs ./docs
+COPY openclaw.mjs .
 
 # Build A2UI bundle (non-fatal if it fails)
 RUN pnpm canvas:a2ui:bundle || \
