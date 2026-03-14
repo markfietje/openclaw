@@ -55,7 +55,7 @@ const sanitizeLogValue = (value: string | undefined): string | undefined => {
   return truncateUtf16Safe(cleaned, LOG_HEADER_MAX_LEN);
 };
 
-export function attachGatewayWsConnectionHandler(params: {
+export type GatewayWsSharedHandlerParams = {
   wss: WebSocketServer;
   clients: Set<GatewayWsClient>;
   port: number;
@@ -81,8 +81,15 @@ export function attachGatewayWsConnectionHandler(params: {
       stateVersion?: { presence?: number; health?: number };
     },
   ) => void;
-  buildRequestContext: () => GatewayRequestContext;
-}) {
+  buildRequestContext?: () => GatewayRequestContext;
+};
+
+export function attachGatewayWsConnectionHandler(params: GatewayWsSharedHandlerParams) {
+  const buildRequestContextFn =
+    params.buildRequestContext ??
+    (() => {
+      throw new Error("buildRequestContext not provided");
+    });
   const {
     wss,
     clients,
@@ -100,7 +107,6 @@ export function attachGatewayWsConnectionHandler(params: {
     logWsControl,
     extraHandlers,
     broadcast,
-    buildRequestContext,
   } = params;
 
   wss.on("connection", (socket, upgradeReq) => {
@@ -235,7 +241,7 @@ export function attachGatewayWsConnectionHandler(params: {
         broadcastPresenceSnapshot({ broadcast, incrementPresenceVersion, getHealthVersion });
       }
       if (client?.connect?.role === "node") {
-        const context = buildRequestContext();
+        const context = buildRequestContextFn();
         const nodeId = context.nodeRegistry.unregister(connId);
         if (nodeId) {
           removeRemoteNodeInfo(nodeId);
@@ -286,7 +292,7 @@ export function attachGatewayWsConnectionHandler(params: {
       gatewayMethods,
       events,
       extraHandlers,
-      buildRequestContext,
+      buildRequestContext: buildRequestContextFn,
       send,
       close,
       isClosed: () => closed,
