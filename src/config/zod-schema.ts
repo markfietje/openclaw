@@ -1001,6 +1001,7 @@ export const OpenClawSchema = z
             certPath: z.string().optional(),
             keyPath: z.string().optional(),
             caPath: z.string().optional(),
+            terminatedUpstream: z.boolean().optional(),
           })
           .optional(),
         http: z
@@ -1099,6 +1100,43 @@ export const OpenClawSchema = z
               .optional(),
             allowCommands: z.array(z.string()).optional(),
             denyCommands: z.array(z.string()).optional(),
+          })
+          .strict()
+          .optional(),
+        security: z
+          .object({
+            disableLocalhostPrivilege: z.boolean().optional(),
+            strictHeaderValidation: z.boolean().optional(),
+            strictProtoValidation: z.boolean().optional(),
+            enableMessageAuthorization: z.boolean().optional(),
+            enableHandshakeTokens: z.boolean().optional(),
+            enableRateLimiting: z.boolean().optional(),
+            requireSubprotocol: z.boolean().optional(),
+            dangerouslyAllowHostHeaderOriginFallback: z.boolean().optional(),
+            dangerouslyAllowLegacyEndpointFallback: z.boolean().optional(),
+            dangerouslyAllowUnmappedMethods: z.boolean().optional(),
+            validateHostHeader: z.boolean().optional(),
+            ipAllowlist: z.array(z.string()).optional(),
+            ipBlocklist: z.array(z.string()).optional(),
+            rejectUntrustedProxyHeaders: z.boolean().optional(),
+            autoDisableLocalhostBehindProxy: z.boolean().optional(),
+            enforceOriginCheckForAllClients: z.boolean().optional(),
+            enablePingPong: z.boolean().optional(),
+            pingIntervalMs: z.number().int().positive().optional(),
+            pongTimeoutMs: z.number().int().positive().optional(),
+            maxWebSocketConnections: z.number().int().nonnegative().optional(),
+            maxPayloadBytes: z.number().int().positive().optional(),
+            tlsMinVersion: z.union([z.literal("TLSv1.2"), z.literal("TLSv1.3")]).optional(),
+            connectionRateLimit: z
+              .object({
+                maxAttempts: z.number().int().positive().optional(),
+                windowMs: z.number().int().positive().optional(),
+                lockoutMs: z.number().int().positive().optional(),
+                exemptLoopback: z.boolean().optional(),
+                ipv6SubnetMask: z.number().int().nonnegative().optional(),
+              })
+              .strict()
+              .optional(),
           })
           .strict()
           .optional(),

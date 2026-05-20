@@ -13,6 +13,8 @@ export type GatewayTlsConfig = {
   keyPath?: string;
   /** Optional PEM CA bundle for TLS clients (mTLS or custom roots). */
   caPath?: string;
+  /** TLS is terminated by an upstream reverse proxy (e.g. nginx, Caddy). */
+  terminatedUpstream?: boolean;
 };
 
 export type WideAreaDiscoveryConfig = {
@@ -436,6 +438,9 @@ export type GatewayToolsConfig = {
   deny?: string[];
   /** Tools to explicitly allow (removes from default deny list). */
   allow?: string[];
+  /** Glob patterns for filesystem paths the exec tool is denied from accessing.
+   *  Default: built-in deny list blocking secrets/credentials. Pass an empty array to disable. */
+  execDenyPathPatterns?: string[];
 };
 
 export type GatewayWebchatConfig = {
@@ -510,4 +515,78 @@ export type GatewayConfig = {
    * the rolling window expires. Default: 10.
    */
   channelMaxRestartsPerHour?: number;
+  /** Security hardening options for WebSocket connections. */
+  security?: GatewaySecurityConfig;
 };
+
+export interface GatewaySecurityConfig {
+  /** Disable localhost/loopback origin fallback. Default: true; set false only for trusted direct-local browser workflows. */
+  disableLocalhostPrivilege?: boolean;
+  /** Require strict header validation (reject duplicate/chained headers). Default: true */
+  strictHeaderValidation?: boolean;
+  /** Enable strict protocol validation (Origin vs X-Forwarded-Proto / Forwarded proto). Default: true */
+  strictProtoValidation?: boolean;
+  /** Enable per-message capability authorization. Default: true */
+  enableMessageAuthorization?: boolean;
+  /** Enable single-use handshake tokens to prevent replay attacks. Default: true */
+  enableHandshakeTokens?: boolean;
+  /** Enable rate limiting on WebSocket connections. Default: true */
+  enableRateLimiting?: boolean;
+  /** Require WebSocket subprotocol negotiation. Default: true */
+  requireSubprotocol?: boolean;
+  /** DANGEROUS: Allow origin validation to fall back to Host header. Default: false */
+  dangerouslyAllowHostHeaderOriginFallback?: boolean;
+  /** DANGEROUS: Allow unrecognized WebSocket paths to fall back to LEGACY endpoint with wildcard capabilities. Default: false */
+  dangerouslyAllowLegacyEndpointFallback?: boolean;
+  /** DANGEROUS: Allow gateway methods without a capability mapping to bypass authorization. Default: false */
+  dangerouslyAllowUnmappedMethods?: boolean;
+  /** Validate Host header against Origin for security. Default: false */
+  validateHostHeader?: boolean;
+  /** IP address allowlist for gateway access (CIDR supported). Default: undefined */
+  ipAllowlist?: string[];
+  /** IP address blocklist for gateway access (CIDR supported, checked first). Default: undefined */
+  ipBlocklist?: string[];
+  /** Reject WebSocket connections with proxy headers from untrusted sources. Default: true */
+  rejectUntrustedProxyHeaders?: boolean;
+  /** Auto-disable localhost privilege when proxy headers are present. Default: true */
+  autoDisableLocalhostBehindProxy?: boolean;
+  /** Enforce origin check for ALL client types. Default: false */
+  enforceOriginCheckForAllClients?: boolean;
+  /** Enable WebSocket protocol-level ping/pong keep-alive. Default: true */
+  enablePingPong?: boolean;
+  /** Interval between WebSocket ping frames in milliseconds. Default: 25000 */
+  pingIntervalMs?: number;
+  /** Maximum time to wait for a pong response in milliseconds. Default: 10000 */
+  pongTimeoutMs?: number;
+  /** Maximum concurrent WebSocket connections. 0 or undefined means no limit. Default: 100 */
+  maxWebSocketConnections?: number;
+  /** Maximum WebSocket message payload size in bytes. Default: 26214400 (25 MB) */
+  maxPayloadBytes?: number;
+  /** Minimum TLS version for gateway connections. Default: "TLSv1.2" */
+  tlsMinVersion?: "TLSv1.2" | "TLSv1.3";
+  /**
+   * Pre-handshake connection rate limiting settings.
+   * Aligns with OWASP and express-rate-limit best practices.
+   * Default: 30 attempts per 10s window, 60s lockout
+   */
+  connectionRateLimit?: {
+    /** Maximum connection attempts per window.  @default 30 */
+    maxAttempts?: number;
+    /** Sliding window duration in milliseconds.  @default 10000 (10s) */
+    windowMs?: number;
+    /** Lockout duration in milliseconds after limit exceeded.  @default 60000 (1min) */
+    lockoutMs?: number;
+    /** Exempt loopback addresses from rate limiting.  @default true */
+    exemptLoopback?: boolean;
+    /**
+     * IPv6 subnet mask for rate-limit key generation.
+     * OWASP recommends /56 for ISPs that assign ranges.
+     * Set to 0 to disable.  @default 56
+     */
+    ipv6SubnetMask?: number;
+  };
+  /** Enable structured audit logging for gateway tool calls to gateway-tool-audit.jsonl. Default: true */
+  enableToolAudit?: boolean;
+  /** Enable automatic redaction of sensitive values (API keys, tokens) in outbound channel messages. Default: true */
+  enableOutboundRedaction?: boolean;
+}

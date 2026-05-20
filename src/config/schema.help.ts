@@ -583,6 +583,70 @@ export const FIELD_HELP: Record<string, string> = {
     "Node command names to block even if present in node claims or default allowlist (exact command-name matching only, e.g. `system.run`; does not inspect shell text inside that command).",
   "gateway.webchat.chatHistoryMaxChars":
     "Max characters per text field in chat.history responses before truncation (default: 12000).",
+  "gateway.security":
+    "WebSocket security hardening options for pre-handshake validation, post-handshake authorization, keep-alive, and connection rate limiting. Enable all defaults for internet-facing deployments and tune opt-in flags for production reverse-proxy topologies.",
+  "gateway.security.disableLocalhostPrivilege":
+    "Disable localhost/loopback Origin fallback for browser WebSocket origin validation. Default: true. Set false only for trusted direct-local browser workflows; proxy headers still disable the fallback when autoDisableLocalhostBehindProxy is enabled.",
+  "gateway.security.strictHeaderValidation":
+    "Reject duplicate or chained sensitive headers (X-Forwarded-For, X-Real-IP, Forwarded, etc.) during WebSocket upgrade. Default: true.",
+  "gateway.security.strictProtoValidation":
+    "Validate Origin scheme against X-Forwarded-Proto / Forwarded proto to detect scheme downgrade behind reverse proxies. Default: true.",
+  "gateway.security.enableMessageAuthorization":
+    "Per-message capability gating after WebSocket handshake. Ensures each RPC method requires the correct capability scope. Default: true.",
+  "gateway.security.enableHandshakeTokens":
+    "Single-use nonce challenge during auth to prevent replay attacks on the WebSocket control channel. Default: true.",
+  "gateway.security.enableRateLimiting":
+    "Per-connection frame and message rate limiting to prevent abuse. Default: true.",
+  "gateway.security.requireSubprotocol":
+    "Require the openclaw-gateway-v1 WebSocket subprotocol during upgrade negotiation. Default: true; set false only for legacy clients that cannot negotiate the OpenClaw subprotocol.",
+  "gateway.security.validateHostHeader":
+    "Validate the HTTP Host header against controlUi.allowedOrigins during WebSocket upgrade. Opt-in for production deployments behind reverse proxies. Default: false.",
+  "gateway.security.ipAllowlist":
+    "CIDR allowlist for gateway WebSocket access. When set, only matching source IPs can complete the upgrade handshake. Evaluated after ipBlocklist.",
+  "gateway.security.ipBlocklist":
+    "CIDR blocklist checked before ipAllowlist. Use to exclude specific ranges from a broader allowlist. Evaluated first regardless of allowlist presence.",
+  "gateway.security.rejectUntrustedProxyHeaders":
+    "Reject proxy headers (X-Forwarded-For, X-Real-IP, Forwarded) from IPs not in gateway.trustedProxies. Default: true.",
+  "gateway.security.autoDisableLocalhostBehindProxy":
+    "Automatically disable localhost privilege when proxy headers are detected on a loopback connection, preventing Tailscale Serve bypass via spoofed headers. Default: true.",
+  "gateway.security.enforceOriginCheckForAllClients":
+    "Enforce origin validation for non-browser clients (those without an Origin header). Opt-in for internet-facing deployments to reject connections lacking a valid Origin. Default: false.",
+  "gateway.security.maxWebSocketConnections":
+    "Maximum concurrent WebSocket connections. 0 or unset means unlimited. Set a ceiling for resource-constrained deployments.",
+  "gateway.security.maxPayloadBytes":
+    "Maximum WebSocket message payload size in bytes. Clamped to the range [65536, 104857600] (64 KB to 100 MB). Default: 26214400 (25 MB).",
+  "gateway.security.enablePingPong":
+    "Enable WebSocket protocol-level ping/pong keep-alive frames to detect dead connections. Default: true.",
+  "gateway.security.pingIntervalMs":
+    "Interval between WebSocket ping frames in milliseconds. Default: 25000.",
+  "gateway.security.pongTimeoutMs":
+    "Maximum time in milliseconds to wait for a pong response before closing the connection. Default: 10000.",
+  "gateway.security.connectionRateLimit":
+    "Pre-handshake connection rate limiting aligned with OWASP best practices. Prevents connection-flood DoS by locking out IPs that exceed the attempt threshold within a sliding window.",
+  "gateway.security.connectionRateLimit.maxAttempts":
+    "Maximum connection attempts allowed within the sliding window before lockout. Default: 30.",
+  "gateway.security.connectionRateLimit.windowMs":
+    "Sliding window duration in milliseconds for counting connection attempts. Default: 10000 (10 seconds).",
+  "gateway.security.connectionRateLimit.lockoutMs":
+    "Duration in milliseconds an IP is locked out after exceeding the rate limit. Default: 60000 (1 minute).",
+  "gateway.security.connectionRateLimit.exemptLoopback":
+    "Exempt loopback addresses (127.0.0.1, ::1) from connection rate limiting. Default: true.",
+  "gateway.security.connectionRateLimit.ipv6SubnetMask":
+    "IPv6 subnet mask for rate-limit key generation. OWASP recommends /56 for ISPs that assign dynamic ranges. Set to 0 to disable subnet aggregation. Default: 56.",
+  "gateway.security.dangerouslyAllowHostHeaderOriginFallback":
+    "DANGEROUS: Allow origin validation to fall back to the Host header when the Origin header is missing. Weakens origin security. Use only behind a trusted reverse proxy that validates origins upstream.",
+  "gateway.security.dangerouslyAllowLegacyEndpointFallback":
+    "DANGEROUS: Grant wildcard capabilities on unrecognized WebSocket paths via a legacy fallback endpoint. Only enable for backwards compatibility with older clients.",
+  "gateway.security.dangerouslyAllowUnmappedMethods":
+    "DANGEROUS: Allow gateway RPC methods that lack a capability mapping to bypass authorization entirely. Never enable in production.",
+  "gateway.security.enableToolAudit":
+    "Enable structured audit logging for gateway tool calls to gateway-tool-audit.jsonl. Records tool name, surface, session, channel, model, and duration without logging sensitive arguments. Default: true.",
+  "gateway.security.enableOutboundRedaction":
+    "Enable automatic detection and redaction of API keys, tokens, and other sensitive values in outbound channel messages (Telegram, Discord, Slack, etc.). Default: true.",
+  "gateway.security.tlsMinVersion":
+    "Minimum TLS version enforced for gateway HTTPS connections. Set to TLSv1.3 for stricter deployments. Default: TLSv1.2.",
+  "gateway.tools.execDenyPathPatterns":
+    "Glob patterns for filesystem paths the exec tool is denied from accessing. Prevents agents from reading secret/credential files. Default: built-in deny list blocking .openclaw/secrets/, .env files, SSH keys, and GPG directories. Pass an empty array to disable.",
   nodeHost:
     "Node host controls for features exposed from this gateway node to other nodes or clients. Keep defaults unless you intentionally proxy local capabilities across your node network.",
   "nodeHost.browserProxy":

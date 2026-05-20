@@ -52,6 +52,7 @@ import {
   type ConfigWriteAuditResult,
 } from "./io.audit.js";
 import { persistBoundedClobberedConfigSnapshot } from "./io.clobber-snapshot.js";
+import { verifyConfigHmacSync, writeConfigHmacSig, readGatewayToken } from "./io.hmac-integrity.js";
 import { throwInvalidConfig } from "./io.invalid-config.js";
 import { stampConfigWriteMetadata } from "./io.meta.js";
 import {
@@ -154,7 +155,7 @@ type ShippedPluginInstallConfigReadMigration = {
 
 const CONFIG_HEALTH_STATE_FILENAME = "config-health.json";
 const loggedInvalidConfigs = new Set<string>();
-const warnedFutureTouchedVersions = new Set<string>();
+const loggedFutureVersionWarnings = new Set<string>();
 
 type ConfigHealthFingerprint = {
   hash: string;
@@ -932,10 +933,14 @@ function warnIfConfigFromFuture(cfg: OpenClawConfig, logger: Pick<typeof console
     return;
   }
   if (shouldWarnOnTouchedVersion(VERSION, touched)) {
-    if (warnedFutureTouchedVersions.has(touched)) {
+    // Dedup per process to prevent log spam when config is re-read in tight loops
+    // (e.g. startup with disabled cache, or bundling edge cases).
+    const key = `${VERSION}:${touched}`;
+    if (loggedFutureVersionWarnings.has(key)) {
       return;
     }
-    warnedFutureTouchedVersions.add(touched);
+    loggedFutureVersionWarnings.add(key);
+
     logger.warn(
       [
         `Your OpenClaw config was written by version ${touched}, but this command is running ${VERSION}.`,
@@ -1539,6 +1544,27 @@ export function createConfigIO(
         return {};
       }
       const raw = deps.fs.readFileSync(configPath, "utf-8");
+
+      // Verify config HMAC integrity
+      const gatewayToken = readGatewayToken(deps.env);
+      if (gatewayToken) {
+        try {
+          const hmacResult = verifyConfigHmacSync(configPath, raw);
+          if (!hmacResult.ok && hmacResult.kind === "mismatch") {
+            // Config tampered — reject and return empty config
+            console.error(`CONFIG REJECTED: HMAC integrity check failed for ${configPath}`);
+            return {} as OpenClawConfig;
+          }
+          if (!hmacResult.ok && hmacResult.kind === "no_sig" && hmacResult.suspicious) {
+            console.warn(
+              `CONFIG WARNING: Missing HMAC signature for ${configPath} (file may have been tampered)`,
+            );
+          }
+        } catch {
+          // HMAC verification failure is non-fatal
+        }
+      }
+
       const parsed = deps.json5.parse(raw);
       const readResolution = resolveConfigForRead(
         resolveConfigIncludesForRead(parsed, configPath, deps),
@@ -2283,6 +2309,7 @@ export function createConfigIO(
           }
         },
       });
+
       configCommitted = true;
       logConfigOverwrite();
       logConfigWriteAnomalies();
@@ -2291,6 +2318,17 @@ export function createConfigIO(
         undefined,
         await deps.fs.promises.stat(configPath).catch(() => null),
       );
+
+      // Sign config with HMAC for integrity verification
+      const gatewayToken = readGatewayToken(deps.env);
+      if (gatewayToken) {
+        try {
+          await writeConfigHmacSig(configPath, json, gatewayToken);
+        } catch {
+          // HMAC signing failure is non-fatal — log but don't block writes
+        }
+      }
+
       return { persistedHash: nextHash, persistedConfig: stampedOutputConfig };
     } catch (err) {
       if (!configCommitted) {
