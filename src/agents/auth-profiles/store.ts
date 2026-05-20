@@ -3,7 +3,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { withFileLock } from "../../infra/file-lock.js";
-import { loadJsonFile, saveJsonFile } from "../../infra/json-file.js";
+import { loadSealedJsonFile, saveSealedJsonFile } from "../../infra/sealed-json-file.js";
 import { cloneAuthProfileStore } from "./clone.js";
 import { AUTH_STORE_LOCK_OPTIONS, AUTH_STORE_VERSION, log } from "./constants.js";
 import {
@@ -749,11 +749,12 @@ export function saveAuthProfileStore(
       .map(([profileId]) => profileId),
   );
   const localStore = buildLocalAuthProfileStoreForSave({ store, agentDir, options });
+  const previousRaw = loadSealedJsonFile(authPath);
   const payload = buildPersistedAuthProfileSecretsStore(localStore, undefined, {
-    existingRaw: loadJsonFile(authPath),
+    existingRaw: previousRaw,
     runtimeLegacyOAuthSidecarProfileIds,
   });
-  saveJsonFile(authPath, payload);
+  saveSealedJsonFile(authPath, payload);
   savePersistedAuthProfileState(localStore, agentDir);
   writeCachedAuthProfileStore({
     authPath,

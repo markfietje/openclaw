@@ -216,6 +216,21 @@ function identityFileExists(filePath: string): boolean {
   }
 }
 
+function chmodIdentityFilePrivate(filePath: string): void {
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // best-effort
+  }
+}
+
+function writeStoredIdentity(filePath: string, stored: StoredIdentity): void {
+  privateFileStoreSync(path.dirname(filePath)).writeJson(path.basename(filePath), stored, {
+    trailingNewline: true,
+  });
+  chmodIdentityFilePrivate(filePath);
+}
+
 export function loadOrCreateDeviceIdentity(
   filePath: string = resolveDefaultIdentityPath(),
 ): DeviceIdentity {
@@ -226,9 +241,7 @@ export function loadOrCreateDeviceIdentity(
     if (normalized?.kind === "identity") {
       if (normalized.stored) {
         try {
-          store.writeJson(path.basename(filePath), normalized.stored, {
-            trailingNewline: true,
-          });
+          writeStoredIdentity(filePath, normalized.stored);
         } catch {
           // Keep using recognized OpenClaw key material even if best-effort normalization fails.
         }
@@ -252,9 +265,7 @@ export function loadOrCreateDeviceIdentity(
     privateKeyPem: identity.privateKeyPem,
     createdAtMs: Date.now(),
   };
-  privateFileStoreSync(path.dirname(filePath)).writeJson(path.basename(filePath), stored, {
-    trailingNewline: true,
-  });
+  writeStoredIdentity(filePath, stored);
   return identity;
 }
 

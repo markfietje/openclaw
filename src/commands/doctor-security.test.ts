@@ -136,7 +136,7 @@ describe("noteSecurityWarnings gateway exposure", () => {
 
   it("uses env token to avoid critical warning", async () => {
     process.env.OPENCLAW_GATEWAY_TOKEN = "token-123";
-    const cfg = { gateway: { bind: "lan" } } as OpenClawConfig;
+    const cfg = { gateway: { bind: "lan", tls: { terminatedUpstream: true } } } as OpenClawConfig;
     await noteSecurityWarnings(cfg);
     const message = lastMessage();
     expect(message).toContain("WARNING");
@@ -147,6 +147,7 @@ describe("noteSecurityWarnings gateway exposure", () => {
     const cfg = {
       gateway: {
         bind: "lan",
+        tls: { terminatedUpstream: true },
         auth: {
           mode: "token",
           token: { source: "env", provider: "default", id: "OPENCLAW_GATEWAY_TOKEN" },

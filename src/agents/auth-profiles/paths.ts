@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { saveJsonFile } from "../../infra/json-file.js";
+import { saveSealedJsonFile } from "../../infra/sealed-json-file.js";
 import { AUTH_STORE_VERSION } from "./constants.js";
 import type { AuthProfileSecretsStore } from "./types.js";
 export {
@@ -19,5 +19,5 @@ export function ensureAuthStoreFile(pathname: string) {
     version: AUTH_STORE_VERSION,
     profiles: {},
   };
-  saveJsonFile(pathname, payload);
+  saveSealedJsonFile(pathname, payload);
 }

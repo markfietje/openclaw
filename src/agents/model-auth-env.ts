@@ -5,6 +5,7 @@ import { getShellEnvAppliedKeys } from "../infra/shell-env.js";
 import { resolvePluginSetupProvider } from "../plugins/setup-registry.js";
 import type { ProviderAuthEvidence } from "../secrets/provider-env-vars.js";
 import { normalizeOptionalSecretInput } from "../utils/normalize-secret-input.js";
+import { resolveSecretEnvValue } from "../utils/secret-env.js";
 import {
   resolveProviderEnvApiKeyCandidates,
   resolveProviderEnvAuthEvidence,
@@ -115,12 +116,17 @@ export function resolveEnvApiKey(
   const authEvidenceMap = options.authEvidenceMap ?? resolveProviderEnvAuthEvidence(lookupParams);
   const applied = new Set(getShellEnvAppliedKeys());
   const pick = (envVar: string): EnvApiKeyResult | null => {
-    const value = normalizeOptionalSecretInput(env[envVar]);
-    if (!value) {
-      return null;
+    // Try direct env var first, then fall back to *_FILE (Docker/K8s secrets)
+    const direct = normalizeOptionalSecretInput(env[envVar]);
+    if (direct) {
+      const source = applied.has(envVar) ? `shell env: ${envVar}` : `env: ${envVar}`;
+      return { apiKey: direct, source };
     }
-    const source = applied.has(envVar) ? `shell env: ${envVar}` : `env: ${envVar}`;
-    return { apiKey: value, source };
+    const fileResult = resolveSecretEnvValue(envVar, env);
+    if (fileResult && fileResult.source === "file") {
+      return { apiKey: fileResult.value, source: `file: ${env[`${envVar}_FILE`]}` };
+    }
+    return null;
   };
 
   const candidates = Object.hasOwn(candidateMap, normalized) ? candidateMap[normalized] : undefined;

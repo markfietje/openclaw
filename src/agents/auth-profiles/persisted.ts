@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { resolveOAuthPath } from "../../config/paths.js";
 import { coerceSecretRef } from "../../config/types.secrets.js";
 import { loadJsonFile } from "../../infra/json-file.js";
+import { loadSealedJsonFile } from "../../infra/sealed-json-file.js";
 import { normalizeProviderId } from "../provider-id.js";
 import { AUTH_STORE_VERSION, log } from "./constants.js";
 import {
@@ -926,7 +927,7 @@ export function loadPersistedAuthProfileStore(
   options?: LoadPersistedAuthProfileStoreOptions,
 ): AuthProfileStore | null {
   const authPath = resolveAuthStorePath(agentDir);
-  const raw = loadJsonFile(authPath);
+  const raw = loadSealedJsonFile(authPath);
   const store = coercePersistedAuthProfileStore(raw, options, authPath);
   if (!store) {
     return null;
