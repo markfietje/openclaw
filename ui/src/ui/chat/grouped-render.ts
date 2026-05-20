@@ -97,9 +97,15 @@ export function resetAssistantAttachmentAvailabilityCacheForTest() {
   for (const blobUrl of managedImageBlobUrlResolvedCache.values()) {
     URL.revokeObjectURL(blobUrl);
   }
+  for (const blobUrl of assistantMediaBlobResolvedCache.values()) {
+    URL.revokeObjectURL(blobUrl);
+  }
   managedImageBlobUrlCache.clear();
   managedImageBlobUrlResolvedCache.clear();
   managedImageBlobUrlMissCache.clear();
+  assistantMediaBlobCache.clear();
+  assistantMediaBlobResolvedCache.clear();
+  assistantMediaBlobMissCache.clear();
 }
 
 type ImageBlock = {
@@ -127,6 +133,11 @@ const managedImageBlobUrlCache = new Map<string, Promise<string | null>>();
 const managedImageBlobUrlResolvedCache = new Map<string, string>();
 const managedImageBlobUrlMissCache = new Map<string, number>();
 const MANAGED_IMAGE_BLOB_URL_MISS_RETRY_MS = 5_000;
+
+const assistantMediaBlobCache = new Map<string, Promise<string | null>>();
+const assistantMediaBlobResolvedCache = new Map<string, string>();
+const assistantMediaBlobMissCache = new Map<string, number>();
+const ASSISTANT_MEDIA_BLOB_MISS_RETRY_MS = 5_000;
 
 function appendImageBlock(images: ImageBlock[], block: ImageBlock) {
   if (!images.some((entry) => entry.url === block.url && entry.alt === block.alt)) {
@@ -801,7 +812,7 @@ function resolveRenderableMessageImages(
       return [];
     }
     const displayUrl = canProxyLocalImage
-      ? buildAssistantAttachmentUrl(img.url, opts?.basePath, availability.mediaTicket)
+      ? buildAssistantAttachmentUrl(img.url, opts?.basePath)
       : img.url;
     return [{ ...img, displayUrl }];
   });
@@ -828,16 +839,27 @@ function renderMessageImages(images: RenderableImageBlock[], opts?: ImageRenderO
   `;
 
   const renderImage = (img: RenderableImageBlock) => {
-    if (!isManagedOutgoingImageSource(img.displayUrl)) {
-      return renderImageElement(img, img.displayUrl);
+    if (isManagedOutgoingImageSource(img.displayUrl)) {
+      const preview = resolveManagedOutgoingImageBlobUrl(img.displayUrl, opts).then(
+        (previewUrl) => {
+          if (!previewUrl) {
+            return nothing;
+          }
+          return renderImageElement(img, previewUrl);
+        },
+      );
+      return until(preview, nothing);
     }
-    const preview = resolveManagedOutgoingImageBlobUrl(img.displayUrl, opts).then((previewUrl) => {
-      if (!previewUrl) {
-        return nothing;
-      }
-      return renderImageElement(img, previewUrl);
-    });
-    return until(preview, nothing);
+    if (img.displayUrl.includes("/__openclaw__/assistant-media?")) {
+      const preview = resolveAssistantMediaBlobUrl(img.url, opts).then((previewUrl) => {
+        if (!previewUrl) {
+          return nothing;
+        }
+        return renderImageElement(img, previewUrl);
+      });
+      return until(preview, nothing);
+    }
+    return renderImageElement(img, img.displayUrl);
   };
 
   return html` <div class="chat-message-images">${images.map((img) => renderImage(img))}</div> `;
@@ -950,21 +972,13 @@ function isLocalAttachmentPreviewAllowed(
   });
 }
 
-function buildAssistantAttachmentUrl(
-  source: string,
-  basePath?: string,
-  mediaTicket?: string | null,
-): string {
+function buildAssistantAttachmentUrl(source: string, basePath?: string): string {
   if (!isLocalAssistantAttachmentSource(source)) {
     return source;
   }
   const normalizedBasePath =
     basePath && basePath !== "/" ? (basePath.endsWith("/") ? basePath.slice(0, -1) : basePath) : "";
   const params = new URLSearchParams({ source });
-  const normalizedMediaTicket = mediaTicket?.trim();
-  if (normalizedMediaTicket) {
-    params.set("mediaTicket", normalizedMediaTicket);
-  }
   return `${normalizedBasePath}/__openclaw__/assistant-media?${params.toString()}`;
 }
 
@@ -1056,6 +1070,54 @@ async function resolveManagedOutgoingImageBlobUrl(
   return pending;
 }
 
+async function resolveAssistantMediaBlobUrl(
+  source: string,
+  opts?: ImageRenderOptions,
+): Promise<string | null> {
+  const authToken = opts?.authToken?.trim() ?? "";
+  const normalizedBasePath =
+    opts?.basePath && opts.basePath !== "/"
+      ? opts.basePath.endsWith("/")
+        ? opts.basePath.slice(0, -1)
+        : opts.basePath
+      : "";
+  const fetchUrl = `${normalizedBasePath}/__openclaw__/assistant-media?source=${encodeURIComponent(source)}`;
+  const cacheKey = `${fetchUrl}::${authToken}`;
+
+  const cached = assistantMediaBlobResolvedCache.get(cacheKey);
+  if (cached) return cached;
+
+  const missAt = assistantMediaBlobMissCache.get(cacheKey);
+  if (missAt && Date.now() - missAt < ASSISTANT_MEDIA_BLOB_MISS_RETRY_MS) return null;
+
+  let pending = assistantMediaBlobCache.get(cacheKey);
+  if (!pending) {
+    pending = (async () => {
+      const headers: Record<string, string> = { Accept: "*/*" };
+      if (authToken) {
+        headers["Authorization"] = `Bearer ${authToken}`;
+      }
+      const res = await fetch(fetchUrl, {
+        method: "GET",
+        headers,
+        credentials: "same-origin",
+      });
+      if (!res.ok) {
+        assistantMediaBlobMissCache.set(cacheKey, Date.now());
+        return null;
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      assistantMediaBlobResolvedCache.set(cacheKey, blobUrl);
+      assistantMediaBlobMissCache.delete(cacheKey);
+      return blobUrl;
+    })().finally(() => {
+      assistantMediaBlobCache.delete(cacheKey);
+    });
+    assistantMediaBlobCache.set(cacheKey, pending);
+  }
+  return pending;
+}
 function buildAssistantAttachmentMetaUrl(source: string, basePath?: string): string {
   const attachmentUrl = buildAssistantAttachmentUrl(source, basePath);
   return `${attachmentUrl}${attachmentUrl.includes("?") ? "&" : "?"}meta=1`;
@@ -1139,13 +1201,13 @@ function resolveAssistantAttachmentAvailability(
   clearAssistantAttachmentRefreshTimer(cacheKey);
   assistantAttachmentAvailabilityCache.set(cacheKey, { status: "checking" });
   if (typeof fetch === "function") {
-    const headers = new Headers({ Accept: "application/json" });
+    const metaHeaders: Record<string, string> = { Accept: "application/json" };
     if (normalizedAuthToken) {
-      headers.set("Authorization", `Bearer ${normalizedAuthToken}`);
+      metaHeaders["Authorization"] = `Bearer ${normalizedAuthToken}`;
     }
     void fetch(buildAssistantAttachmentMetaUrl(source, basePath), {
       method: "GET",
-      headers,
+      headers: metaHeaders,
       credentials: "same-origin",
     })
       .then(async (res) => {
@@ -1247,12 +1309,18 @@ function renderAssistantAttachments(
           authToken,
           onRequestUpdate,
         );
+        const isLocal = isLocalAssistantAttachmentSource(attachment.url);
         const attachmentUrl =
-          availability.status === "available"
-            ? buildAssistantAttachmentUrl(attachment.url, basePath, availability.mediaTicket)
+          availability.status === "available" && !isLocal
+            ? buildAssistantAttachmentUrl(attachment.url, basePath)
             : null;
+        const blobUrlPromise =
+          availability.status === "available" && isLocal
+            ? resolveAssistantMediaBlobUrl(attachment.url, { basePath, authToken })
+            : null;
+        const loadingPlaceholder = html`<span class="muted">Loading...</span>`;
         if (attachment.kind === "image") {
-          if (!attachmentUrl) {
+          if (!attachmentUrl && !blobUrlPromise) {
             return renderAssistantAttachmentStatusCard({
               kind: "image",
               label: attachment.label,
@@ -1260,16 +1328,69 @@ function renderAssistantAttachments(
               reason: availability.status === "unavailable" ? availability.reason : undefined,
             });
           }
+          if (blobUrlPromise) {
+            return until(
+              blobUrlPromise.then((blobUrl) => {
+                if (!blobUrl)
+                  return renderAssistantAttachmentStatusCard({
+                    kind: "image",
+                    label: attachment.label,
+                    badge: "Unavailable",
+                  });
+                return html`
+                  <img
+                    src=${blobUrl}
+                    alt=${attachment.label}
+                    class="chat-message-image"
+                    @click=${() => openExternalUrlSafe(blobUrl, { allowDataImage: true })}
+                  />
+                `;
+              }),
+              loadingPlaceholder,
+            );
+          }
           return html`
             <img
               src=${attachmentUrl}
               alt=${attachment.label}
               class="chat-message-image"
-              @click=${() => openExternalUrlSafe(attachmentUrl, { allowDataImage: true })}
+              @click=${() => openExternalUrlSafe(attachmentUrl!, { allowDataImage: true })}
             />
           `;
         }
         if (attachment.kind === "audio") {
+          if (blobUrlPromise) {
+            return until(
+              blobUrlPromise.then(
+                (blobUrl) => html`
+                  <div class="chat-assistant-attachment-card chat-assistant-attachment-card--audio">
+                    <div class="chat-assistant-attachment-card__header">
+                      <span class="chat-assistant-attachment-card__title">${attachment.label}</span>
+                      ${attachment.isVoiceNote
+                        ? html`<span class="chat-assistant-attachment-badge">Voice note</span>`
+                        : nothing}
+                    </div>
+                    ${blobUrl
+                      ? html`<audio controls preload="metadata" src=${blobUrl}></audio>`
+                      : html`<div class="chat-assistant-attachment-card__reason">
+                          Attachment unavailable
+                        </div>`}
+                  </div>
+                `,
+              ),
+              html`
+                <div class="chat-assistant-attachment-card chat-assistant-attachment-card--audio">
+                  <div class="chat-assistant-attachment-card__header">
+                    <span class="chat-assistant-attachment-card__title">${attachment.label}</span>
+                    <span
+                      class="chat-assistant-attachment-badge chat-assistant-attachment-badge--muted"
+                      >Loading...</span
+                    >
+                  </div>
+                </div>
+              `,
+            );
+          }
           return html`
             <div class="chat-assistant-attachment-card chat-assistant-attachment-card--audio">
               <div class="chat-assistant-attachment-card__header">
@@ -1294,6 +1415,31 @@ function renderAssistantAttachments(
           `;
         }
         if (attachment.kind === "video") {
+          if (blobUrlPromise) {
+            return until(
+              blobUrlPromise.then((blobUrl) => {
+                if (!blobUrl)
+                  return renderAssistantAttachmentStatusCard({
+                    kind: "video",
+                    label: attachment.label,
+                    badge: "Unavailable",
+                  });
+                return html`
+                  <div class="chat-assistant-attachment-card chat-assistant-attachment-card--video">
+                    <video controls preload="metadata" src=${blobUrl}></video>
+                    <a
+                      class="chat-assistant-attachment-card__link"
+                      href=${blobUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      >${attachment.label}</a
+                    >
+                  </div>
+                `;
+              }),
+              loadingPlaceholder,
+            );
+          }
           if (!attachmentUrl) {
             return renderAssistantAttachmentStatusCard({
               kind: "video",
@@ -1314,6 +1460,31 @@ function renderAssistantAttachments(
               >
             </div>
           `;
+        }
+        if (blobUrlPromise) {
+          return until(
+            blobUrlPromise.then((blobUrl) => {
+              if (!blobUrl)
+                return renderAssistantAttachmentStatusCard({
+                  kind: "document",
+                  label: attachment.label,
+                  badge: "Unavailable",
+                });
+              return html`
+                <div class="chat-assistant-attachment-card">
+                  <span class="chat-assistant-attachment-card__icon">${icons.paperclip}</span>
+                  <a
+                    class="chat-assistant-attachment-card__link"
+                    href=${blobUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    >${attachment.label}</a
+                  >
+                </div>
+              `;
+            }),
+            loadingPlaceholder,
+          );
         }
         if (!attachmentUrl) {
           return renderAssistantAttachmentStatusCard({

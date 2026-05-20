@@ -1,5 +1,7 @@
 import { WebSocket } from "ws";
-import { PROTOCOL_VERSION } from "../../../../dist/gateway/protocol/index.js";
+
+const PROTOCOL_VERSION = 3;
+const GATEWAY_WS_SUBPROTOCOL = "openclaw-gateway-v1";
 
 const url = process.env.GW_URL;
 const token = process.env.GW_TOKEN;
@@ -23,7 +25,7 @@ function delay(ms) {
 }
 
 async function openSocket(timeoutMs = 10_000) {
-  const ws = new WebSocket(url);
+  const ws = new WebSocket(url, [GATEWAY_WS_SUBPROTOCOL]);
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       ws.close();
@@ -60,11 +62,53 @@ function onceFrame(ws, filter, timeoutMs = 10_000) {
   });
 }
 
+const CHALLENGE_TIMEOUT_MS = 5_000;
+
+/**
+ * Wait for the server's nonce challenge frame. Returns the nonce string,
+ * or null if no challenge arrives within the timeout (older gateways).
+ */
+function waitForChallenge(ws) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      ws.off("message", handler);
+      resolve(null);
+    }, CHALLENGE_TIMEOUT_MS);
+
+    const handler = (data) => {
+      let obj;
+      try {
+        obj = JSON.parse(String(data));
+      } catch {
+        return;
+      }
+      if (obj?.type === "event" && obj?.event === "connect.challenge") {
+        clearTimeout(timer);
+        ws.off("message", handler);
+        const nonce = obj?.payload?.nonce;
+        resolve(typeof nonce === "string" && nonce.trim().length > 0 ? nonce.trim() : null);
+      }
+    };
+
+    ws.on("message", handler);
+  });
+}
+
 let lastError;
 while (Date.now() < deadline) {
   let ws;
   try {
     ws = await openSocket();
+
+    // Wait for the nonce challenge from the gateway (newer gateways).
+    // Fall back to sending immediately if no challenge arrives (older gateways).
+    const nonce = await waitForChallenge(ws);
+
+    const auth = { token };
+    if (nonce) {
+      auth.nonce = nonce;
+    }
+
     ws.send(
       JSON.stringify({
         type: "req",
@@ -81,7 +125,7 @@ while (Date.now() < deadline) {
             mode: "test",
           },
           caps: [],
-          auth: { token },
+          auth,
         },
       }),
     );

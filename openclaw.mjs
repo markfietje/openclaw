@@ -251,16 +251,30 @@ const isModuleNotFoundError = (err) =>
   err && typeof err === "object" && "code" in err && err.code === "ERR_MODULE_NOT_FOUND";
 
 const isDirectModuleNotFoundError = (err, specifier) => {
+  const expectedUrl = new URL(specifier, import.meta.url);
+  const message =
+    err && typeof err === "object" && "message" in err && typeof err.message === "string"
+      ? err.message
+      : "";
+  const launcherPath = fileURLToPath(import.meta.url);
+  const isBunDirectMissing =
+    (message.includes(`Cannot find module '${specifier}' from '${launcherPath}'`) ||
+      message.includes(`Cannot find module "${specifier}" from "${launcherPath}"`)) &&
+    !message.includes("\n");
+  if (isBunDirectMissing) {
+    return true;
+  }
+
+  // Bun reports the direct specifier and importer instead of Node's absolute
+  // resolved path. Keep this narrow so transitive missing imports still surface.
   if (!isModuleNotFoundError(err)) {
     return false;
   }
 
-  const expectedUrl = new URL(specifier, import.meta.url);
   if ("url" in err && err.url === expectedUrl.href) {
     return true;
   }
 
-  const message = "message" in err && typeof err.message === "string" ? err.message : "";
   const expectedPath = fileURLToPath(expectedUrl);
   return (
     message.includes(`Cannot find module '${expectedPath}'`) ||

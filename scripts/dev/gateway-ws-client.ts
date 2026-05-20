@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
+import { GATEWAY_WS_SUBPROTOCOL } from "../../src/gateway/ws-protocol.js";
 
 export type GatewayReqFrame = { type: "req"; id: string; method: string; params?: unknown };
 export type GatewayResFrame = {
@@ -55,7 +56,9 @@ export function createGatewayWsClient(params: {
   openTimeoutMs?: number;
   onEvent?: (evt: GatewayEventFrame) => void;
 }) {
-  const ws = new WebSocket(params.url, { handshakeTimeout: params.handshakeTimeoutMs ?? 8000 });
+  const ws = new WebSocket(params.url, [GATEWAY_WS_SUBPROTOCOL], {
+    handshakeTimeout: params.handshakeTimeoutMs ?? 8000,
+  });
   const pending = new Map<
     string,
     {

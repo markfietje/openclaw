@@ -480,7 +480,7 @@ export class GatewayBrowserClient {
     }
     let ws: WebSocket;
     try {
-      ws = new WebSocket(this.opts.url);
+      ws = new WebSocket(this.opts.url, ["openclaw-gateway-v1"]);
     } catch (err) {
       const error = formatBrowserWebSocketConstructorError(err, this.opts.url);
       this.ws = null;

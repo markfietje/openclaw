@@ -1038,9 +1038,9 @@ function renderObject(params: {
     return html` <div class="cfg-fields cfg-fields--inline">${fields}</div> `;
   }
 
-  // Nested objects get collapsible treatment
+  const isInSecuritySection = path.length >= 2 && path[0] === "gateway" && path[1] === "security";
   return html`
-    <details class="cfg-object" ?open=${path.length <= 2}>
+    <details class="cfg-object" ?open=${path.length <= 2 || isInSecuritySection}>
       <summary class="cfg-object__header">
         <span class="cfg-object__title-wrap">
           <span class="cfg-object__title">${label}</span>

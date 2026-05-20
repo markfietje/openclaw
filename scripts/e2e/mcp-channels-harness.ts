@@ -10,6 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { WebSocket } from "ws";
 import { z } from "zod";
 import { PROTOCOL_VERSION } from "../../dist/gateway/protocol/index.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "../../dist/gateway/ws-protocol.js";
 import { formatErrorMessage } from "../../dist/infra/errors.js";
 import { rawDataToString } from "../../dist/infra/ws.js";
 import { readStringValue } from "../../dist/shared/string-coerce.js";
@@ -120,7 +121,7 @@ async function connectGatewayOnce(params: {
   url: string;
   token: string;
 }): Promise<GatewayRpcClient> {
-  const ws = new WebSocket(params.url);
+  const ws = new WebSocket(params.url, [GATEWAY_WS_SUBPROTOCOL]);
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
       ws.close();
