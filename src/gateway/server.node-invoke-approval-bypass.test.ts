@@ -19,6 +19,7 @@ import {
   startServerWithClient,
   trackConnectChallengeNonce,
 } from "./test-helpers.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 installGatewayTestHooks({ scope: "suite" });
 const NODE_CONNECT_TIMEOUT_MS = 10_000;
@@ -233,7 +234,7 @@ describe("node.invoke approval bypass", () => {
     resolveDevice?: (nonce: string) => NonNullable<Parameters<typeof connectReq>[1]>["device"],
   ) => {
     const connectOnce = async () => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL]);
       trackConnectChallengeNonce(ws);
       const challengePromise = resolveDevice
         ? onceMessage(ws, (o) => o.type === "event" && o.event === "connect.challenge")

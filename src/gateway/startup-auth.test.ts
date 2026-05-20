@@ -44,7 +44,7 @@ describe("ensureGatewayStartupAuth", () => {
       persist: true,
     });
 
-    expect(result.generatedToken).toMatch(/^[0-9a-f]{48}$/);
+    expect(result.generatedToken).toMatch(/^[0-9a-f]{64}$/);
     expect(result.persistedGeneratedToken).toBe(false);
     expect(result.auth.mode).toBe("token");
     expect(result.auth.token).toBe(result.generatedToken);
@@ -114,8 +114,8 @@ describe("ensureGatewayStartupAuth", () => {
       persist: true,
     });
 
-    expect(result.generatedToken).toMatch(/^[0-9a-f]{48}$/);
-    expect(result.persistedGeneratedToken).toBe(false);
+    expect(result.generatedToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.persistedGeneratedToken).toBe(true);
     expect(result.auth.mode).toBe("token");
     expect(result.auth.token).toBe(result.generatedToken);
     expect(result.cfg.gateway?.auth?.token).toBe(result.generatedToken);

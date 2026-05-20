@@ -29,6 +29,7 @@ export const ConnectErrorDetailCodes = {
   DEVICE_AUTH_SIGNATURE_INVALID: "DEVICE_AUTH_SIGNATURE_INVALID",
   DEVICE_AUTH_PUBLIC_KEY_INVALID: "DEVICE_AUTH_PUBLIC_KEY_INVALID",
   PAIRING_REQUIRED: "PAIRING_REQUIRED",
+  CAPABILITY_DENIED: "CAPABILITY_DENIED",
 } as const;
 
 export type ConnectErrorDetailCode =
@@ -75,7 +76,6 @@ export type ConnectPairingRequiredDetails = Pick<
   PairingConnectErrorDetails,
   "reason" | "requestId"
 >;
-
 const CONNECT_RECOVERY_NEXT_STEP_VALUES: ReadonlySet<ConnectRecoveryNextStep> = new Set([
   "retry_with_device_token",
   "update_auth_configuration",
@@ -132,7 +132,6 @@ const CONNECT_PAIRING_REQUIRED_MESSAGE_BY_REASON: Readonly<
   "scope-upgrade": "scope upgrade pending approval",
   "metadata-upgrade": "device metadata change pending approval",
 };
-
 export function resolveAuthConnectErrorDetailCode(
   reason: string | undefined,
 ): ConnectErrorDetailCode {
@@ -244,7 +243,6 @@ function normalizeStringArray(value: unknown): string[] | undefined {
     .filter((item): item is string => Boolean(item));
   return normalized.length > 0 ? normalized : [];
 }
-
 function createPairingConnectErrorDetails(params: {
   reason?: ConnectPairingRequiredReason;
   requestId?: string;
@@ -273,7 +271,6 @@ function createPairingConnectErrorDetails(params: {
     ...(params.approvedScopes ? { approvedScopes: params.approvedScopes } : {}),
   };
 }
-
 export function describePairingConnectRequirement(
   reason: ConnectPairingRequiredReason | undefined,
 ): string {

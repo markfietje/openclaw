@@ -24,6 +24,7 @@ import {
   withGatewayServer,
   withRuntimeVersionEnv,
 } from "./server.auth.shared.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 export function registerDefaultAuthTokenSuite(): void {
   describe("default auth (token)", () => {
@@ -402,7 +403,7 @@ export function registerDefaultAuthTokenSuite(): void {
     });
 
     test("sends connect challenge on open", async () => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL]);
       const evtPromise: Promise<{
         type?: string;
         event?: string;
@@ -479,7 +480,7 @@ export function registerDefaultAuthTokenSuite(): void {
     });
 
     test("requires nonce for device auth", async () => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL], {
         headers: { host: "example.com" },
       });
       await new Promise<void>((resolve) => ws.once("open", resolve));

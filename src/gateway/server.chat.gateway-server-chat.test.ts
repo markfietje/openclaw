@@ -21,6 +21,7 @@ import {
 } from "./test-helpers.js";
 import { agentCommand } from "./test-helpers.runtime-state.js";
 import { installConnectedControlUiServerSuite } from "./test-with-server.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 installGatewayTestHooks({ scope: "suite" });
 const CHAT_RESPONSE_TIMEOUT_MS = 10_000;
@@ -440,7 +441,7 @@ describe("gateway server chat", () => {
     let webchatWs: WebSocket | undefined;
 
     try {
-      webchatWs = new WebSocket(`ws://127.0.0.1:${port}`, {
+      webchatWs = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL], {
         headers: { origin: `http://127.0.0.1:${port}` },
       });
       trackConnectChallengeNonce(webchatWs);
@@ -1107,7 +1108,7 @@ describe("gateway server chat", () => {
         let scopedWs: WebSocket | undefined;
 
         try {
-          scopedWs = new WebSocket(`ws://127.0.0.1:${port}`);
+          scopedWs = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL]);
           trackConnectChallengeNonce(scopedWs);
           await new Promise<void>((resolve) => scopedWs?.once("open", resolve));
           await connectOk(scopedWs, {
@@ -1148,7 +1149,7 @@ describe("gateway server chat", () => {
         let scopedWs: WebSocket | undefined;
 
         try {
-          scopedWs = new WebSocket(`ws://127.0.0.1:${port}`);
+          scopedWs = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL]);
           trackConnectChallengeNonce(scopedWs);
           await new Promise<void>((resolve) => scopedWs?.once("open", resolve));
           await connectOk(scopedWs, {
@@ -1326,7 +1327,7 @@ describe("gateway server chat", () => {
       },
     });
 
-    const webchatWs = new WebSocket(`ws://127.0.0.1:${port}`, {
+    const webchatWs = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL], {
       headers: { origin: `http://127.0.0.1:${port}` },
     });
     trackConnectChallengeNonce(webchatWs);

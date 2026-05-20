@@ -6,6 +6,8 @@ import type {
 import { resolveSecretInputRef } from "../config/types.secrets.js";
 import { resolveGatewayCredentialsFromValues } from "./credentials.js";
 
+const DANGEROUSLY_ALLOW_NO_AUTH_ENV = "OPENCLAW_DANGEROUSLY_ALLOW_NO_AUTH";
+
 export type ResolvedGatewayAuthMode = "none" | "token" | "password" | "trusted-proxy";
 export type ResolvedGatewayAuthModeSource =
   | "override"
@@ -20,6 +22,7 @@ export type ResolvedGatewayAuth = {
   token?: string;
   password?: string;
   allowTailscale: boolean;
+  dangerouslyAllowNoAuth?: boolean;
   trustedProxy?: GatewayTrustedProxyConfig;
 };
 
@@ -100,6 +103,7 @@ export function resolveGatewayAuth(params: {
     token,
     password,
     allowTailscale,
+    ...(env[DANGEROUSLY_ALLOW_NO_AUTH_ENV] === "1" ? { dangerouslyAllowNoAuth: true } : {}),
     trustedProxy,
   };
 }

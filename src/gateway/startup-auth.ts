@@ -189,7 +189,7 @@ export async function ensureGatewayStartupAuth(params: {
     return { cfg: params.cfg, auth: resolved, persistedGeneratedToken: false };
   }
 
-  const generatedToken = crypto.randomBytes(24).toString("hex");
+  const generatedToken = crypto.randomBytes(32).toString("hex");
   const nextCfg: OpenClawConfig = {
     ...params.cfg,
     gateway: {

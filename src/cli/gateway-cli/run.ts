@@ -216,13 +216,17 @@ function formatModeErrorList(modes: readonly string[]): string {
 
 function shouldBlockGatewayBindWithoutExplicitAuth(params: {
   bindHost: string;
+  canBootstrapToken: boolean;
+  dangerouslyAllowNoAuth: boolean;
   hasSharedSecret: boolean;
   resolvedAuthMode: GatewayAuthMode;
 }): boolean {
   return (
     !isLoopbackHost(params.bindHost) &&
     !params.hasSharedSecret &&
-    params.resolvedAuthMode !== "trusted-proxy"
+    !params.canBootstrapToken &&
+    params.resolvedAuthMode !== "trusted-proxy" &&
+    !(params.resolvedAuthMode === "none" && params.dangerouslyAllowNoAuth)
   );
 }
 
@@ -732,6 +736,7 @@ export async function runGatewayCommand(opts: GatewayRunOpts) {
   const hasSharedSecret =
     (resolvedAuthMode === "token" && tokenConfigured) ||
     (resolvedAuthMode === "password" && passwordConfigured);
+  const canBootstrapToken = resolvedAuthMode === "token" && !tokenConfigured;
   const authHints: string[] = [];
   if (miskeys.hasGatewayToken) {
     authHints.push('Found "gateway.token" in config. Use "gateway.auth.token" instead.');
@@ -756,13 +761,17 @@ export async function runGatewayCommand(opts: GatewayRunOpts) {
   }
   if (resolvedAuthMode === "none") {
     gatewayLog.warn(
-      "Gateway auth mode=none explicitly configured; all gateway connections are unauthenticated.",
+      resolvedAuth.dangerouslyAllowNoAuth === true
+        ? "Gateway auth mode=none explicitly configured with dangerous override; all gateway connections are unauthenticated."
+        : "Gateway auth mode=none explicitly configured; only direct loopback requests may connect without auth.",
     );
   }
   const healthHost = await resolveGatewayBindHost(bind, cfg.gateway?.customBindHost);
   if (
     shouldBlockGatewayBindWithoutExplicitAuth({
       bindHost: healthHost,
+      canBootstrapToken,
+      dangerouslyAllowNoAuth: resolvedAuth.dangerouslyAllowNoAuth === true,
       hasSharedSecret,
       resolvedAuthMode,
     })

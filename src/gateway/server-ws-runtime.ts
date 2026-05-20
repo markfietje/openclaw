@@ -1,12 +1,15 @@
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import type { GatewayMethodRegistry } from "./methods/registry.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "./server-methods/types.js";
+import type { AuthenticatedConnectionBudget } from "./server/authenticated-connection-budget.js";
 import {
   attachGatewayWsConnectionHandler,
   type GatewayWsSharedHandlerParams,
 } from "./server/ws-connection.js";
+import type { ToolAuditLogger } from "./tool-audit.js";
 
 type GatewayWsRuntimeParams = Omit<GatewayWsSharedHandlerParams, "refreshHealthSnapshot"> & {
+  authenticatedConnectionBudget: AuthenticatedConnectionBudget;
   logGateway: ReturnType<typeof createSubsystemLogger>;
   logHealth: ReturnType<typeof createSubsystemLogger>;
   logWsControl: ReturnType<typeof createSubsystemLogger>;
@@ -21,6 +24,8 @@ type GatewayWsRuntimeParams = Omit<GatewayWsSharedHandlerParams, "refreshHealthS
     },
   ) => void;
   context: GatewayRequestContext;
+  /** Optional tool audit logger for structured tool call forensics. */
+  toolAuditLogger?: ToolAuditLogger;
 };
 
 export function attachGatewayWsHandlers(params: GatewayWsRuntimeParams) {
@@ -28,6 +33,7 @@ export function attachGatewayWsHandlers(params: GatewayWsRuntimeParams) {
     wss: params.wss,
     clients: params.clients,
     preauthConnectionBudget: params.preauthConnectionBudget,
+    authenticatedConnectionBudget: params.authenticatedConnectionBudget,
     port: params.port,
     gatewayHost: params.gatewayHost,
     pluginSurfaceScheme: params.pluginSurfaceScheme,
@@ -49,5 +55,6 @@ export function attachGatewayWsHandlers(params: GatewayWsRuntimeParams) {
     getMethodRegistry: params.getMethodRegistry,
     broadcast: params.broadcast,
     buildRequestContext: () => params.context,
+    toolAuditLogger: params.toolAuditLogger,
   });
 }

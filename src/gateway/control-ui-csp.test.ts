@@ -38,10 +38,10 @@ describe("buildControlUiCspHeader", () => {
     expect(csp).not.toContain("img-src 'self' data: blob: https:");
   });
 
-  it("allows same-origin and inline audio/video playback", () => {
+  it("allows blob URLs for audio and video media sources", () => {
     const csp = buildControlUiCspHeader();
-    expect(csp).toContain("media-src 'self' data: blob:");
-    expect(csp).not.toContain("media-src 'self' data: blob: https:");
+    expect(csp).toContain("media-src 'self' blob:");
+    expect(csp).not.toContain("media-src 'self' blob: https:");
   });
 
   it("includes inline script hashes in script-src when provided", () => {

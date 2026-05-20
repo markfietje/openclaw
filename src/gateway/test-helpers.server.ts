@@ -56,6 +56,7 @@ import {
   testState,
   testTailnetIPv4,
 } from "./test-helpers.runtime-state.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 // Import lazily after test env/home setup so config/session paths resolve to test dirs.
 // Keep one cached module per worker for speed.
@@ -673,6 +674,7 @@ async function openTrackedWebSocket(params: {
 }): Promise<WebSocket> {
   const ws = new WebSocket(
     `ws://127.0.0.1:${params.port}`,
+    [GATEWAY_WS_SUBPROTOCOL],
     params.headers ? { headers: params.headers } : undefined,
   );
   trackConnectChallengeNonce(ws);
@@ -1105,7 +1107,7 @@ export async function connectWebchatClient(params: {
   client?: NonNullable<Parameters<typeof connectReq>[1]>["client"];
 }): Promise<WebSocket> {
   const origin = params.origin ?? `http://127.0.0.1:${params.port}`;
-  const ws = new WebSocket(`ws://127.0.0.1:${params.port}`, {
+  const ws = new WebSocket(`ws://127.0.0.1:${params.port}`, [GATEWAY_WS_SUBPROTOCOL], {
     headers: { origin },
   });
   trackConnectChallengeNonce(ws);

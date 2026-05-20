@@ -10,9 +10,15 @@ import {
   releasePinnedPluginChannelRegistry,
   releasePinnedPluginHttpRouteRegistry,
 } from "../plugins/runtime.js";
+import type { RuntimeEnv } from "../runtime.js";
+import type { AuthAuditLogger } from "./auth-audit-log.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
 import type { ChatAbortControllerEntry } from "./chat-abort.js";
+import {
+  createConnectionRateLimiter,
+  type ConnectionRateLimiter,
+} from "./connection-rate-limit.js";
 import type { ControlUiRootState } from "./control-ui.js";
 import type { HooksConfigResolved } from "./hooks.js";
 import type { AuthorizedGatewayHttpRequest } from "./http-auth-utils.js";
@@ -24,10 +30,14 @@ import {
   createChatRunState,
   createToolEventRecipientRegistry,
 } from "./server-chat-state.js";
-import { MAX_PREAUTH_PAYLOAD_BYTES } from "./server-constants.js";
+import { DEFAULT_TLS_MIN_VERSION, MAX_PREAUTH_PAYLOAD_BYTES } from "./server-constants.js";
 import { attachGatewayUpgradeHandler, createGatewayHttpServer } from "./server-http.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 import type { DedupeEntry } from "./server-shared.js";
+import {
+  createAuthenticatedConnectionBudget,
+  type AuthenticatedConnectionBudget,
+} from "./server/authenticated-connection-budget.js";
 import type { HookClientIpConfig, HooksRequestHandler } from "./server/hooks-request-handler.js";
 import { listenGatewayHttpServer } from "./server/http-listen.js";
 import type { PluginRoutePathContext } from "./server/plugins-http/path-context.js";
@@ -39,7 +49,10 @@ import {
 } from "./server/preauth-connection-budget.js";
 import type { ReadinessChecker } from "./server/readiness.js";
 import type { GatewayTlsRuntime } from "./server/tls.js";
+import { createGatewayVerifyClient } from "./server/verify-client.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
+import type { ToolAuditLogger } from "./tool-audit.js";
+import { selectGatewayWsSubprotocol } from "./ws-protocol.js";
 
 type GatewayPluginRequestHandler = (
   req: IncomingMessage,
@@ -80,6 +93,10 @@ export async function createGatewayRuntimeState(params: {
   getResolvedAuth: () => ResolvedGatewayAuth;
   /** Optional rate limiter for auth brute-force protection. */
   rateLimiter?: AuthRateLimiter;
+  /** Optional auth audit logger for structured forensics. */
+  authAuditLogger?: AuthAuditLogger;
+  /** Optional tool audit logger for structured tool call forensics. */
+  toolAuditLogger?: ToolAuditLogger;
   gatewayTls?: GatewayTlsRuntime;
   hooksConfig: () => HooksConfigResolved | null;
   getHookClientIpConfig: () => HookClientIpConfig;
@@ -117,6 +134,8 @@ export async function createGatewayRuntimeState(params: {
   ) => ChatRunEntry | undefined;
   chatAbortControllers: Map<string, ChatAbortControllerEntry>;
   toolEventRecipients: ReturnType<typeof createToolEventRecipientRegistry>;
+  connectionRateLimiter: ConnectionRateLimiter;
+  authenticatedConnectionBudget: AuthenticatedConnectionBudget;
 }> {
   pinActivePluginHttpRouteRegistry(params.pluginRegistry);
   if (params.pinChannelRegistry !== false) {
@@ -223,11 +242,6 @@ export async function createGatewayRuntimeState(params: {
     // Create WebSocketServer first (with noServer: true) so we can attach upgrade handlers
     // before HTTP servers start listening. This prevents a race condition where connections
     // arrive before the upgrade handler is attached, which causes silent 1006 errors.
-    const wss = new WebSocketServer({
-      noServer: true,
-      maxPayload: MAX_PREAUTH_PAYLOAD_BYTES,
-    });
-    const preauthConnectionBudget = createPreauthConnectionBudget();
 
     const httpServers: HttpServer[] = [];
     const httpBindHosts: string[] = [];
@@ -249,12 +263,41 @@ export async function createGatewayRuntimeState(params: {
         resolvedAuth: params.resolvedAuth,
         getResolvedAuth: params.getResolvedAuth,
         rateLimiter: params.rateLimiter,
+        authAuditLogger: params.authAuditLogger,
         getReadiness: params.getReadiness,
         tlsOptions: params.gatewayTls?.enabled ? params.gatewayTls.tlsOptions : undefined,
+        tlsMinVersion: params.cfg.gateway?.security?.tlsMinVersion ?? DEFAULT_TLS_MIN_VERSION,
       });
-      // Attach upgrade handler BEFORE listening to prevent race condition
+      httpServers.push(httpServer);
+    }
+    const httpServer = httpServers[0];
+    if (!httpServer) {
+      throw new Error("Gateway HTTP server failed to initialize");
+    }
+
+    const connectionRateLimiter: ConnectionRateLimiter = createConnectionRateLimiter(
+      params.cfg.gateway?.security?.connectionRateLimit,
+    );
+    const authenticatedConnectionBudget: AuthenticatedConnectionBudget =
+      createAuthenticatedConnectionBudget();
+    const verifyClient = createGatewayVerifyClient({
+      log: params.log,
+      connectionRateLimiter,
+      maxConnections: params.cfg.gateway?.security?.maxWebSocketConnections ?? 0,
+      activeConnectionCount: () => clients.size,
+    });
+
+    const wss = new WebSocketServer({
+      noServer: true,
+      maxPayload: MAX_PREAUTH_PAYLOAD_BYTES,
+      perMessageDeflate: false,
+      handleProtocols: selectGatewayWsSubprotocol,
+      verifyClient,
+    });
+    const preauthConnectionBudget = createPreauthConnectionBudget();
+    for (const server of httpServers) {
       attachGatewayUpgradeHandler({
-        httpServer,
+        httpServer: server,
         wss,
         handlePluginUpgrade,
         shouldEnforcePluginGatewayAuth,
@@ -264,13 +307,9 @@ export async function createGatewayRuntimeState(params: {
         resolvedAuth: params.resolvedAuth,
         getResolvedAuth: params.getResolvedAuth,
         rateLimiter: params.rateLimiter,
+        authAuditLogger: params.authAuditLogger,
         log: params.log,
       });
-      httpServers.push(httpServer);
-    }
-    const httpServer = httpServers[0];
-    if (!httpServer) {
-      throw new Error("Gateway HTTP server failed to start");
     }
     let startListeningPromise: Promise<void> | null = null;
     const startListening = async (): Promise<void> => {
@@ -355,6 +394,8 @@ export async function createGatewayRuntimeState(params: {
       removeChatRun,
       chatAbortControllers,
       toolEventRecipients,
+      connectionRateLimiter,
+      authenticatedConnectionBudget,
     };
   } catch (err) {
     releasePinnedPluginHttpRouteRegistry();

@@ -20,8 +20,11 @@ vi.mock("./presence-events.js", () => ({
   broadcastPresenceSnapshot: broadcastPresenceSnapshotMock,
 }));
 
+import { GATEWAY_WS_SUBPROTOCOL } from "../ws-protocol.js";
 import { attachGatewayWsConnectionHandler } from "./ws-connection.js";
 import { resolveSharedGatewaySessionGeneration } from "./ws-shared-generation.js";
+
+const REQUIRED_SUBPROTOCOL = "openclaw-gateway-v1";
 
 function createLogger() {
   return {
@@ -232,6 +235,7 @@ describe("attachGatewayWsConnectionHandler", () => {
     const { passed } = await connectTestWs({ socket });
     const handlerParams = passed as {
       setClient: (client: unknown) => boolean;
+      onHandshakeComplete?: () => void;
     };
     expect(
       handlerParams.setClient({
@@ -241,6 +245,7 @@ describe("attachGatewayWsConnectionHandler", () => {
         usesSharedGatewayAuth: false,
       }),
     ).toBe(true);
+    passed.onHandshakeComplete?.();
 
     vi.advanceTimersByTime(25_000);
     expect(socket.ping).toHaveBeenCalledTimes(1);

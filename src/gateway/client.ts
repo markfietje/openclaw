@@ -19,6 +19,7 @@ import { normalizeFingerprint } from "../infra/tls/fingerprint.js";
 import { rawDataToString } from "../infra/ws.js";
 import { logDebug, logError } from "../logger.js";
 import { redactToolPayloadText } from "../logging/redact.js";
+import { safeEqualSecret } from "../security/secret-equal.js";
 import { isSensitiveUrlQueryParamName } from "../shared/net/redact-sensitive-url.js";
 import {
   normalizeLowercaseStringOrEmpty,
@@ -55,6 +56,7 @@ import {
   validateResponseFrame,
 } from "./protocol/index.js";
 import { resolveGatewayStartupRetryAfterMs } from "./protocol/startup-unavailable.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -167,6 +169,38 @@ export const GATEWAY_CLOSE_CODE_HINTS: Readonly<Record<number, string>> = {
   1012: "service restart",
   1013: "try again later",
 };
+
+/**
+ * Close-code-aware reconnect delay.
+ *
+ * Instead of blind exponential backoff for every disconnect, use the close code
+ * to pick a strategy that matches the likely cause:
+ *
+ * - 1012 (service restart): server is coming right back — use a short fixed
+ *   delay instead of exponential backoff so the client reconnects quickly.
+ * - 4000/4001 (tick/pong timeout): network is dead — exponential backoff is
+ *   appropriate to avoid hammering a unreachable host.
+ * - 1001 (going away): client or server intentionally closed — light backoff.
+ * - 1011 (internal error): server crashed — moderate backoff.
+ * - Everything else: fall through to the caller's exponential backoff (returned
+ *   as undefined).
+ */
+function resolveReconnectDelay(code: number, currentBackoffMs: number): number | undefined {
+  switch (code) {
+    case 1012: // service restart — server will be back shortly
+      return 2_000;
+    case 1001: // going away — intentional, light delay
+      return Math.min(currentBackoffMs, 3_000);
+    case 1011: // internal error — server crashed, moderate
+      return Math.min(currentBackoffMs, 5_000);
+    case 4000: // tick timeout
+    case 4001: // pong timeout
+      // Network is likely dead — let exponential backoff handle it
+      return undefined;
+    default:
+      return undefined;
+  }
+}
 
 export function describeGatewayCloseCode(code: number): string | undefined {
   return GATEWAY_CLOSE_CODE_HINTS[code];
@@ -322,7 +356,7 @@ export class GatewayClient {
         if (!fingerprint) {
           return new Error("Missing server TLS fingerprint");
         }
-        if (fingerprint !== expected) {
+        if (!safeEqualSecret(fingerprint, expected)) {
           return new Error("Server TLS fingerprint mismatch");
         }
         return undefined;
@@ -331,7 +365,7 @@ export class GatewayClient {
     const unregisterGatewayLoopbackBypass = registerManagedProxyGatewayLoopbackBypass(url);
     let ws: WebSocket;
     try {
-      ws = new WebSocket(url, wsOptions as ClientOptions);
+      ws = new WebSocket(url, GATEWAY_WS_SUBPROTOCOL, wsOptions as ClientOptions);
     } finally {
       unregisterGatewayLoopbackBypass?.();
     }
@@ -405,7 +439,7 @@ export class GatewayClient {
         this.opts.onClose?.(code, reasonText);
         return;
       }
-      this.scheduleReconnect();
+      this.scheduleReconnect(code);
       this.opts.onClose?.(code, reasonText);
     });
     ws.on("error", (err) => {
@@ -1000,7 +1034,7 @@ export class GatewayClient {
     }, connectChallengeTimeoutMs);
   }
 
-  private scheduleReconnect() {
+  private scheduleReconnect(closeCode?: number) {
     if (this.closed) {
       return;
     }
@@ -1011,14 +1045,17 @@ export class GatewayClient {
     this.clearReconnectTimer();
     const startupDelay = this.pendingStartupReconnectDelayMs;
     this.pendingStartupReconnectDelayMs = null;
-    const delay = startupDelay ?? this.backoffMs;
-    if (startupDelay === null) {
+    const smartDelay =
+      startupDelay === null ? resolveReconnectDelay(closeCode ?? 0, this.backoffMs) : undefined;
+    const delay = startupDelay ?? smartDelay ?? this.backoffMs;
+    if (startupDelay === null && smartDelay === undefined) {
       this.backoffMs = Math.min(this.backoffMs * 2, 30_000);
     }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.start();
     }, delay);
+    this.reconnectTimer.unref();
   }
 
   private flushPendingErrors(err: Error) {
@@ -1079,7 +1116,7 @@ export class GatewayClient {
     if (!fingerprint) {
       return new Error("gateway tls fingerprint unavailable");
     }
-    if (fingerprint !== expected) {
+    if (!safeEqualSecret(fingerprint, expected)) {
       return new Error("gateway tls fingerprint mismatch");
     }
     return null;

@@ -6,7 +6,7 @@ export function expectGeneratedTokenPersistedToGatewayAuth(params: {
   authToken?: string;
   persistedConfig?: OpenClawConfig;
 }) {
-  expect(params.generatedToken).toMatch(/^[0-9a-f]{48}$/);
+  expect(params.generatedToken).toMatch(/^[0-9a-f]{64}$/);
   expect(params.authToken).toBe(params.generatedToken);
   expect(params.persistedConfig?.gateway?.auth?.mode).toBe("token");
   expect(params.persistedConfig?.gateway?.auth?.token).toBe(params.generatedToken);

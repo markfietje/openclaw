@@ -30,6 +30,7 @@ import {
   normalizePluginNodeCapabilityScopedUrl,
   type PluginNodeCapabilitySurface,
 } from "./plugin-node-capability.js";
+import { createRequestRateLimiter, type RequestRateLimiter } from "./request-rate-limit.js";
 import type { HooksRequestHandler } from "./server/hooks-request-handler.js";
 import {
   isProtectedPluginRoutePathFromContext,
@@ -489,9 +490,13 @@ export function createGatewayHttpServer(opts: {
   getResolvedAuth?: () => ResolvedGatewayAuth;
   /** Optional rate limiter for auth brute-force protection. */
   rateLimiter?: AuthRateLimiter;
+  /** Optional auth audit logger for structured forensics. */
+  authAuditLogger?: import("./auth-audit-log.js").AuthAuditLogger;
   getReadiness?: ReadinessChecker;
   getRuntimeConfig?: () => OpenClawConfig;
   tlsOptions?: TlsOptions;
+  /** Minimum TLS version override. Applied to tlsOptions when creating HTTPS server. */
+  tlsMinVersion?: "TLSv1.2" | "TLSv1.3";
 }): HttpServer {
   const {
     clients,
@@ -513,9 +518,13 @@ export function createGatewayHttpServer(opts: {
   } = opts;
   const getResolvedAuth = opts.getResolvedAuth ?? (() => resolvedAuth);
   const loadGatewayConfig = opts.getRuntimeConfig ?? getRuntimeConfig;
+  const httpRequestRateLimiter: RequestRateLimiter = createRequestRateLimiter();
   const openAiCompatEnabled = openAiChatCompletionsEnabled || openResponsesEnabled;
-  const httpServer: HttpServer = opts.tlsOptions
-    ? createHttpsServer(opts.tlsOptions, (req, res) => {
+  const resolvedTlsOptions = opts.tlsOptions
+    ? { ...opts.tlsOptions, minVersion: opts.tlsMinVersion ?? opts.tlsOptions.minVersion }
+    : undefined;
+  const httpServer: HttpServer = resolvedTlsOptions
+    ? createHttpsServer(resolvedTlsOptions, (req, res) => {
         void handleRequestWithTrace(req, res);
       })
     : createHttpServer((req, res) => {
@@ -528,9 +537,13 @@ export function createGatewayHttpServer(opts: {
     );
   }
 
+  const isTls = !!resolvedTlsOptions;
+  const autoHsts =
+    isTls && !strictTransportSecurityHeader ? "max-age=31536000; includeSubDomains" : undefined;
+
   async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     setDefaultSecurityHeaders(res, {
-      strictTransportSecurity: strictTransportSecurityHeader,
+      strictTransportSecurity: strictTransportSecurityHeader ?? autoHsts,
     });
 
     // Don't interfere with WebSocket upgrades; ws handles the 'upgrade' event.
@@ -560,6 +573,19 @@ export function createGatewayHttpServer(opts: {
       const configSnapshot = loadGatewayConfig();
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
       const allowRealIpFallback = configSnapshot.gateway?.allowRealIpFallback === true;
+
+      // Per-IP HTTP request rate limiting.
+      const clientIp = resolveRequestClientIp(req, trustedProxies, allowRealIpFallback);
+      httpRequestRateLimiter.recordRequest(clientIp);
+      const rateLimitResult = httpRequestRateLimiter.check(clientIp);
+      if (!rateLimitResult.allowed) {
+        res.statusCode = 429;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.setHeader("Retry-After", String(Math.ceil(rateLimitResult.retryAfterMs / 1000) || 1));
+        res.end("Too Many Requests");
+        return;
+      }
+
       const scopedNodeCapability = normalizePluginNodeCapabilityScopedUrl(req.url ?? "/");
       if (scopedNodeCapability.malformedScopedPath) {
         sendGatewayAuthFailure(res, { ok: false, reason: "unauthorized" });
@@ -809,6 +835,9 @@ export function createGatewayHttpServer(opts: {
     }
   }
 
+  // Dispose the per-IP request rate limiter when the server closes.
+  httpServer.on("close", () => httpRequestRateLimiter.dispose());
+
   return httpServer;
 }
 
@@ -824,6 +853,8 @@ export function attachGatewayUpgradeHandler(opts: {
   getResolvedAuth?: () => ResolvedGatewayAuth;
   /** Optional rate limiter for auth brute-force protection. */
   rateLimiter?: AuthRateLimiter;
+  /** Optional auth audit logger for structured forensics. */
+  authAuditLogger?: import("./auth-audit-log.js").AuthAuditLogger;
   /** Optional logger for error diagnostics. */
   log?: { warn: (msg: string) => void };
 }) {

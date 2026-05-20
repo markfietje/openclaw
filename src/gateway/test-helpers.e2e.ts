@@ -23,6 +23,7 @@ import { GatewayClient } from "./client.js";
 import { buildDeviceAuthPayloadV3 } from "./device-auth.js";
 import { PROTOCOL_VERSION } from "./protocol/index.js";
 import { startGatewayServer } from "./server.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 export async function getFreeGatewayPort(): Promise<number> {
   return await getDeterministicFreePortBlock({ offsets: [0, 1, 2, 3, 4] });
@@ -117,7 +118,7 @@ export async function disconnectGatewayClient(client: GatewayClient): Promise<vo
 }
 
 export async function connectDeviceAuthReq(params: { url: string; token?: string }) {
-  const ws = new WebSocket(params.url);
+  const ws = new WebSocket(params.url, [GATEWAY_WS_SUBPROTOCOL]);
   const connectNoncePromise = new Promise<string>((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("timeout waiting for connect challenge")),

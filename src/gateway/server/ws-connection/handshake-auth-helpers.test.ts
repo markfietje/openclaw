@@ -129,6 +129,67 @@ describe("handshake auth helpers", () => {
         isWebchat: false,
         reason: "metadata-upgrade",
       }),
+    ).toBe(true);
+    // metadata-upgrade auto-approval also applies to remote non-browser clients
+    // (e.g. Tailscale P2P) since the device is already trusted by public key.
+    expect(
+      shouldAllowSilentLocalPairing({
+        locality: "remote",
+        hasBrowserOriginHeader: false,
+        isControlUi: false,
+        isWebchat: false,
+        reason: "metadata-upgrade",
+      }),
+    ).toBe(true);
+    // browser-originated metadata upgrades still require explicit approval
+    // to prevent CSRF-based metadata tampering
+    expect(
+      shouldAllowSilentLocalPairing({
+        locality: "direct_local",
+        hasBrowserOriginHeader: true,
+        isControlUi: false,
+        isWebchat: false,
+        reason: "metadata-upgrade",
+      }),
+    ).toBe(false);
+    expect(
+      shouldAllowSilentLocalPairing({
+        locality: "remote",
+        hasBrowserOriginHeader: true,
+        isControlUi: false,
+        isWebchat: false,
+        reason: "metadata-upgrade",
+      }),
+    ).toBe(false);
+    // Remote metadata upgrades stay explicit even without a browser Origin.
+    expect(
+      shouldAllowSilentLocalPairing({
+        locality: "remote",
+        hasBrowserOriginHeader: false,
+        isControlUi: false,
+        isWebchat: false,
+        reason: "metadata-upgrade",
+      }),
+    ).toBe(false);
+    // browser-originated metadata upgrades still require explicit approval
+    // to prevent CSRF-based metadata tampering
+    expect(
+      shouldAllowSilentLocalPairing({
+        locality: "direct_local",
+        hasBrowserOriginHeader: true,
+        isControlUi: false,
+        isWebchat: false,
+        reason: "metadata-upgrade",
+      }),
+    ).toBe(false);
+    expect(
+      shouldAllowSilentLocalPairing({
+        locality: "remote",
+        hasBrowserOriginHeader: true,
+        isControlUi: false,
+        isWebchat: false,
+        reason: "metadata-upgrade",
+      }),
     ).toBe(false);
   });
 

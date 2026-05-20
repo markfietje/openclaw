@@ -14,4 +14,7 @@ export type GatewayWsClient = PluginNodeCapabilityClient & {
   internal?: {
     approvalRuntime?: boolean;
   };
+  canvasHostUrl?: string;
+  canvasCapability?: string;
+  canvasCapabilityExpiresAtMs?: number;
 };

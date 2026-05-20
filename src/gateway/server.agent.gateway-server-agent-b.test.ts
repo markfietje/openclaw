@@ -24,6 +24,7 @@ import {
   withGatewayServer,
   writeSessionStore,
 } from "./test-helpers.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 installGatewayTestHooks({ scope: "suite" });
 
@@ -479,7 +480,7 @@ describe("gateway server agent", () => {
         },
       });
 
-      const writeWs = new WebSocket(`ws://127.0.0.1:${port}`);
+      const writeWs = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL]);
       trackConnectChallengeNonce(writeWs);
       await new Promise<void>((resolve) => writeWs.once("open", resolve));
       await connectOk(writeWs, { scopes: ["operator.write"] });
@@ -580,7 +581,7 @@ describe("gateway server agent", () => {
   test("agent dedupe survives reconnect", { timeout: 20_000 }, async () => {
     await withGatewayServer(async ({ port }) => {
       const dial = async () => {
-        const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+        const ws = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL]);
         trackConnectChallengeNonce(ws);
         await new Promise<void>((resolve) => ws.once("open", resolve));
         await connectOk(ws);

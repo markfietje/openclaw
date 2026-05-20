@@ -30,6 +30,7 @@ import {
   withGatewayServer,
   writeTrustedProxyControlUiConfig,
 } from "./server.auth.shared.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 const operatorIdentityPathByPrefix = new Map<string, string>();
 
@@ -561,7 +562,7 @@ export function registerControlUiAndPairingSuite(): void {
     process.env.OPENCLAW_GATEWAY_TOKEN = "secret";
     try {
       await withControlUiGatewayServer(async ({ port }) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL], {
           headers: {
             origin: "https://localhost",
             "x-forwarded-for": "203.0.113.10",
@@ -1582,7 +1583,7 @@ export function registerControlUiAndPairingSuite(): void {
     const { identityPath, identity, client } =
       await createOperatorIdentityFixture("openclaw-device-scope-");
     const connectWithNonce = async (role: "operator" | "node", scopes: string[]) => {
-      const socket = new WebSocket(`ws://127.0.0.1:${port}`, {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL], {
         headers: { host: "gateway.example" },
       });
       const challengePromise = onceMessage(

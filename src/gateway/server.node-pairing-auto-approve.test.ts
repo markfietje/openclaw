@@ -12,6 +12,7 @@ import {
   startServer,
   trackConnectChallengeNonce,
 } from "./test-helpers.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 installGatewayTestHooks({ scope: "suite" });
 
@@ -24,7 +25,7 @@ const NODE_CLIENT = {
 };
 
 async function openLanGatewayWs(params: { host: string; port: number }): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://${params.host}:${params.port}`, {
+  const ws = new WebSocket(`ws://${params.host}:${params.port}`, [GATEWAY_WS_SUBPROTOCOL], {
     localAddress: params.host,
   });
   trackConnectChallengeNonce(ws);

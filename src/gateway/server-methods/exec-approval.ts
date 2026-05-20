@@ -22,6 +22,7 @@ import {
 import { resolveSystemRunApprovalRequestContext } from "../../infra/system-run-approval-context.js";
 import { normalizeOptionalString } from "../../shared/string-coerce.js";
 import type { ExecApprovalManager } from "../exec-approval-manager.js";
+import { checkExecDenyPath } from "../exec-deny-paths.js";
 import { GATEWAY_CLIENT_IDS } from "../protocol/client-info.js";
 import {
   ErrorCodes,
@@ -228,6 +229,20 @@ export function createExecApprovalHandlers(
       }
       if (effectiveCommandText.trim().length === 0) {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "command is required"));
+        return;
+      }
+      // Security: deny-path gate — block commands that attempt to access
+      // sensitive filesystem locations (.env, secrets, credentials, SSH keys).
+      const deniedByPattern = checkExecDenyPath(effectiveCommandText);
+      if (deniedByPattern) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            `exec denied: command matches deny pattern '${deniedByPattern}'`,
+          ),
+        );
         return;
       }
       if (explicitId?.startsWith(RESERVED_PLUGIN_APPROVAL_ID_PREFIX)) {

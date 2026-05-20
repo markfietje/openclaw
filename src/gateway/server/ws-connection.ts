@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Socket } from "node:net";
 import type { RawData, WebSocket, WebSocketServer } from "ws";
-import { getRuntimeConfig } from "../../config/io.js";
+import { getRuntimeConfig, loadConfig } from "../../config/io.js";
+import { resolveCanvasHostUrl } from "../../infra/canvas-host-url.js";
 import { removeRemoteNodeInfo } from "../../infra/skills-remote.js";
 import { upsertPresence } from "../../infra/system-presence.js";
 import { logRejectedLargePayload } from "../../logging/diagnostic-payload.js";
@@ -13,15 +14,32 @@ import type { AuthRateLimiter } from "../auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "../auth.js";
 import { resolvePreauthHandshakeTimeoutMs } from "../handshake-timeouts.js";
 import { resolveHostedPluginSurfaceUrl } from "../hosted-plugin-surface-url.js";
+import { isIpAllowed, type IpRestrictionConfig } from "../ip-restriction-policy.js";
 import type { GatewayMethodRegistry } from "../methods/registry.js";
-import { isLoopbackAddress } from "../net.js";
+import {
+  isLoopbackAddress,
+  isTrustedProxyAddress,
+  resolveClientIp,
+  validateForwardedHeaderConsistency,
+  validateSensitiveHeaders,
+} from "../net.js";
+import { checkBrowserOrigin } from "../origin-check.js";
 import type { PluginNodeCapabilitySurface } from "../plugin-node-capability.js";
 import {
   GATEWAY_STARTUP_CLOSE_CODE,
   GATEWAY_STARTUP_PENDING_CLOSE_CAUSE,
 } from "../protocol/startup-unavailable.js";
 import { MAX_PAYLOAD_BYTES, MAX_PREAUTH_PAYLOAD_BYTES } from "../server-constants.js";
-import { clearNodeWakeState } from "../server-methods/nodes-wake-state.js";
+import { clearNodeWakeState } from "../server-methods/nodes.js";
+import type { ToolAuditLogger } from "../tool-audit.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "../ws-protocol.js";
+
+// Protocol-level ping/pong defaults for reverse proxy dead-connection detection.
+// Complements the application-level tick (30s) by using WebSocket control frames
+// that proxies (nginx, Caddy, HAProxy, AWS ALB, Tailscale Serve) understand natively.
+const DEFAULT_PING_INTERVAL_MS = 25_000;
+const DEFAULT_PONG_TIMEOUT_MS = 10_000;
+const PONG_TIMEOUT_CLOSE_CODE = 4001;
 import type { GatewayRequestContext, GatewayRequestHandlers } from "../server-methods/types.js";
 import { formatError } from "../server-utils.js";
 import { logWs } from "../ws-log.js";
@@ -128,6 +146,7 @@ export type GatewayWsSharedHandlerParams = {
   wss: WebSocketServer;
   clients: Set<GatewayWsClient>;
   preauthConnectionBudget: PreauthConnectionBudget;
+  authenticatedConnectionBudget: import("./authenticated-connection-budget.js").AuthenticatedConnectionBudget;
   port: number;
   gatewayHost?: string;
   pluginSurfaceScheme?: "http" | "https";
@@ -161,6 +180,8 @@ export type AttachGatewayWsConnectionHandlerParams = GatewayWsSharedHandlerParam
     },
   ) => void;
   buildRequestContext: () => GatewayRequestContext;
+  /** Optional tool audit logger for structured tool call forensics. */
+  toolAuditLogger?: ToolAuditLogger;
 };
 
 function attachGatewayWsMessageHandlerOnDemand(params: GatewayWsMessageHandlerParams): void {
@@ -204,6 +225,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     wss,
     clients,
     preauthConnectionBudget,
+    authenticatedConnectionBudget,
     port,
     pluginSurfaceScheme,
     getPluginNodeCapabilities,
@@ -227,10 +249,27 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     getMethodRegistry,
     broadcast,
     buildRequestContext,
+    toolAuditLogger,
   } = params;
   const originCheckMetrics: WsOriginCheckMetrics = { hostHeaderFallbackAccepted: 0 };
 
   wss.on("connection", (socket, upgradeReq) => {
+    const configSnapshot = loadConfig();
+    // Resolve ping/pong config once — disabled by default only if explicitly set false
+    const pingConfig =
+      configSnapshot.gateway?.security?.enablePingPong === false
+        ? null
+        : {
+            pingIntervalMs:
+              configSnapshot.gateway?.security?.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS,
+            pongTimeoutMs:
+              configSnapshot.gateway?.security?.pongTimeoutMs ?? DEFAULT_PONG_TIMEOUT_MS,
+          };
+    const securityConfig = configSnapshot.gateway?.security ?? {};
+    const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
+    const allowRealIpFallback = configSnapshot.gateway?.allowRealIpFallback !== false;
+    const controlUiConfig = configSnapshot.gateway?.controlUi;
+
     let client: GatewayWsClient | null = null;
     let closed = false;
     const openedAt = Date.now();
@@ -250,10 +289,14 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     const headerValue = (value: string | string[] | undefined) =>
       Array.isArray(value) ? value[0] : value;
     const requestHost = headerValue(upgradeReq.headers.host);
+    const forwardedHost = headerValue(upgradeReq.headers["x-forwarded-host"]);
     const requestOrigin = headerValue(upgradeReq.headers.origin);
     const requestUserAgent = headerValue(upgradeReq.headers["user-agent"]);
     const forwardedFor = headerValue(upgradeReq.headers["x-forwarded-for"]);
     const realIp = headerValue(upgradeReq.headers["x-real-ip"]);
+    const xForwardedProto = headerValue(upgradeReq.headers["x-forwarded-proto"]);
+    const forwarded = headerValue(upgradeReq.headers.forwarded);
+    const secFetchSite = headerValue(upgradeReq.headers["sec-fetch-site"]);
 
     const pluginNodeCapabilities = getPluginNodeCapabilities?.() ?? [];
     const pluginSurfaceBaseUrl =
@@ -271,11 +314,18 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     logWs("in", "open", { connId, remoteAddr, remotePort, localAddr, localPort, endpoint });
     let handshakeState: "pending" | "connected" | "failed" = "pending";
     let holdsPreauthBudget = true;
+    let holdsAuthenticatedBudget = false;
+    let authenticatedBudgetDeviceId: string | undefined;
     let closeCause: string | undefined;
     let closeMeta: Record<string, unknown> = {};
     let lastFrameType: string | undefined;
     let lastFrameMethod: string | undefined;
     let lastFrameId: string | undefined;
+
+    // Protocol-level ping/pong state for dead-connection detection
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let pongTimer: ReturnType<typeof setTimeout> | null = null;
+    let pongReceived = true;
 
     const setCloseCause = (cause: string, meta?: Record<string, unknown>) => {
       if (!closeCause) {
@@ -294,6 +344,14 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       preauthConnectionBudget.release(preauthBudgetKey);
     };
 
+    const releaseAuthenticatedBudget = () => {
+      if (!holdsAuthenticatedBudget) {
+        return;
+      }
+      holdsAuthenticatedBudget = false;
+      authenticatedConnectionBudget.release(authenticatedBudgetDeviceId, connId);
+    };
+
     const setLastFrameMeta = (meta: { type?: string; method?: string; id?: string }) => {
       if (meta.type || meta.method || meta.id) {
         lastFrameType = meta.type ?? lastFrameType;
@@ -310,25 +368,160 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
     };
 
-    const connectNonce = randomUUID();
-    send({
-      type: "event",
-      event: "connect.challenge",
-      payload: { nonce: connectNonce, ts: Date.now() },
-    });
+    // Security (defense-in-depth): Reject invalid headers, untrusted proxy
+    // headers, unauthorized origins, and unauthorized IPs BEFORE sending
+    // the nonce challenge. These checks mirror the pre-handshake verifyClient
+    // callback in verify-client.ts (L1). If an attacker somehow bypasses
+    // verifyClient, these L2 checks still protect the connection.
+    // Check order matches L1:
+    //   1. Strict header validation
+    //   2. Untrusted proxy header rejection
+    //   3. Origin validation
+    //   4. IP restriction
+    //   5. Subprotocol enforcement
+    if (securityConfig.strictHeaderValidation !== false) {
+      const headerValidation = validateSensitiveHeaders(upgradeReq.headers);
+      if (!headerValidation.ok) {
+        logWsControl.warn("Strict header validation failed: duplicate or chained header detected", {
+          connId,
+          header: headerValidation.header,
+          reason: headerValidation.reason,
+        });
+        socket.close(1008, "invalid headers");
+        return;
+      }
+    }
+    // Cross-header consistency: reject if X-Forwarded-For and Forwarded
+    // disagree on the resolved client IP (prevents header contradiction attacks).
+    const headerConsistency = validateForwardedHeaderConsistency(
+      upgradeReq.headers,
+      trustedProxies,
+    );
+    if (!headerConsistency.ok) {
+      logWsControl.warn(`Forwarded header inconsistency: ${headerConsistency.reason}`, {
+        connId,
+      });
+      socket.close(1008, "invalid headers");
+      return;
+    }
+    const hasProxyHeaders = Boolean(
+      forwardedFor || realIp || forwardedHost || xForwardedProto || forwarded,
+    );
+    const remoteIsTrustedProxy = isTrustedProxyAddress(remoteAddr, trustedProxies);
+    if (hasProxyHeaders && !remoteIsTrustedProxy) {
+      if (securityConfig.rejectUntrustedProxyHeaders !== false) {
+        logWsControl.warn("Rejecting connection: proxy headers from untrusted address", {
+          connId,
+          remoteAddr,
+        });
+        socket.close(1008, "proxy headers from untrusted source");
+        return;
+      }
+      logWsControl.warn("Proxy headers detected from untrusted address (allowed by config)", {
+        connId,
+        remoteAddr,
+      });
+    }
 
-    let pingTimer: ReturnType<typeof setInterval> | undefined;
+    // 3. Origin validation — mirrors verifyClient step 3.
+    //    Re-checks origin after handshake in case config reload changed
+    //    allowedOrigins between L1 and L2.
+    const hasBrowserOriginHeader = Boolean(requestOrigin && requestOrigin !== "null");
+    if (hasBrowserOriginHeader) {
+      const isLocalClient = isLoopbackAddress(remoteAddr) && !hasProxyHeaders;
+      const hostHeaderOriginFallbackEnabled =
+        controlUiConfig?.dangerouslyAllowHostHeaderOriginFallback === true ||
+        securityConfig.dangerouslyAllowHostHeaderOriginFallback === true;
+      const originCheck = checkBrowserOrigin({
+        requestHost,
+        requestForwardedHost: forwardedHost,
+        requestForwardedProto: xForwardedProto,
+        origin: requestOrigin,
+        allowedOrigins: controlUiConfig?.allowedOrigins,
+        allowHostHeaderOriginFallback: hostHeaderOriginFallbackEnabled,
+        isLocalClient,
+        isTrustedProxy: remoteIsTrustedProxy,
+        forwardedHeader: forwarded,
+        disableLocalhostPrivilege:
+          securityConfig.disableLocalhostPrivilege !== false ||
+          (securityConfig.autoDisableLocalhostBehindProxy !== false && hasProxyHeaders),
+        validateHostHeader: securityConfig.validateHostHeader !== false,
+        secFetchSite,
+        strictProtoValidation: securityConfig.strictProtoValidation,
+      });
+      if (!originCheck.ok) {
+        logWsControl.warn(`Origin not allowed: ${originCheck.reason}`, {
+          connId,
+          origin: requestOrigin,
+        });
+        socket.close(1008, "origin not allowed");
+        return;
+      }
+    }
+
+    // Security (defense-in-depth): IP restriction check — also enforced by
+    // verifyClient (L1). This second check uses the same resolved clientIp
+    // and catches any config reload drift between handshake and first message.
+    const clientIp = resolveClientIp({
+      remoteAddr,
+      forwardedFor,
+      forwarded: upgradeReq.headers.forwarded,
+      realIp,
+      trustedProxies,
+      allowRealIpFallback,
+    });
+    const ipRestriction: IpRestrictionConfig = {
+      ipAllowlist: securityConfig.ipAllowlist,
+      ipBlocklist: securityConfig.ipBlocklist,
+    };
+    if (
+      (ipRestriction.ipAllowlist?.length || ipRestriction.ipBlocklist?.length) &&
+      !isIpAllowed(clientIp, ipRestriction)
+    ) {
+      logWsControl.warn("Connection rejected: IP not allowed", {
+        connId,
+        remoteAddr,
+        clientIp,
+      });
+      socket.close(1008, "ip not allowed");
+      return;
+    }
+
+    // Subprotocol enforcement — mirrors verifyClient step 5.
+    if (securityConfig.requireSubprotocol !== false) {
+      if (socket.protocol !== GATEWAY_WS_SUBPROTOCOL) {
+        logWsControl.warn("Missing required subprotocol", { connId });
+        socket.close(1002, "Missing required subprotocol");
+        return;
+      }
+    }
+
+    const connectNonce = randomUUID();
+
+    let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearHandshakeTimer = () => {
+      if (handshakeTimer) {
+        clearTimeout(handshakeTimer);
+        handshakeTimer = null;
+      }
+    };
 
     const close = (code = 1000, reason?: string) => {
       if (closed) {
         return;
       }
       closed = true;
-      clearTimeout(handshakeTimer);
-      if (pingTimer !== undefined) {
+      clearHandshakeTimer();
+      if (pingTimer) {
         clearInterval(pingTimer);
+        pingTimer = null;
+      }
+      if (pongTimer) {
+        clearTimeout(pongTimer);
+        pongTimer = null;
       }
       releasePreauthBudget();
+      releaseAuthenticatedBudget();
       if (client) {
         clients.delete(client);
       }
@@ -433,7 +626,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     const handshakeTimeoutMs = resolvePreauthHandshakeTimeoutMs({
       configuredTimeoutMs: params.preauthHandshakeTimeoutMs,
     });
-    const handshakeTimer = setTimeout(() => {
+    handshakeTimer = setTimeout(() => {
       if (!client) {
         handshakeState = "failed";
         setCloseCause("handshake-timeout", {
@@ -458,7 +651,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       endpoint,
       forwardedFor,
       realIp,
-      requestHost,
+      requestHost: forwardedHost || requestHost,
       requestOrigin,
       requestUserAgent,
       pluginSurfaceBaseUrl,
@@ -478,22 +671,21 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       send,
       close,
       isClosed: () => closed,
-      clearHandshakeTimer: () => clearTimeout(handshakeTimer),
+      clearHandshakeTimer,
       getClient: () => client,
       setClient: (next) => {
         if (closed) {
           return false;
         }
         releasePreauthBudget();
+        // Acquire authenticated connection budget after successful handshake.
+        const deviceId = next.connect?.device?.id;
+        if (!holdsAuthenticatedBudget && authenticatedConnectionBudget.acquire(deviceId, connId)) {
+          holdsAuthenticatedBudget = true;
+          authenticatedBudgetDeviceId = deviceId;
+        }
         client = next;
         clients.add(next);
-        pingTimer = setInterval(() => {
-          try {
-            socket.ping();
-          } catch {
-            // close() clears the timer; ping can race with a socket already entering CLOSING.
-          }
-        }, 25_000);
         return true;
       },
       setHandshakeState: (next) => {
@@ -501,10 +693,58 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       },
       setCloseCause,
       setLastFrameMeta,
+      onHandshakeComplete: pingConfig
+        ? () => {
+            if (pingTimer) {
+              return;
+            }
+            // Start protocol-level ping/pong after successful handshake.
+            // Proxies forward WebSocket ping/pong frames natively, so this
+            // detects TCP half-open connections that application-level ticks miss.
+            socket.on("pong", () => {
+              pongReceived = true;
+              if (pongTimer) {
+                clearTimeout(pongTimer);
+                pongTimer = null;
+              }
+            });
+            pingTimer = setInterval(() => {
+              if (closed) {
+                return;
+              }
+              pongReceived = false;
+              try {
+                socket.ping();
+              } catch {
+                close(PONG_TIMEOUT_CLOSE_CODE, "ping failed");
+              }
+              pongTimer = setTimeout(() => {
+                if (!closed && !pongReceived) {
+                  logWsControl.warn(`pong timeout conn=${connId} remote=${remoteAddr ?? "?"}`);
+                  close(PONG_TIMEOUT_CLOSE_CODE, "pong timeout");
+                }
+              }, pingConfig.pongTimeoutMs);
+            }, pingConfig.pingIntervalMs);
+          }
+        : undefined,
       originCheckMetrics,
       logGateway,
       logHealth,
       logWsControl,
+      toolAuditLogger,
     });
+
+    try {
+      socket.send(
+        JSON.stringify({
+          type: "event",
+          event: "connect.challenge",
+          payload: { nonce: connectNonce },
+        }),
+      );
+    } catch (err) {
+      logWsControl.warn(`failed to send nonce challenge conn=${connId}: ${String(err)}`);
+      close(1011, "failed to send nonce challenge");
+    }
   });
 }

@@ -8,6 +8,7 @@ import {
   assertGatewayAuthConfigured,
   type ResolvedGatewayAuth,
   resolveGatewayAuth,
+  validateCredentialStrength,
 } from "./auth.js";
 import { normalizeControlUiBasePath } from "./control-ui-shared.js";
 import { warnLegacyOpenClawEnvVars } from "./env-deprecation.js";
@@ -35,6 +36,8 @@ type GatewayRuntimeConfig = {
   tailscaleConfig: GatewayTailscaleConfig;
   tailscaleMode: "off" | "serve" | "funnel";
   hooksConfig: ReturnType<typeof resolveHooksConfig>;
+  canvasHostEnabled: boolean;
+  startupWarnings: string[];
 };
 
 export async function resolveGatewayRuntimeConfig(params: {
@@ -121,6 +124,9 @@ export async function resolveGatewayRuntimeConfig(params: {
   const hasSharedSecret =
     (authMode === "token" && hasToken) || (authMode === "password" && hasPassword);
   const hooksConfig = resolveHooksConfig(params.cfg);
+  // Canvas host is extension-owned; core config has no canvasHost key.
+  // The canvas plugin enables the host at registration time, not here.
+  const canvasHostEnabled = false;
   const trustedProxies = params.cfg.gateway?.trustedProxies ?? [];
   const controlUiAllowedOrigins = (params.cfg.gateway?.controlUi?.allowedOrigins ?? [])
     .map((value) => value.trim())
@@ -137,7 +143,12 @@ export async function resolveGatewayRuntimeConfig(params: {
   if (tailscaleMode !== "off" && !isLoopbackHost(bindHost)) {
     throw new Error("tailscale serve/funnel requires gateway bind=loopback (127.0.0.1)");
   }
-  if (!isLoopbackHost(bindHost) && !hasSharedSecret && authMode !== "trusted-proxy") {
+  if (
+    !isLoopbackHost(bindHost) &&
+    !hasSharedSecret &&
+    authMode !== "trusted-proxy" &&
+    !(authMode === "none" && resolvedAuth.dangerouslyAllowNoAuth === true)
+  ) {
     throw new Error(
       `refusing to bind gateway to ${bindHost}:${params.port} without auth (set gateway.auth.token/password, or set OPENCLAW_GATEWAY_TOKEN/OPENCLAW_GATEWAY_PASSWORD; legacy CLAWDBOT_* and MOLTBOT_* environment variables are ignored)`,
     );
@@ -161,6 +172,39 @@ export async function resolveGatewayRuntimeConfig(params: {
     }
   }
 
+  // --- Startup warnings (non-fatal) ---
+  const startupWarnings: string[] = [];
+  const isNetworkExposed = !isLoopbackHost(bindHost);
+
+  // Credential strength check.
+  const credStrength = validateCredentialStrength({
+    auth: resolvedAuth,
+    isNetworkExposed,
+  });
+  if (credStrength.errors.length > 0) {
+    throw new Error(credStrength.errors.join("\n"));
+  }
+  for (const w of credStrength.warnings) {
+    startupWarnings.push(`CRITICAL: ${w}`);
+  }
+
+  // TLS enforcement check.
+  const tlsConfig = params.cfg.gateway?.tls;
+  const tlsEnabled = tlsConfig?.enabled === true;
+  const tlsTerminatedUpstream = tlsConfig?.terminatedUpstream === true;
+  if (isNetworkExposed && !tlsEnabled && !tlsTerminatedUpstream && authMode !== "trusted-proxy") {
+    startupWarnings.push(
+      "CRITICAL: gateway is network-exposed without TLS — set gateway.tls.enabled=true, " +
+        "gateway.tls.terminatedUpstream=true (if behind a reverse proxy), or use trusted-proxy auth mode",
+    );
+  }
+
+  // Auto-set HSTS header when TLS is enabled and no explicit config is provided.
+  let effectiveStrictTransportSecurity = strictTransportSecurityHeader;
+  if (tlsEnabled && !effectiveStrictTransportSecurity) {
+    effectiveStrictTransportSecurity = "max-age=31536000";
+  }
+
   return {
     bindHost,
     controlUiEnabled,
@@ -172,7 +216,7 @@ export async function resolveGatewayRuntimeConfig(params: {
     openResponsesConfig: openResponsesConfig
       ? { ...openResponsesConfig, enabled: openResponsesEnabled }
       : undefined,
-    strictTransportSecurityHeader,
+    strictTransportSecurityHeader: effectiveStrictTransportSecurity,
     controlUiBasePath,
     controlUiRoot,
     resolvedAuth,
@@ -180,5 +224,7 @@ export async function resolveGatewayRuntimeConfig(params: {
     tailscaleConfig,
     tailscaleMode,
     hooksConfig,
+    canvasHostEnabled,
+    startupWarnings,
   };
 }

@@ -65,7 +65,8 @@ vi.mock("../health-state.js", () => ({
   incrementPresenceVersion: incrementPresenceVersionMock,
 }));
 
-import { testing, attachGatewayWsMessageHandler } from "./message-handler.js";
+import { handleGatewayRequest } from "../../server-methods.js";
+import { __testing, attachGatewayWsMessageHandler } from "./message-handler.js";
 
 function createLogger() {
   return {
@@ -394,6 +395,133 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
     } | null;
     expect(connectedClient?.internal?.approvalRuntime).toBe(true);
   });
+
+  it("returns a generic unavailable response when the top-level request handler throws", async () => {
+    const thrown = new Error(
+      "ENOENT: open '/Users/mark/.openclaw/credentials/provider-token.json'",
+    );
+    thrown.stack =
+      "Error: ENOENT: open '/Users/mark/.openclaw/credentials/provider-token.json'\n" +
+      "    at readFile (/Users/mark/Sites/openclaw/src/gateway/secrets.ts:12:3)";
+    vi.mocked(handleGatewayRequest).mockRejectedValueOnce(thrown);
+
+    const socketSend = vi.fn((_payload: string, cb?: (err?: Error) => void) => {
+      cb?.();
+    });
+    let onMessage: ((data: string) => void) | undefined;
+    const socket = {
+      _receiver: {},
+      send: socketSend,
+      on: vi.fn((event: string, handler: (data: string) => void) => {
+        if (event === "message") {
+          onMessage = handler;
+        }
+        return socket;
+      }),
+    } as unknown as WebSocket;
+    const send = vi.fn();
+    const isClosed = vi.fn(() => false);
+    let client: unknown = null;
+    const resolvedAuth: ResolvedGatewayAuth = {
+      mode: "none",
+      allowTailscale: false,
+    };
+    const logGateway = createLogger();
+
+    attachGatewayWsMessageHandler({
+      socket,
+      upgradeReq: {
+        headers: { host: "127.0.0.1:19001" },
+        socket: { localAddress: "127.0.0.1", remoteAddress: "127.0.0.1" },
+      } as unknown as IncomingMessage,
+      connId: "conn-1",
+      remoteAddr: "127.0.0.1",
+      localAddr: "127.0.0.1",
+      requestHost: "127.0.0.1:19001",
+      connectNonce: "nonce-1",
+      getResolvedAuth: () => resolvedAuth,
+      gatewayMethods: [],
+      events: [],
+      extraHandlers: {},
+      buildRequestContext: () => ({}) as GatewayRequestContext,
+      refreshHealthSnapshot: vi.fn(async () => createHealthSummary()),
+      send,
+      close: vi.fn(),
+      isClosed,
+      clearHandshakeTimer: vi.fn(),
+      getClient: () => client as never,
+      setClient: (next) => {
+        client = next;
+        return true;
+      },
+      setHandshakeState: vi.fn(),
+      setCloseCause: vi.fn(),
+      setLastFrameMeta: vi.fn(),
+      originCheckMetrics: { hostHeaderFallbackAccepted: 0 },
+      logGateway: logGateway as never,
+      logHealth: createLogger() as never,
+      logWsControl: createLogger() as never,
+    });
+
+    expect(onMessage).toBeDefined();
+
+    onMessage?.(
+      JSON.stringify({
+        type: "req",
+        id: "connect-1",
+        method: "connect",
+        params: {
+          minProtocol: PROTOCOL_VERSION,
+          maxProtocol: PROTOCOL_VERSION,
+          client: {
+            id: "openclaw-tui",
+            version: "dev",
+            platform: "test",
+            mode: "cli",
+          },
+          role: "operator",
+          scopes: ["operator.read"],
+          caps: [],
+        },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(socketSend).toHaveBeenCalled();
+    });
+
+    onMessage?.(
+      JSON.stringify({
+        type: "req",
+        id: "req-1",
+        method: "health",
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledWith({
+        type: "res",
+        id: "req-1",
+        ok: false,
+        payload: undefined,
+        error: {
+          code: "UNAVAILABLE",
+          message: "gateway request unavailable",
+        },
+      });
+    });
+
+    expect(send.mock.calls.at(-1)?.[0]).not.toEqual(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: expect.stringContaining("/Users/mark/.openclaw"),
+        }),
+      }),
+    );
+    expect(logGateway.error).toHaveBeenCalledWith(
+      expect.stringContaining("/Users/mark/.openclaw/credentials/provider-token.json"),
+    );
+  });
 });
 
 describe("resolvePinnedClientMetadata", () => {
@@ -404,7 +532,7 @@ describe("resolvePinnedClientMetadata", () => {
     "pins legacy node-host platform alias %s to paired canonical %s",
     (claimedPlatform, pairedPlatform) => {
       expect(
-        testing.resolvePinnedClientMetadata({
+        __testing.resolvePinnedClientMetadata({
           clientId: "node-host",
           clientMode: "node",
           claimedPlatform,
@@ -428,7 +556,7 @@ describe("resolvePinnedClientMetadata", () => {
     "pins canonical node-host platform %s over paired legacy alias %s",
     (claimedPlatform, pairedPlatform, deviceFamily) => {
       expect(
-        testing.resolvePinnedClientMetadata({
+        __testing.resolvePinnedClientMetadata({
           clientId: "node-host",
           clientMode: "node",
           claimedPlatform,
@@ -454,7 +582,7 @@ describe("resolvePinnedClientMetadata", () => {
     "allows %s platform version refresh without metadata-upgrade approval",
     (clientId, claimedPlatform, pairedPlatform, deviceFamily) => {
       expect(
-        testing.resolvePinnedClientMetadata({
+        __testing.resolvePinnedClientMetadata({
           clientId,
           clientMode: "node",
           claimedPlatform,
@@ -474,7 +602,7 @@ describe("resolvePinnedClientMetadata", () => {
 
   it("still requires approval when an iOS device family changes", () => {
     expect(
-      testing.resolvePinnedClientMetadata({
+      __testing.resolvePinnedClientMetadata({
         clientId: "openclaw-ios",
         clientMode: "node",
         claimedPlatform: "iOS 26.5.0",
@@ -493,7 +621,7 @@ describe("resolvePinnedClientMetadata", () => {
 
   it("keeps non-mobile platform version changes approval-bound", () => {
     expect(
-      testing.resolvePinnedClientMetadata({
+      __testing.resolvePinnedClientMetadata({
         clientId: "node-host",
         clientMode: "node",
         claimedPlatform: "linux 6.9",

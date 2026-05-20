@@ -21,6 +21,7 @@ import {
   trackConnectChallengeNonce,
   withGatewayServer,
 } from "./test-helpers.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 installGatewayTestHooks({ scope: "suite" });
 
@@ -46,7 +47,11 @@ const TRUSTED_PROXY_BROWSER_HEADERS = {
 const originForPort = (port: number) => `http://127.0.0.1:${port}`;
 
 const openWs = async (port: number, headers?: Record<string, string>) => {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`, headers ? { headers } : undefined);
+  const ws = new WebSocket(
+    `ws://127.0.0.1:${port}`,
+    [GATEWAY_WS_SUBPROTOCOL],
+    headers ? { headers } : undefined,
+  );
   trackConnectChallengeNonce(ws);
   await new Promise<void>((resolve) => ws.once("open", resolve));
   return ws;

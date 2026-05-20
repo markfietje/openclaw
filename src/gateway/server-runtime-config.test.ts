@@ -11,7 +11,7 @@ const TRUSTED_PROXY_AUTH = {
 
 const TOKEN_AUTH = {
   mode: "token" as const,
-  token: "test-token-123",
+  token: "a".repeat(32),
 };
 
 describe("resolveGatewayRuntimeConfig", () => {
@@ -115,10 +115,13 @@ describe("resolveGatewayRuntimeConfig", () => {
 
   describe("token/password auth modes", () => {
     let originalToken: string | undefined;
+    let originalDangerousNoAuth: string | undefined;
 
     beforeEach(() => {
       originalToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+      originalDangerousNoAuth = process.env.OPENCLAW_DANGEROUSLY_ALLOW_NO_AUTH;
       delete process.env.OPENCLAW_GATEWAY_TOKEN;
+      delete process.env.OPENCLAW_DANGEROUSLY_ALLOW_NO_AUTH;
     });
 
     afterEach(() => {
@@ -126,6 +129,11 @@ describe("resolveGatewayRuntimeConfig", () => {
         process.env.OPENCLAW_GATEWAY_TOKEN = originalToken;
       } else {
         delete process.env.OPENCLAW_GATEWAY_TOKEN;
+      }
+      if (originalDangerousNoAuth !== undefined) {
+        process.env.OPENCLAW_DANGEROUSLY_ALLOW_NO_AUTH = originalDangerousNoAuth;
+      } else {
+        delete process.env.OPENCLAW_DANGEROUSLY_ALLOW_NO_AUTH;
       }
     });
 
@@ -152,6 +160,22 @@ describe("resolveGatewayRuntimeConfig", () => {
       const result = await resolveGatewayRuntimeConfig({ cfg, port: 18789 });
       expect(result.authMode).toBe(expectedAuthMode);
       expect(result.bindHost).toBe(expectedBindHost);
+    });
+
+    it("allows non-loopback explicit none auth only with the dangerous env override", async () => {
+      process.env.OPENCLAW_DANGEROUSLY_ALLOW_NO_AUTH = "1";
+      const result = await resolveGatewayRuntimeConfig({
+        cfg: {
+          gateway: {
+            bind: "lan",
+            auth: { mode: "none" },
+            controlUi: { allowedOrigins: ["https://control.example.com"] },
+          },
+        },
+        port: 18789,
+      });
+      expect(result.authMode).toBe("none");
+      expect(result.bindHost).toBe("0.0.0.0");
     });
 
     it.each([

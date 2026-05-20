@@ -12,6 +12,7 @@ import {
   type RateLimitCheckResult,
 } from "./auth-rate-limit.js";
 import { type ResolvedGatewayAuth } from "./auth-resolve.js";
+import { isIpAllowed, type IpRestrictionConfig } from "./ip-restriction-policy.js";
 import {
   isLoopbackAddress,
   resolveLocalInterfaceAddressMatch,
@@ -83,6 +84,18 @@ export type AuthorizeGatewayConnectParams = {
     origin?: string;
     allowedOrigins?: string[];
     allowHostHeaderOriginFallback?: boolean;
+  };
+  /** IP restriction configuration for gateway access control. */
+  ipRestriction?: IpRestrictionConfig;
+  /** Optional audit logger for recording auth outcomes. */
+  auditLogger?: {
+    log(entry: {
+      event: string;
+      clientIp?: string;
+      method?: string;
+      reason?: string;
+      user?: string;
+    }): void;
   };
 };
 
@@ -397,6 +410,63 @@ function authorizePasswordAuth(params: {
   return { ok: true, method: "password" };
 }
 
+export type CredentialStrengthResult = {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+};
+
+/**
+ * Validate credential strength when the gateway is network-exposed.
+ * Direct loopback remains permissive; exposed binds reject clearly weak secrets.
+ */
+export function validateCredentialStrength(params: {
+  auth: ResolvedGatewayAuth;
+  isNetworkExposed: boolean;
+}): CredentialStrengthResult {
+  const { auth, isNetworkExposed } = params;
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (!isNetworkExposed) {
+    return { ok: true, errors, warnings };
+  }
+
+  // Import ResolvedGatewayAuth fields — token and password are optional
+  const authObj = auth as Record<string, unknown>;
+  const token = typeof authObj.token === "string" ? authObj.token : "";
+  const password = typeof authObj.password === "string" ? authObj.password : "";
+
+  if (auth.mode === "token" && token) {
+    if (token.length < 32) {
+      errors.push(
+        `gateway auth token is only ${token.length} characters; minimum 32 required for network-exposed gateways`,
+      );
+    }
+  }
+
+  if (auth.mode === "password" && password) {
+    if (password.length < 15) {
+      errors.push(
+        `gateway auth password is only ${password.length} characters; minimum 15 required for network-exposed gateways`,
+      );
+    }
+    if (/^\d+$/.test(password)) {
+      warnings.push("gateway auth password contains only digits — use a mix of character types");
+    } else if (/^[a-z]+$/.test(password)) {
+      warnings.push(
+        "gateway auth password contains only lowercase letters — use a mix of character types",
+      );
+    } else if (/^[A-Z]+$/.test(password)) {
+      warnings.push(
+        "gateway auth password contains only uppercase letters — use a mix of character types",
+      );
+    }
+  }
+
+  return { ok: errors.length === 0 && warnings.length === 0, errors, warnings };
+}
+
 export async function authorizeGatewayConnect(
   params: AuthorizeGatewayConnectParams,
 ): Promise<GatewayAuthResult> {
@@ -435,7 +505,7 @@ export async function authorizeGatewayConnect(
 async function authorizeGatewayConnectCore(
   params: AuthorizeGatewayConnectParams,
 ): Promise<GatewayAuthResult> {
-  const { auth, connectAuth, req, trustedProxies } = params;
+  const { auth, connectAuth, req, trustedProxies, auditLogger } = params;
   const tailscaleWhois = params.tailscaleWhois ?? readTailscaleWhoisIdentity;
   const authSurface = params.authSurface ?? "http";
   const allowTailscaleHeaderAuth = shouldAllowTailscaleHeaderAuth(authSurface);
@@ -445,6 +515,17 @@ async function authorizeGatewayConnectCore(
     resolveRequestClientIp(req, trustedProxies, params.allowRealIpFallback === true) ??
     req?.socket?.remoteAddress;
   const rateLimitScope = params.rateLimitScope ?? AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET;
+
+  // IP restriction check - fail fast for blocked IPs
+  // Must happen BEFORE auth mode checks to ensure IP restrictions apply regardless of auth mode
+  if (params.ipRestriction) {
+    if (!isIpAllowed(ip, params.ipRestriction)) {
+      params.rateLimiter?.recordFailure(ip, rateLimitScope);
+      auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: "ip_not_allowed" });
+      return { ok: false, reason: "ip_not_allowed" };
+    }
+  }
+
   const localDirect = isLocalDirectRequest(
     req,
     trustedProxies,
@@ -456,9 +537,19 @@ async function authorizeGatewayConnectCore(
     // forwarded chain; keep those on the trusted-proxy path so allowUsers and
     // requiredHeaders still apply.
     if (!auth.trustedProxy) {
+      auditLogger?.log({
+        event: "auth_failure",
+        clientIp: ip,
+        reason: "trusted_proxy_config_missing",
+      });
       return { ok: false, reason: "trusted_proxy_config_missing" };
     }
     if (!trustedProxies || trustedProxies.length === 0) {
+      auditLogger?.log({
+        event: "auth_failure",
+        clientIp: ip,
+        reason: "trusted_proxy_no_proxies_configured",
+      });
       return { ok: false, reason: "trusted_proxy_no_proxies_configured" };
     }
 
@@ -474,14 +565,22 @@ async function authorizeGatewayConnectCore(
         browserOriginPolicy: params.browserOriginPolicy,
       });
       if (originResult) {
+        auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: originResult.reason });
         return originResult;
       }
+      auditLogger?.log({
+        event: "auth_success",
+        clientIp: ip,
+        method: "trusted-proxy",
+        user: result.user,
+      });
       return { ok: true, method: "trusted-proxy", user: result.user };
     }
     if (localDirect && auth.password && connectAuth?.password) {
       if (limiter) {
         const rlCheck: RateLimitCheckResult = limiter.check(ip, rateLimitScope);
         if (!rlCheck.allowed) {
+          auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: "rate_limited" });
           return {
             ok: false,
             reason: "rate_limited",
@@ -490,24 +589,46 @@ async function authorizeGatewayConnectCore(
           };
         }
       }
-      return authorizePasswordAuth({
+      const trustedProxyPasswordResult = authorizePasswordAuth({
         authPassword: auth.password,
         connectPassword: connectAuth.password,
         limiter,
         ip,
         rateLimitScope,
       });
+      if (trustedProxyPasswordResult.ok) {
+        auditLogger?.log({
+          event: "auth_success",
+          clientIp: ip,
+          method: trustedProxyPasswordResult.method,
+          user: trustedProxyPasswordResult.user,
+        });
+      } else {
+        auditLogger?.log({
+          event: "auth_failure",
+          clientIp: ip,
+          reason: trustedProxyPasswordResult.reason,
+        });
+      }
+      return trustedProxyPasswordResult;
     }
+    auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: result.reason });
     return { ok: false, reason: result.reason };
   }
 
   if (auth.mode === "none") {
+    if (auth.dangerouslyAllowNoAuth !== true && req && !localDirect) {
+      auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: "no_auth_not_allowed" });
+      return { ok: false, reason: "no_auth_not_allowed" };
+    }
+    auditLogger?.log({ event: "auth_success", clientIp: ip, method: "none" });
     return { ok: true, method: "none" };
   }
 
   if (limiter) {
     const rlCheck: RateLimitCheckResult = limiter.check(ip, rateLimitScope);
     if (!rlCheck.allowed) {
+      auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: "rate_limited" });
       return {
         ok: false,
         reason: "rate_limited",
@@ -529,6 +650,12 @@ async function authorizeGatewayConnectCore(
     });
     if (tailscaleCheck.ok) {
       limiter?.reset(ip, rateLimitScope);
+      auditLogger?.log({
+        event: "auth_success",
+        clientIp: ip,
+        method: "tailscale",
+        user: tailscaleCheck.user.login,
+      });
       return {
         ok: true,
         method: "tailscale",
@@ -538,26 +665,49 @@ async function authorizeGatewayConnectCore(
   }
 
   if (auth.mode === "token") {
-    return authorizeTokenAuth({
+    const tokenResult = authorizeTokenAuth({
       authToken: auth.token,
       connectToken: connectAuth?.token,
       limiter,
       ip,
       rateLimitScope,
     });
+    if (tokenResult.ok) {
+      auditLogger?.log({
+        event: "auth_success",
+        clientIp: ip,
+        method: tokenResult.method,
+        user: tokenResult.user,
+      });
+    } else {
+      auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: tokenResult.reason });
+    }
+    return tokenResult;
   }
 
   if (auth.mode === "password") {
-    return authorizePasswordAuth({
+    const passwordResult = authorizePasswordAuth({
       authPassword: auth.password,
       connectPassword: connectAuth?.password,
       limiter,
       ip,
       rateLimitScope,
     });
+    if (passwordResult.ok) {
+      auditLogger?.log({
+        event: "auth_success",
+        clientIp: ip,
+        method: passwordResult.method,
+        user: passwordResult.user,
+      });
+    } else {
+      auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: passwordResult.reason });
+    }
+    return passwordResult;
   }
 
   limiter?.recordFailure(ip, rateLimitScope);
+  auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: "unauthorized" });
   return { ok: false, reason: "unauthorized" };
 }
 

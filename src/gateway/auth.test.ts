@@ -286,6 +286,46 @@ describe("gateway auth", () => {
     expect(res.method).toBe("none");
   });
 
+  it("rejects explicit auth mode none for non-loopback requests unless dangerous override is enabled", async () => {
+    const res = await authorizeGatewayConnect({
+      auth: { mode: "none", allowTailscale: false },
+      connectAuth: null,
+      req: {
+        socket: { remoteAddress: "192.0.2.10" },
+        headers: {},
+      } as never,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("no_auth_not_allowed");
+
+    const allowed = await authorizeGatewayConnect({
+      auth: { mode: "none", allowTailscale: false, dangerouslyAllowNoAuth: true },
+      connectAuth: null,
+      req: {
+        socket: { remoteAddress: "192.0.2.10" },
+        headers: {},
+      } as never,
+    });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.method).toBe("none");
+  });
+
+  it("resolves dangerous no-auth override only from explicit env flag", () => {
+    expect(
+      resolveGatewayAuth({
+        authConfig: { mode: "none" },
+        env: {} as NodeJS.ProcessEnv,
+      }),
+    ).not.toHaveProperty("dangerouslyAllowNoAuth");
+
+    expect(
+      resolveGatewayAuth({
+        authConfig: { mode: "none" },
+        env: { OPENCLAW_DANGEROUSLY_ALLOW_NO_AUTH: "1" } as NodeJS.ProcessEnv,
+      }),
+    ).toMatchObject({ dangerouslyAllowNoAuth: true });
+  });
+
   it("keeps none mode authoritative even when token is present", async () => {
     const auth = resolveGatewayAuth({
       authConfig: { mode: "none", token: "configured-token" },

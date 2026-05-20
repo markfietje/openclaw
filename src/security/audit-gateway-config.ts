@@ -369,14 +369,15 @@ export function collectGatewayConfigFindings(
 
   if (bind !== "loopback" && auth.mode !== "trusted-proxy" && !cfg.gateway?.auth?.rateLimit) {
     findings.push({
-      checkId: "gateway.auth_no_rate_limit",
-      severity: "warn",
-      title: "No auth rate limiting configured",
+      checkId: "gateway.auth_rate_limit_default",
+      severity: "info",
+      title: "Auth rate limiting using default values",
       detail:
-        "gateway.bind is not loopback but no gateway.auth.rateLimit is configured. " +
-        "Without rate limiting, brute-force auth attacks are not mitigated.",
+        "gateway.auth.rateLimit is not explicitly configured. " +
+        "Default values are active (10 attempts / 60s window / 5min lockout).",
       remediation:
-        "Set gateway.auth.rateLimit (e.g. { maxAttempts: 10, windowMs: 60000, lockoutMs: 300000 }).",
+        "Consider tuning gateway.auth.rateLimit for your environment " +
+        "(e.g., { maxAttempts: 5, windowMs: 60000, lockoutMs: 300000 }).",
     });
   }
 

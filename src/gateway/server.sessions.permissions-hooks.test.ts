@@ -19,6 +19,7 @@ import {
   createCheckpointFixture,
   isInternalHookEvent,
 } from "./test/server-sessions.test-helpers.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 const { createSessionStoreDir, openClient, getHarness } = setupGatewaySessionsTestHarness();
 
@@ -74,7 +75,7 @@ test("webchat clients cannot patch, delete, compact, or restore sessions", async
     },
   });
 
-  const ws = new WebSocket(`ws://127.0.0.1:${getHarness().port}`, {
+  const ws = new WebSocket(`ws://127.0.0.1:${getHarness().port}`, [GATEWAY_WS_SUBPROTOCOL], {
     headers: { origin: `http://127.0.0.1:${getHarness().port}` },
   });
   trackConnectChallengeNonce(ws);
@@ -169,7 +170,7 @@ test("session:patch hook does not fire for webchat clients", async () => {
 
   sessionHookMocks.triggerInternalHook.mockClear();
 
-  const ws = new WebSocket(`ws://127.0.0.1:${getHarness().port}`, {
+  const ws = new WebSocket(`ws://127.0.0.1:${getHarness().port}`, [GATEWAY_WS_SUBPROTOCOL], {
     headers: { origin: `http://127.0.0.1:${getHarness().port}` },
   });
   trackConnectChallengeNonce(ws);
@@ -316,7 +317,7 @@ test("control-ui client can delete sessions even in webchat mode", async () => {
     },
   });
 
-  const ws = new WebSocket(`ws://127.0.0.1:${getHarness().port}`, {
+  const ws = new WebSocket(`ws://127.0.0.1:${getHarness().port}`, [GATEWAY_WS_SUBPROTOCOL], {
     headers: { origin: `http://127.0.0.1:${getHarness().port}` },
   });
   trackConnectChallengeNonce(ws);

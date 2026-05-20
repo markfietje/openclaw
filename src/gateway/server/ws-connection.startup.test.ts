@@ -11,6 +11,8 @@ import {
 } from "../protocol/startup-unavailable.js";
 import { attachGatewayWsConnectionHandler } from "./ws-connection.js";
 
+const REQUIRED_SUBPROTOCOL = "openclaw-gateway-v1";
+
 function createLogger() {
   return {
     debug: vi.fn(),
@@ -53,8 +55,9 @@ describe("attachGatewayWsConnectionHandler startup readiness", () => {
       }),
     });
     const upgradeReq = {
-      headers: { host: "127.0.0.1:19001" },
+      headers: { host: "127.0.0.1:19001", "sec-websocket-protocol": REQUIRED_SUBPROTOCOL },
       socket: { localAddress: "127.0.0.1" },
+      url: "/gateway",
     };
     const logWsControl = createLogger();
 
@@ -79,6 +82,7 @@ describe("attachGatewayWsConnectionHandler startup readiness", () => {
     const onConnection = listeners.get("connection");
     expect(onConnection).toBeTypeOf("function");
     onConnection?.(socket, upgradeReq);
+    await vi.dynamicImportSettled();
     socket.emit(
       "message",
       JSON.stringify({
@@ -100,6 +104,7 @@ describe("attachGatewayWsConnectionHandler startup readiness", () => {
         },
       }),
     );
+    await vi.dynamicImportSettled();
 
     await vi.waitFor(() => {
       expect(

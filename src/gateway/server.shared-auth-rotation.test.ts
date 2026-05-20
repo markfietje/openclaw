@@ -17,6 +17,7 @@ import {
   testState,
   trackConnectChallengeNonce,
 } from "./test-helpers.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 installGatewayTestHooks({ scope: "suite" });
 
@@ -64,7 +65,7 @@ async function openDeviceTokenWs(): Promise<WebSocket> {
   });
   expect(rotated.ok).toBe(true);
 
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL]);
   trackConnectChallengeNonce(ws);
   await new Promise<void>((resolve) => ws.once("open", resolve));
   await connectOk(ws, {

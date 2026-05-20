@@ -441,7 +441,7 @@ function createGatewayAuthRateLimiters(rateLimitConfig: AuthRateLimitConfig | un
   rateLimiter?: AuthRateLimiter;
   browserRateLimiter: AuthRateLimiter;
 } {
-  const rateLimiter = rateLimitConfig ? createAuthRateLimiter(rateLimitConfig) : undefined;
+  const rateLimiter = createAuthRateLimiter(rateLimitConfig);
   // Browser-origin WS auth attempts always use loopback-non-exempt throttling.
   const browserRateLimiter = createAuthRateLimiter({
     ...rateLimitConfig,
@@ -750,6 +750,12 @@ export async function startGatewayServer(
     tailscaleConfig,
     tailscaleMode,
   } = runtimeConfig;
+
+  // Log startup security warnings (credential strength, TLS enforcement).
+  for (const warning of runtimeConfig.startupWarnings ?? []) {
+    log.warn(warning);
+  }
+
   const getResolvedAuth = () =>
     resolveGatewayAuth({
       authConfig:
@@ -796,6 +802,17 @@ export async function startGatewayServer(
   const rateLimitConfig = cfgAtStart.gateway?.auth?.rateLimit;
   const { rateLimiter: authRateLimiter, browserRateLimiter: browserAuthRateLimiter } =
     createGatewayAuthRateLimiters(rateLimitConfig);
+
+  // Create auth audit logger for structured forensics.
+  const { createAuthAuditLogger } = await import("./auth-audit-log.js");
+  const authAuditLogger = createAuthAuditLogger();
+
+  // Create tool audit logger for structured tool call forensics.
+  const { createToolAuditLogger } = await import("./tool-audit.js");
+  const { readGatewayToken } = await import("../config/io.hmac-integrity.js");
+  const toolAuditLogger = createToolAuditLogger({
+    token: readGatewayToken() ?? undefined,
+  });
 
   const controlUiRootState = await startupTrace.measure("control-ui.root", () =>
     resolveGatewayControlUiRootState({
@@ -846,6 +863,27 @@ export async function startGatewayServer(
       isTruthyEnvValue(process.env.OPENCLAW_SKIP_CHANNELS) ||
       isTruthyEnvValue(process.env.OPENCLAW_SKIP_PROVIDERS),
   });
+
+  // Run startup security checks (TLS enforcement, credential strength, bind address).
+  const { runStartupSecurityChecks } = await import("./startup-security-checks.js");
+  const { isLoopbackHost } = await import("./net.js");
+  const securityFindings = runStartupSecurityChecks({
+    isNetworkExposed: bindHost ? !isLoopbackHost(bindHost) : true,
+    hasTls: gatewayTls.enabled,
+    terminatedUpstream: cfgAtStart.gateway?.tls?.terminatedUpstream ?? false,
+    authMode: resolvedAuth.mode,
+    bindAddress: bindHost,
+    tokenLength: resolvedAuth.token?.length,
+    passwordLength: resolvedAuth.password?.length,
+  });
+  for (const finding of securityFindings) {
+    if (finding.severity === "critical") {
+      log.warn(`[CRITICAL] ${finding.id}: ${finding.message}`);
+    } else {
+      log.info(`[security] ${finding.id}: ${finding.message}`);
+    }
+  }
+
   log.info("starting HTTP server...");
   let currentPluginRegistryGatewayContext: GatewayRequestContext | undefined;
   const {
@@ -869,6 +907,8 @@ export async function startGatewayServer(
     removeChatRun,
     chatAbortControllers,
     toolEventRecipients,
+    connectionRateLimiter,
+    authenticatedConnectionBudget,
   } = await startupTrace.measure("runtime.state", () =>
     createGatewayRuntimeState({
       cfg: cfgAtStart,
@@ -884,6 +924,8 @@ export async function startGatewayServer(
       strictTransportSecurityHeader,
       resolvedAuth,
       rateLimiter: authRateLimiter,
+      authAuditLogger,
+      toolAuditLogger,
       gatewayTls,
       getResolvedAuth,
       hooksConfig: () => runtimeState?.hooksConfig ?? initialHooksConfig,
@@ -948,6 +990,8 @@ export async function startGatewayServer(
   const runClosePrelude = async () => {
     markClosePreludeStarted();
     clearCurrentPluginMetadataSnapshot();
+    await authAuditLogger.flush();
+    await toolAuditLogger.flush();
     const { runGatewayClosePrelude } = await loadGatewayCloseModule();
     await runGatewayClosePrelude({
       ...(diagnosticsEnabled ? { stopDiagnostics: stopDiagnosticHeartbeat } : {}),
@@ -961,6 +1005,8 @@ export async function startGatewayServer(
       skillsChangeUnsub: runtimeState.skillsChangeUnsub,
       ...(authRateLimiter ? { disposeAuthRateLimiter: () => authRateLimiter.dispose() } : {}),
       disposeBrowserAuthRateLimiter: () => browserAuthRateLimiter.dispose(),
+      disposeConnectionRateLimiter: () => connectionRateLimiter.dispose(),
+      disposeAuthenticatedConnectionBudget: () => authenticatedConnectionBudget.dispose(),
       stopModelPricingRefresh: runtimeState.stopModelPricingRefresh,
       stopChannelHealthMonitor: () => runtimeState?.channelHealthMonitor?.stop(),
       stopReadinessEventLoopHealth: readinessEventLoopHealth.stop,
@@ -1432,6 +1478,7 @@ export async function startGatewayServer(
       wss,
       clients,
       preauthConnectionBudget,
+      authenticatedConnectionBudget,
       port,
       gatewayHost: bindHost ?? undefined,
       pluginSurfaceScheme,
@@ -1453,6 +1500,7 @@ export async function startGatewayServer(
       getMethodRegistry: () => attachedGatewayMethodRegistry,
       broadcast,
       context: gatewayRequestContext,
+      toolAuditLogger,
     });
     await startListening();
     startupTrace.mark("http.bound");

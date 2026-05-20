@@ -94,7 +94,9 @@ describe("security audit gateway config findings", () => {
           },
         };
         const findings = collectGatewayConfigFindings(cfg, cfg, {});
-        expect(hasFindingWithSeverity("gateway.auth_no_rate_limit", "warn", findings)).toBe(true);
+        expect(hasFindingWithSeverity("gateway.auth_rate_limit_default", "info", findings)).toBe(
+          true,
+        );
       })(),
       (async () => {
         const cfg: OpenClawConfig = {
@@ -107,7 +109,7 @@ describe("security audit gateway config findings", () => {
           },
         };
         const findings = collectGatewayConfigFindings(cfg, cfg, {});
-        expect(hasFinding("gateway.auth_no_rate_limit", findings)).toBe(false);
+        expect(hasFinding("gateway.auth_rate_limit_default", findings)).toBe(false);
       })(),
     ]);
   });

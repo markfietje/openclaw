@@ -440,7 +440,7 @@ describe("security audit gateway exposure findings", () => {
       if (testCase.suppressesGenericSharedSecretFindings) {
         const checkIds = findings.map((finding) => finding.checkId);
         expect(checkIds).not.toContain("gateway.bind_no_auth");
-        expect(checkIds).not.toContain("gateway.auth_no_rate_limit");
+        expect(checkIds).not.toContain("gateway.auth_rate_limit_default");
       }
     }
   });

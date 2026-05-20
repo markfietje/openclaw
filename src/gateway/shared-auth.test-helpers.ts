@@ -1,13 +1,14 @@
 import { expect } from "vitest";
 import { WebSocket } from "ws";
 import { connectOk, rpcReq, trackConnectChallengeNonce } from "./test-helpers.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "./ws-protocol.js";
 
 export async function openAuthenticatedGatewayWs(
   port: number,
   token: string,
   timeoutMs = 10_000,
 ): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`, [GATEWAY_WS_SUBPROTOCOL]);
   trackConnectChallengeNonce(ws);
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
