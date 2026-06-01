@@ -260,6 +260,12 @@
       "@openclaw/gateway-security-core/ip-restriction-policy": [
         "../dist/plugin-sdk/packages/gateway-security-core/src/ip-restriction-policy.d.ts"
       ],
+      "@openclaw/gateway-security-core/ws-endpoint": [
+        "../dist/plugin-sdk/packages/gateway-security-core/src/ws-endpoint.d.ts"
+      ],
+      "@openclaw/gateway-security-core/ws-protocol": [
+        "../dist/plugin-sdk/packages/gateway-security-core/src/ws-protocol.d.ts"
+      ],
       "@openclaw/acp-core": [
         "../dist/plugin-sdk/packages/acp-core/src/index.d.ts"
       ],

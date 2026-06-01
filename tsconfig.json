@@ -73,6 +73,12 @@
       "@openclaw/gateway-security-core/ip-restriction-policy": [
         "./packages/gateway-security-core/src/ip-restriction-policy.ts"
       ],
+      "@openclaw/gateway-security-core/ws-endpoint": [
+        "./packages/gateway-security-core/src/ws-endpoint.ts"
+      ],
+      "@openclaw/gateway-security-core/ws-protocol": [
+        "./packages/gateway-security-core/src/ws-protocol.ts"
+      ],
       "@openclaw/media-generation-core": ["./packages/media-generation-core/src/index.ts"],
       "@openclaw/media-generation-core/capability-model-ref": [
         "./packages/media-generation-core/src/capability-model-ref.ts"

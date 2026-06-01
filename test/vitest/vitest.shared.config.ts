@@ -434,6 +434,26 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: "@openclaw/gateway-security-core/ws-endpoint",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "ws-endpoint.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/ws-protocol",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "ws-protocol.ts",
+        ),
+      },
+      {
         find: "@openclaw/gateway-security-core",
         replacement: path.join(repoRoot, "packages", "gateway-security-core", "src", "index.ts"),
       },
