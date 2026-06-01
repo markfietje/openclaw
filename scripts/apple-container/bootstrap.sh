@@ -254,8 +254,8 @@ cmd_install() {
     --init \
     "$IMAGE" \
     sh -c "
-      if [ -f /app/dist/cli.js ]; then
-        node /app/dist/cli.js gateway --host 0.0.0.0 --port 18789 --token \"\$(cat /token-key/token 2>/dev/null || true)\"
+      if [ -f /app/openclaw.mjs ]; then
+        exec node /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 --token \"\$(cat /token-key/token 2>/dev/null || true)\"
       else
         echo 'Gateway not found in image.' && exit 1
       fi
@@ -388,8 +388,8 @@ cmd_upgrade() {
     --init \
     "$IMAGE" \
     sh -c "
-      if [ -f /app/dist/cli.js ]; then
-        node /app/dist/cli.js gateway --host 0.0.0.0 --port 18789 --token \"\$(cat /token-key/token 2>/dev/null || true)\"
+      if [ -f /app/openclaw.mjs ]; then
+        exec node /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 --token \"\$(cat /token-key/token 2>/dev/null || true)\"
       else
         echo 'Gateway not found in image.' && exit 1
       fi
