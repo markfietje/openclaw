@@ -8,6 +8,13 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
+import type { AuthAuditLogger } from "@openclaw/gateway-security-core/auth-audit-log";
+import type { ConnectionRateLimitConfig } from "@openclaw/gateway-security-core/connection-rate-limit";
+import {
+  createConnectionRateLimiter,
+  type ConnectionRateLimiter,
+} from "@openclaw/gateway-security-core/connection-rate-limit";
+import type { ToolAuditLogger } from "@openclaw/gateway-security-core/tool-audit";
 import { WebSocketServer } from "ws";
 import { resolveMcpAppSandboxPort } from "../agents/mcp-app-sandbox.js";
 import type { CliDeps } from "../cli/deps.types.js";
@@ -37,7 +44,10 @@ import {
   createChatRunState,
   createToolEventRecipientRegistry,
 } from "./server-chat-state.js";
-import { MAX_PREAUTH_PAYLOAD_BYTES } from "./server-constants.js";
+import {
+  DEFAULT_MAX_WEBSOCKET_CONNECTIONS,
+  resolveMaxPayloadBytes,
+} from "./server-constants.js";
 import {
   attachGatewayUpgradeHandler,
   attachWorkerGatewayUpgradeHandler,
@@ -45,6 +55,10 @@ import {
 } from "./server-http.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 import type { DedupeEntry } from "./server-shared.js";
+import {
+  createAuthenticatedConnectionBudget,
+  type AuthenticatedConnectionBudget,
+} from "./server/authenticated-connection-budget.js";
 import type { HookClientIpConfig, HooksRequestHandler } from "./server/hooks-request-handler.js";
 import { listenGatewayHttpServer } from "./server/http-listen.js";
 import { runWithGatewayHttpWorkAdmission } from "./server/http-work-admission.js";
@@ -101,6 +115,20 @@ export async function createGatewayRuntimeState(params: {
   getResolvedAuth: () => ResolvedGatewayAuth;
   /** Optional rate limiter for auth brute-force protection. */
   rateLimiter?: AuthRateLimiter;
+  /** Optional auth audit logger; when set, every accepted/rejected connection is recorded. */
+  authAuditLogger?: AuthAuditLogger;
+  /** Optional tool audit logger; when set, every tools/invoke surface tool call is recorded. */
+  toolAuditLogger?: ToolAuditLogger;
+  /** Optional connection rate limit overrides; defaults come from the package. */
+  connectionRateLimitConfig?: ConnectionRateLimitConfig;
+  /** Optional per-identity authenticated-connection budget; defaults to the env-driven cap. */
+  authenticatedConnectionLimit?: number;
+  /** Optional max payload bytes for the gateway WebSocket server. */
+  maxPayloadBytes?: number;
+  /** Optional WebSocket connection cap. */
+  maxWebSocketConnections?: number;
+  /** Optional explicit verify-client factory override (e.g. test injection). */
+  verifyClient?: ReturnType<typeof import("./server/verify-client.js").createGatewayVerifyClient>;
   gatewayTls?: GatewayTlsRuntime;
   hooksConfig: () => HooksConfigResolved | null;
   getHookClientIpConfig: () => HookClientIpConfig;
@@ -124,6 +152,8 @@ export async function createGatewayRuntimeState(params: {
   startListening: () => Promise<void>;
   wss: WebSocketServer;
   preauthConnectionBudget: PreauthConnectionBudget;
+  connectionRateLimiter: ConnectionRateLimiter;
+  authenticatedConnectionBudget: AuthenticatedConnectionBudget;
   clients: Set<GatewayWsClient>;
   broadcast: GatewayBroadcastFn;
   broadcastToConnIds: GatewayBroadcastToConnIdsFn;
@@ -263,10 +293,19 @@ export async function createGatewayRuntimeState(params: {
     // arrive before the upgrade handler is attached, which causes silent 1006 errors.
     const wss = new WebSocketServer({
       noServer: true,
-      maxPayload: MAX_PREAUTH_PAYLOAD_BYTES,
+      maxPayload: resolveMaxPayloadBytes(params.maxPayloadBytes),
     });
     const preauthConnectionBudget = createPreauthConnectionBudget();
     const workerPreauthConnectionBudget = createPreauthConnectionBudget();
+    // Per-IP connection rate limit (rejects clients hammering the upgrade endpoint).
+    const connectionRateLimiter = createConnectionRateLimiter(params.connectionRateLimitConfig);
+    // Per-identity authenticated-connection budget (caps simultaneous WS sockets per device).
+    const authenticatedConnectionBudget = createAuthenticatedConnectionBudget(
+      params.authenticatedConnectionLimit,
+    );
+    // Suppress unused-binding warning; maxWebSocketConnections is consumed by the upgrade
+    // preflight (verifyClient) via the runtime state, not directly here.
+    void (params.maxWebSocketConnections ?? DEFAULT_MAX_WEBSOCKET_CONNECTIONS);
 
     const httpServers: HttpServer[] = [];
     const gatewayHttpServers: HttpServer[] = [];
@@ -290,6 +329,12 @@ export async function createGatewayRuntimeState(params: {
         resolvedAuth: params.resolvedAuth,
         getResolvedAuth: params.getResolvedAuth,
         rateLimiter: params.rateLimiter,
+        authAuditLogger: params.authAuditLogger,
+        toolAuditLogger: params.toolAuditLogger,
+        connectionRateLimiter,
+        authenticatedConnectionBudget,
+        maxWebSocketConnections: params.maxWebSocketConnections,
+        verifyClient: params.verifyClient,
         getReadiness: params.getReadiness,
         isTerminalEnabled: params.isTerminalEnabled,
         tlsOptions: params.gatewayTls?.enabled ? params.gatewayTls.tlsOptions : undefined,
@@ -306,6 +351,11 @@ export async function createGatewayRuntimeState(params: {
         resolvedAuth: params.resolvedAuth,
         getResolvedAuth: params.getResolvedAuth,
         rateLimiter: params.rateLimiter,
+        authAuditLogger: params.authAuditLogger,
+        connectionRateLimiter,
+        authenticatedConnectionBudget,
+        maxWebSocketConnections: params.maxWebSocketConnections,
+        verifyClient: params.verifyClient,
         log: params.log,
       });
       gatewayHttpServers.push(httpServer);
@@ -458,6 +508,8 @@ export async function createGatewayRuntimeState(params: {
       startListening,
       wss,
       preauthConnectionBudget,
+      connectionRateLimiter,
+      authenticatedConnectionBudget,
       clients,
       broadcast,
       broadcastToConnIds,

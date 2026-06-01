@@ -613,6 +613,14 @@ export async function runGatewayClosePrelude(params: {
   skillsChangeUnsub?: () => void;
   disposeAuthRateLimiter?: () => void;
   disposeBrowserAuthRateLimiter: () => void;
+  /** Dispose the per-IP connection rate limiter (drops per-IP tracking). */
+  disposeConnectionRateLimiter?: () => void;
+  /** Dispose the per-identity authenticated-connection budget. */
+  disposeAuthenticatedConnectionBudget?: () => void;
+  /** Flush any pending auth audit log entries to disk. */
+  flushAuthAudit?: () => Promise<void>;
+  /** Flush any pending tool audit log entries to disk. */
+  flushToolAudit?: () => Promise<void>;
   stopModelPricingRefresh?: () => void;
   stopChannelHealthMonitor?: () => Promise<void>;
   stopReadinessEventLoopHealth?: () => void;
@@ -624,6 +632,10 @@ export async function runGatewayClosePrelude(params: {
   params.skillsChangeUnsub?.();
   params.disposeAuthRateLimiter?.();
   params.disposeBrowserAuthRateLimiter();
+  params.disposeConnectionRateLimiter?.();
+  params.disposeAuthenticatedConnectionBudget?.();
+  await params.flushAuthAudit?.().catch(() => {});
+  await params.flushToolAudit?.().catch(() => {});
   params.stopModelPricingRefresh?.();
   await params.stopChannelHealthMonitor?.();
   params.stopReadinessEventLoopHealth?.();
