@@ -471,6 +471,40 @@ export const sharedVitestConfig = {
         find: /^@openclaw\/normalization-core$/u,
         replacement: path.join(repoRoot, "packages", "normalization-core", "src", "index.ts"),
       },
+      {
+        find: "@openclaw/gateway-security-core/capabilities",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "capabilities.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/device-session-authority",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "device-session-authority.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/ip-restriction-policy",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "ip-restriction-policy.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core",
+        replacement: path.join(repoRoot, "packages", "gateway-security-core", "src", "index.ts"),
+      },
       sourcePackageAlias("markdown-core", "code-spans"),
       sourcePackageAlias("markdown-core", "fences"),
       sourcePackageAlias("media-core", "base64"),
