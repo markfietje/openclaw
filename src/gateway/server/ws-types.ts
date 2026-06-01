@@ -1,7 +1,7 @@
 // Gateway WebSocket client types describe authenticated client state retained by the server.
+import type { DeviceSessionAuthoritySnapshot } from "@openclaw/gateway-security-core/device-session-authority";
 import type { WebSocket } from "ws";
 import type { ConnectParams } from "../../../packages/gateway-protocol/src/index.js";
-import type { DeviceSessionAuthoritySnapshot } from "../device-session-authority.js";
 import type { PluginNodeCapabilityClient } from "../plugin-node-capability.js";
 
 /**
