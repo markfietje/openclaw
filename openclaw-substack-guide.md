@@ -92,10 +92,11 @@ bash <(curl -fsSL https://raw.githubusercontent.com/markfietje/openclaw/main/scr
 |                  | Details                                                                      |
 | ---------------- | ---------------------------------------------------------------------------- |
 | **Image size**   | ~185 MB download (production-only deps, no source maps, no type definitions) |
-| **Idle memory**  | ~80–120 MB RSS (Node.js 24, heap capped at 256 MB)                           |
+| **Idle memory**  | ~80–120 MB RSS (Node.js 24)                                                  |
 | **Under load**   | ~200–300 MB RSS (streaming, tool calls, multiple agents)                     |
 | **Base image**   | `node:24-bookworm-slim`                                                      |
 | **Exposed port** | 18789 (localhost only)                                                       |
+| **JS runtime**   | Node.js 24 (default) or Bun (opt-in via `--runtime bun`)                     |
 
 ### Security
 
@@ -104,14 +105,24 @@ The container is hardened by default — these aren't optional toggles, they're 
 - **Read-only filesystem** — nothing can modify the container image at runtime
 - **All Linux capabilities dropped** (`--cap-drop ALL`) — zero kernel capabilities
 - **Non-root process** — runs as `node` user, never root
-- **Strict file permissions** — `umask 0027`, credentials directory `0700`
-- **Gateway token in macOS Keychain** — not stored on disk, resolved at runtime via a localhost bridge
+- **Strict file permissions** — `umask 077`, credentials directory `0700`
+- **Gateway token in macOS Keychain** — stored in the login keychain, never on disk in the image
 - **Outbound redaction** — API keys, tokens, private keys, and passwords are stripped from AI responses before they reach you
 - **Exec filesystem policy** — sandbox-aware tool access control prevents agents from reading `.env`, SSH keys, or credential files
 - **Encrypted credential storage** — AES-256-GCM for API keys and channel tokens at rest
 - **Auth audit logging** — HMAC-authenticated, tamper-evident audit trail
 - **Connection rate limiting** — 30 connections per 10 seconds per IP
 - **IP allowlist/blocklist** — CIDR-aware access control
+
+### Two install paths
+
+The one-liner above is the **lite installer** (single file, easy to audit). It
+stages the gateway token in a container volume that the gateway reads at
+startup. For production / shared-host use, the repo also ships a
+**full setup** (`scripts/apple-container/setup.sh` + `run.sh`) that delivers
+the token over a host-side Keychain bridge on localhost, so the token
+never sits on disk. Both paths share the same container hardening
+(`--read-only`, `--cap-drop ALL`, non-root, 127.0.0.1-only port).
 
 ## What is OpenClaw?
 
