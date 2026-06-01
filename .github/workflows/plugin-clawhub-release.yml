@@ -294,13 +294,12 @@ jobs:
             echo "Direct Plugin ClawHub Release dispatch; relying on this workflow's clawhub-plugin-release environment approval."
             exit 0
           fi
-          direct_recovery=false
           if [[ "${GITHUB_ACTOR}" != "github-actions[bot]" ]]; then
-            direct_recovery=true
-            echo "Direct Plugin ClawHub Release recovery with release_publish_run_id; relying on this workflow's clawhub-plugin-release environment approval."
+            echo "Plugin ClawHub publish must be dispatched by the OpenClaw Release Publish workflow, not directly by ${GITHUB_ACTOR}." >&2
+            exit 1
           fi
           RUN_JSON="$(gh run view "$RELEASE_PUBLISH_RUN_ID" --repo "$GITHUB_REPOSITORY" --json workflowName,headBranch,event,status,conclusion,url)"
-          printf '%s' "$RUN_JSON" | DIRECT_RELEASE_RECOVERY="${direct_recovery}" node scripts/validate-release-publish-approval.mjs
+          printf '%s' "$RUN_JSON" | node -e 'const fs = require("node:fs"); const run = JSON.parse(fs.readFileSync(0, "utf8")); const checks = [["workflowName", "OpenClaw Release Publish"], ["headBranch", process.env.EXPECTED_WORKFLOW_BRANCH], ["event", "workflow_dispatch"]]; for (const [key, expected] of checks) { if (run[key] !== expected) { console.error(`Referenced release publish run ${process.env.RELEASE_PUBLISH_RUN_ID} must have ${key}=${expected}, got ${run[key] ?? "<missing>"}.`); process.exit(1); } } if (run.status !== "in_progress") { console.error(`Referenced release publish run ${process.env.RELEASE_PUBLISH_RUN_ID} must still be in_progress, got ${run.status ?? "<missing>"}.`); process.exit(1); } if (run.conclusion) { console.error(`Referenced release publish run ${process.env.RELEASE_PUBLISH_RUN_ID} already concluded ${run.conclusion}.`); process.exit(1); } console.log(`Using release publish approval run ${process.env.RELEASE_PUBLISH_RUN_ID}: ${run.url}`);'
 
   pack_plugins_clawhub_artifacts:
     needs: [preview_plugins_clawhub, validate_release_publish_approval]
@@ -351,6 +350,68 @@ jobs:
           EOF
           chmod +x "${RUNNER_TEMP}/clawhub"
           echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Write ClawHub token config
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+          CLAWHUB_REGISTRY: ${{ env.CLAWHUB_REGISTRY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CLAWHUB_TOKEN}" ]]; then
+            echo "No CLAWHUB_TOKEN secret configured; publish will rely on GitHub OIDC trusted publishing."
+            exit 0
+          fi
+          node --input-type=module <<'EOF'
+          import { writeFileSync } from "node:fs";
+          import { join } from "node:path";
+
+          const path = join(process.env.RUNNER_TEMP, "clawhub-config.json");
+          writeFileSync(
+            path,
+            `${JSON.stringify(
+              {
+                registry: process.env.CLAWHUB_REGISTRY,
+                token: process.env.CLAWHUB_TOKEN,
+              },
+              null,
+              2,
+            )}\n`,
+          );
+          console.log(path);
+          EOF
+          echo "CLAWHUB_CONFIG_PATH=${RUNNER_TEMP}/clawhub-config.json" >> "$GITHUB_ENV"
+
+      - name: Ensure version is not already published
+        env:
+          PACKAGE_NAME: ${{ matrix.plugin.packageName }}
+          PACKAGE_VERSION: ${{ matrix.plugin.version }}
+          CLAWHUB_REGISTRY: ${{ env.CLAWHUB_REGISTRY }}
+        run: |
+          set -euo pipefail
+          encoded_name="$(node -e 'console.log(encodeURIComponent(process.env.PACKAGE_NAME ?? ""))')"
+          encoded_version="$(node -e 'console.log(encodeURIComponent(process.env.PACKAGE_VERSION ?? ""))')"
+          url="${CLAWHUB_REGISTRY%/}/api/v1/packages/${encoded_name}/versions/${encoded_version}"
+          status=""
+          for attempt in $(seq 1 8); do
+            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${url}")"
+            if [[ "${status}" == "404" || "${status}" =~ ^2 ]]; then
+              break
+            fi
+            if [[ "${status}" == "429" || "${status}" =~ ^5 ]]; then
+              echo "ClawHub availability check returned ${status} for ${PACKAGE_NAME}@${PACKAGE_VERSION}; retrying (${attempt}/8)."
+              sleep 60
+              continue
+            fi
+            break
+          done
+          if [[ "${status}" =~ ^2 ]]; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is already published on ClawHub."
+            exit 1
+          fi
+          if [[ "${status}" != "404" ]]; then
+            echo "Unexpected ClawHub response (${status}) for ${PACKAGE_NAME}@${PACKAGE_VERSION}."
+            exit 1
+          fi
 
       - name: Pack ClawHub package artifact
         env:
