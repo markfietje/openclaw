@@ -6,6 +6,13 @@ import {
 } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import type { TlsOptions } from "node:tls";
+import type { AuthAuditLogger } from "@openclaw/gateway-security-core/auth-audit-log";
+import type { ConnectionRateLimiter } from "@openclaw/gateway-security-core/connection-rate-limit";
+import {
+  createRequestRateLimiter,
+  type RequestRateLimiter,
+} from "@openclaw/gateway-security-core/request-rate-limit";
+import type { ToolAuditLogger } from "@openclaw/gateway-security-core/tool-audit";
 import type { WebSocketServer } from "ws";
 import { resolveBundledChannelGatewayAuthBypassPaths } from "../channels/plugins/gateway-auth-bypass.js";
 import { getRuntimeConfig } from "../config/io.js";
@@ -30,6 +37,7 @@ import {
   normalizePluginNodeCapabilityScopedUrl,
   type PluginNodeCapabilitySurface,
 } from "./plugin-node-capability.js";
+import type { AuthenticatedConnectionBudget } from "./server/authenticated-connection-budget.js";
 import type { HooksRequestHandler } from "./server/hooks-request-handler.js";
 import {
   isProtectedPluginRoutePathFromContext,
@@ -38,6 +46,12 @@ import {
 } from "./server/plugins-http/path-context.js";
 import type { PreauthConnectionBudget } from "./server/preauth-connection-budget.js";
 import type { ReadinessChecker } from "./server/readiness.js";
+import {
+  createGatewayVerifyClient,
+  runGatewayUpgradePreflight,
+  type GatewayUpgradePreflightResult,
+  type GatewayVerifyClient,
+} from "./server/verify-client.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
 type PluginHttpRequestHandler = (
@@ -351,6 +365,22 @@ function writeUpgradeAuthFailure(
   socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
 }
 
+function sanitizeHttpReasonPhrase(message: string): string {
+  const sanitized = message.replace(/[\r\n]/g, " ").trim();
+  return sanitized.length > 0 ? sanitized : "Unauthorized";
+}
+
+function writeUpgradePreflightFailure(
+  socket: { write: (chunk: string) => void },
+  failure: Extract<GatewayUpgradePreflightResult, { ok: false }>,
+) {
+  socket.write(
+    `HTTP/1.1 ${failure.code} ${sanitizeHttpReasonPhrase(failure.message)}\r\n` +
+      "Connection: close\r\n" +
+      "\r\n",
+  );
+}
+
 function writeUpgradeServiceUnavailable(socket: { write: (chunk: string) => void }, body: string) {
   socket.write(
     "HTTP/1.1 503 Service Unavailable\r\n" +
@@ -497,9 +527,23 @@ export function createGatewayHttpServer(opts: {
   getResolvedAuth?: () => ResolvedGatewayAuth;
   /** Optional rate limiter for auth brute-force protection. */
   rateLimiter?: AuthRateLimiter;
+  /** Optional auth audit logger for structured forensics. */
+  authAuditLogger?: AuthAuditLogger;
+  /** Optional tool audit logger for structured tool call forensics. */
+  toolAuditLogger?: ToolAuditLogger;
+  /** Optional per-IP connection rate limiter; applied to all HTTP handlers. */
+  connectionRateLimiter?: ConnectionRateLimiter;
+  /** Optional per-identity authenticated-connection budget (used by the upgrade path). */
+  authenticatedConnectionBudget?: AuthenticatedConnectionBudget;
+  /** Optional cap on concurrent WebSocket connections (enforced in pre-handshake). */
+  maxWebSocketConnections?: number;
+  /** Optional explicit verify-client factory override. */
+  verifyClient?: ReturnType<typeof createGatewayVerifyClient>;
   getReadiness?: ReadinessChecker;
   getRuntimeConfig?: () => OpenClawConfig;
   tlsOptions?: TlsOptions;
+  /** Minimum TLS version override applied to tlsOptions when creating HTTPS server. */
+  tlsMinVersion?: "TLSv1.2" | "TLSv1.3";
 }): HttpServer {
   const {
     clients,
@@ -522,13 +566,21 @@ export function createGatewayHttpServer(opts: {
   const getResolvedAuth = opts.getResolvedAuth ?? (() => resolvedAuth);
   const loadGatewayConfig = opts.getRuntimeConfig ?? getRuntimeConfig;
   const openAiCompatEnabled = openAiChatCompletionsEnabled || openResponsesEnabled;
-  const httpServer: HttpServer = opts.tlsOptions
-    ? createHttpsServer(opts.tlsOptions, (req, res) => {
+  const resolvedTlsOptions = opts.tlsOptions
+    ? { ...opts.tlsOptions, minVersion: opts.tlsMinVersion ?? opts.tlsOptions.minVersion }
+    : undefined;
+  const httpServer: HttpServer = resolvedTlsOptions
+    ? createHttpsServer(resolvedTlsOptions, (req, res) => {
         void handleRequestWithTrace(req, res);
       })
     : createHttpServer((req, res) => {
         void handleRequestWithTrace(req, res);
       });
+  // Per-IP HTTP request rate limiter (package: @openclaw/gateway-security-core/request-rate-limit).
+  const httpRequestRateLimiter: RequestRateLimiter = createRequestRateLimiter();
+  const isTls = Boolean(resolvedTlsOptions);
+  const autoHsts =
+    isTls && !strictTransportSecurityHeader ? "max-age=31536000; includeSubDomains" : undefined;
 
   function handleRequestWithTrace(req: IncomingMessage, res: ServerResponse) {
     return runWithDiagnosticTraceContext(createDiagnosticTraceContext(), () =>
@@ -538,7 +590,7 @@ export function createGatewayHttpServer(opts: {
 
   async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     setDefaultSecurityHeaders(res, {
-      strictTransportSecurity: strictTransportSecurityHeader,
+      strictTransportSecurity: strictTransportSecurityHeader ?? autoHsts,
     });
 
     // Don't interfere with WebSocket upgrades; ws handles the 'upgrade' event.
@@ -551,6 +603,44 @@ export function createGatewayHttpServer(opts: {
       if (requestPath === undefined) {
         sendGatewayAuthFailure(res, { ok: false, reason: "unauthorized" });
         return;
+      }
+      // Probe endpoints (/healthz, /readyz) short-circuit before the rate limit so
+      // load balancers and orchestrators can probe even when config loading is
+      // blocked; they are cheap, no-body, and unauthenticated by design.
+      if (GATEWAY_PROBE_STATUS_BY_PATH.get(requestPath) === "live") {
+        await handleGatewayProbeRequest(
+          req,
+          res,
+          requestPath,
+          resolvedAuth,
+          [],
+          false,
+          getReadiness,
+        );
+        return;
+      }
+      // Per-IP HTTP request rate limit. Runs before auth so a flooding IP
+      // cannot consume auth checks; the 429 response is generic and never
+      // leaks which path the client was probing.
+      {
+        const configForRateLimit = loadGatewayConfig();
+        const trustedProxiesForRateLimit = configForRateLimit.gateway?.trustedProxies ?? [];
+        const allowRealIpFallbackForRateLimit =
+          configForRateLimit.gateway?.allowRealIpFallback === true;
+        const rateLimitIp = resolveRequestClientIp(
+          req,
+          trustedProxiesForRateLimit,
+          allowRealIpFallbackForRateLimit,
+        );
+        const rateLimitResult = httpRequestRateLimiter.check(rateLimitIp);
+        if (!rateLimitResult.allowed) {
+          res.statusCode = 429;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.setHeader("Retry-After", String(Math.ceil(rateLimitResult.retryAfterMs / 1000) || 1));
+          res.end("Too Many Requests");
+          return;
+        }
+        httpRequestRateLimiter.recordRequest(rateLimitIp);
       }
       if (GATEWAY_PROBE_STATUS_BY_PATH.get(requestPath) === "live") {
         await handleGatewayProbeRequest(
@@ -635,6 +725,7 @@ export function createGatewayHttpServer(opts: {
               trustedProxies,
               allowRealIpFallback,
               rateLimiter,
+              toolAuditLogger: opts.toolAuditLogger,
             }),
         });
       }
@@ -819,6 +910,10 @@ export function createGatewayHttpServer(opts: {
     }
   }
 
+  // Dispose the per-IP request rate limiter when the HTTP server closes so
+  // its prune timer is cleared and the process can exit cleanly.
+  httpServer.on("close", () => httpRequestRateLimiter.dispose());
+
   return httpServer;
 }
 
@@ -835,6 +930,18 @@ export function attachGatewayUpgradeHandler(opts: {
   getResolvedAuth?: () => ResolvedGatewayAuth;
   /** Optional rate limiter for auth brute-force protection. */
   rateLimiter?: AuthRateLimiter;
+  /** Optional auth audit logger for structured forensics. */
+  authAuditLogger?: AuthAuditLogger;
+  /** Shared WebSocket upgrade preflight run before plugin and core upgrade dispatch. */
+  verifyUpgradeRequest?: GatewayVerifyClient;
+  /** Optional per-IP connection rate limiter (rejects clients hammering the upgrade endpoint). */
+  connectionRateLimiter?: ConnectionRateLimiter;
+  /** Optional per-identity authenticated-connection budget. */
+  authenticatedConnectionBudget?: AuthenticatedConnectionBudget;
+  /** Optional cap on concurrent WebSocket connections (enforced in pre-handshake). */
+  maxWebSocketConnections?: number;
+  /** Optional explicit verify-client factory override. */
+  verifyClient?: ReturnType<typeof createGatewayVerifyClient>;
   /** Optional logger for error diagnostics. */
   log?: { warn: (msg: string) => void };
 }) {
@@ -848,11 +955,30 @@ export function attachGatewayUpgradeHandler(opts: {
     preauthConnectionBudget,
     resolvedAuth,
     rateLimiter,
+    authAuditLogger,
+    verifyUpgradeRequest,
     log,
   } = opts;
   const getResolvedAuth = opts.getResolvedAuth ?? (() => resolvedAuth);
   httpServer.on("upgrade", (req, socket, head) => {
     void runWithDiagnosticTraceContext(createDiagnosticTraceContext(), async () => {
+      // Pre-handshake verifyClient (IP allowlist, connection rate limit,
+      // per-device budget) runs before any path normalization or auth check
+      // so the WS upgrade is rejected before we touch the runtime state.
+      if (verifyUpgradeRequest) {
+        const preflightResult = await runGatewayUpgradePreflight(verifyUpgradeRequest, req);
+        if (!preflightResult.ok) {
+          const preflightClientIp = resolveRequestClientIp(req, [], false);
+          authAuditLogger?.log({
+            event: "ip_blocked",
+            clientIp: preflightClientIp,
+            reason: `preflight_rejected_${preflightResult.code}`,
+          });
+          writeUpgradePreflightFailure(socket, preflightResult);
+          socket.destroy();
+          return;
+        }
+      }
       const configSnapshot = getRuntimeConfig();
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
       const allowRealIpFallback = configSnapshot.gateway?.allowRealIpFallback === true;

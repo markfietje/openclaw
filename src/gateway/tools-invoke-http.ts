@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ToolAuditLogger } from "@openclaw/gateway-security-core/tool-audit";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { normalizeMessageChannel } from "../utils/message-channel.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
@@ -23,6 +24,8 @@ export async function handleToolsInvokeHttpRequest(
     trustedProxies?: string[];
     allowRealIpFallback?: boolean;
     rateLimiter?: AuthRateLimiter;
+    /** Optional tool audit logger for structured tool call forensics. */
+    toolAuditLogger?: ToolAuditLogger;
   },
 ): Promise<boolean> {
   let url: URL;
@@ -83,6 +86,7 @@ export async function handleToolsInvokeHttpRequest(
     agentThreadId,
     senderIsOwner,
     toolCallIdPrefix: "http",
+    toolAuditLogger: opts.toolAuditLogger,
   });
   if (outcome.ok) {
     sendJson(res, outcome.status, { ok: true, result: outcome.result });

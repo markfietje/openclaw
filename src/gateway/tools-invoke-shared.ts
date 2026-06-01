@@ -153,6 +153,8 @@ export async function invokeGatewayTool(params: {
   senderIsOwner?: boolean;
   toolCallIdPrefix: string;
   approvalMode?: "request" | "report";
+  /** Optional tool audit logger for structured tool call forensics. */
+  toolAuditLogger?: import("@openclaw/gateway-security-core/tool-audit").ToolAuditLogger;
 }): Promise<ToolsInvokeOutcome> {
   const toolName = normalizeOptionalString(params.input.name ?? params.input.tool) ?? "";
   if (!toolName) {
@@ -258,6 +260,15 @@ export async function invokeGatewayTool(params: {
       approvalMode: params.approvalMode,
     });
     if (hookResult.blocked) {
+      params.toolAuditLogger?.log({
+        event: "tool.error",
+        surface: "tools-invoke",
+        tool: toolName,
+        ...(sessionKey ? { session: sessionKey } : {}),
+        ...(params.messageChannel ? { channel: params.messageChannel } : {}),
+        ...(toolCallId ? { toolCallId } : {}),
+        resultStatus: "denied",
+      });
       return {
         ok: false,
         status: 403,
@@ -269,16 +280,36 @@ export async function invokeGatewayTool(params: {
         },
       };
     }
+    const startedAt = Date.now();
+    const toolResult = await gatewayTool.execute?.(toolCallId, hookResult.params);
+    params.toolAuditLogger?.log({
+      event: "tool.result",
+      surface: "tools-invoke",
+      tool: toolName,
+      ...(sessionKey ? { session: sessionKey } : {}),
+      ...(params.messageChannel ? { channel: params.messageChannel } : {}),
+      ...(toolCallId ? { toolCallId } : {}),
+      resultStatus: "success",
+      durationMs: Date.now() - startedAt,
+    });
     return {
       ok: true,
       status: 200,
       toolName,
       source: resolveToolSource(gatewayTool),
-      result: await gatewayTool.execute?.(toolCallId, hookResult.params),
+      result: toolResult,
     };
   } catch (err) {
     const inputStatus = resolveToolInputErrorStatus(err);
     if (inputStatus !== null) {
+      params.toolAuditLogger?.log({
+        event: "tool.error",
+        surface: "tools-invoke",
+        tool: toolName,
+        ...(sessionKey ? { session: sessionKey } : {}),
+        ...(params.messageChannel ? { channel: params.messageChannel } : {}),
+        resultStatus: "failure",
+      });
       return {
         ok: false,
         status: inputStatus === 403 ? 403 : 400,
@@ -290,6 +321,14 @@ export async function invokeGatewayTool(params: {
       };
     }
     logWarn(`tools-invoke: tool execution failed: ${String(err)}`);
+    params.toolAuditLogger?.log({
+      event: "tool.error",
+      surface: "tools-invoke",
+      tool: toolName,
+      ...(sessionKey ? { session: sessionKey } : {}),
+      ...(params.messageChannel ? { channel: params.messageChannel } : {}),
+      resultStatus: "failure",
+    });
     return {
       ok: false,
       status: 500,

@@ -480,6 +480,16 @@ export type GatewaySecurityConfig = {
   ipBlocklist?: string[];
   /** Whether to require the WebSocket subprotocol header on upgrade. */
   requireSubprotocol?: boolean;
+  /** Auth audit log: append-only HMAC-signed record of accepted/rejected connect attempts. */
+  authAudit?: {
+    /** Enable auth audit logging (env override: OPENCLAW_AUTH_AUDIT=1). */
+    enabled?: boolean;
+  };
+  /** Tool audit log: append-only HMAC-signed record of every tools/invoke surface tool call. */
+  toolAudit?: {
+    /** Enable tool audit logging. */
+    enabled?: boolean;
+  };
 };
 
 export type GatewayConfig = {

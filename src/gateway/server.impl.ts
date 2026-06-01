@@ -1,4 +1,13 @@
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
+import {
+  createAuthAuditLogger,
+  type AuthAuditLogger,
+} from "@openclaw/gateway-security-core/auth-audit-log";
+import { runStartupSecurityChecks } from "@openclaw/gateway-security-core/startup-security-checks";
+import {
+  createToolAuditLogger,
+  type ToolAuditLogger,
+} from "@openclaw/gateway-security-core/tool-audit";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import { getActiveEmbeddedRunCount } from "../agents/embedded-agent-runner/run-state.js";
 import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.js";
@@ -759,6 +768,26 @@ export async function startGatewayServer(
     openResponsesEnabled,
     openResponsesConfig,
     strictTransportSecurityHeader,
+  } = runtimeConfig;
+  // Surface any pre-listen security warnings (e.g. localhost binding, token weakness) before
+  // we build the runtime state, so the warnings land on the startup log and not in the HTTP path.
+  {
+    const { readGatewayToken } = await import("../config/io.hmac-integrity.js");
+    const authMode = cfgAtStart.gateway?.auth?.mode ?? "token";
+    const findings = runStartupSecurityChecks({
+      isNetworkExposed: !isLoopbackHost(bindHost),
+      hasTls: cfgAtStart.gateway?.tls?.enabled === true,
+      terminatedUpstream: cfgAtStart.gateway?.trustedProxies !== undefined,
+      authMode,
+      ...(bindHost ? { bindAddress: bindHost } : {}),
+      ...(authMode === "token" ? { tokenLength: readGatewayToken()?.length } : {}),
+    });
+    for (const finding of findings) {
+      const level = finding.severity === "critical" ? "warn" : "info";
+      log[level](`[startup-security] ${finding.id}: ${finding.message}`);
+    }
+  }
+  const {
     controlUiBasePath,
     controlUiRoot: controlUiRootOverride,
     resolvedAuth,
@@ -812,6 +841,29 @@ export async function startGatewayServer(
   const rateLimitConfig = cfgAtStart.gateway?.auth?.rateLimit;
   const { rateLimiter: authRateLimiter, browserRateLimiter: browserAuthRateLimiter } =
     createGatewayAuthRateLimiters(rateLimitConfig);
+
+  // Auth audit log: records accepted/rejected connect attempts to the gateway. Disabled by
+  // default; turn on with gateway.security.authAudit.enabled or OPENCLAW_AUTH_AUDIT=1.
+  const { readGatewayToken } = await import("../config/io.hmac-integrity.js");
+  const authAuditLogger: AuthAuditLogger | undefined = (() => {
+    const envOn = process.env.OPENCLAW_AUTH_AUDIT === "1";
+    const configOn = cfgAtStart.gateway?.security?.authAudit?.enabled === true;
+    if (!envOn && !configOn) {
+      return undefined;
+    }
+    const token = readGatewayToken() ?? undefined;
+    return token ? createAuthAuditLogger({ token }) : createAuthAuditLogger();
+  })();
+  // Tool audit log: records every tools/invoke surface call to a structured append-only file.
+  // Disabled by default; turn on with gateway.security.toolAudit.enabled.
+  const toolAuditLogger: ToolAuditLogger | undefined = (() => {
+    const configOn = cfgAtStart.gateway?.security?.toolAudit?.enabled === true;
+    if (!configOn) {
+      return undefined;
+    }
+    const token = readGatewayToken() ?? undefined;
+    return token ? createToolAuditLogger({ token }) : createToolAuditLogger();
+  })();
 
   const controlUiRootState = await startupTrace.measure("control-ui.root", () =>
     resolveGatewayControlUiRootState({
@@ -879,6 +931,8 @@ export async function startGatewayServer(
     startListening,
     wss,
     preauthConnectionBudget,
+    connectionRateLimiter,
+    authenticatedConnectionBudget,
     clients,
     broadcast,
     broadcastToConnIds,
@@ -907,6 +961,8 @@ export async function startGatewayServer(
       strictTransportSecurityHeader,
       resolvedAuth,
       rateLimiter: authRateLimiter,
+      authAuditLogger,
+      toolAuditLogger,
       gatewayTls,
       getResolvedAuth,
       hooksConfig: () => runtimeState?.hooksConfig ?? initialHooksConfig,
@@ -984,6 +1040,10 @@ export async function startGatewayServer(
       skillsChangeUnsub: runtimeState.skillsChangeUnsub,
       disposeAuthRateLimiter: () => authRateLimiter.dispose(),
       disposeBrowserAuthRateLimiter: () => browserAuthRateLimiter.dispose(),
+      disposeConnectionRateLimiter: () => connectionRateLimiter?.dispose(),
+      disposeAuthenticatedConnectionBudget: () => authenticatedConnectionBudget?.dispose(),
+      flushAuthAudit: () => authAuditLogger?.flush() ?? Promise.resolve(),
+      flushToolAudit: () => toolAuditLogger?.flush() ?? Promise.resolve(),
       stopModelPricingRefresh: runtimeState.stopModelPricingRefresh,
       stopChannelHealthMonitor: () => runtimeState?.channelHealthMonitor?.stop(),
       stopReadinessEventLoopHealth: readinessEventLoopHealth.stop,
