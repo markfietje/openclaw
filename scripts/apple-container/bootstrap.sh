@@ -16,6 +16,23 @@
 # You can also continue using the curl one-liner for any command.
 #
 # If you have the repo cloned, use scripts/apple-container/setup.sh instead.
+#
+# ── Design note: lite installer vs full setup ───────────────────
+# This file is the single-file "lite" installer. It is self-contained
+# and easy to audit (one script, one token volume, one inline sh -c).
+# The token is staged in a container volume (/token-key/token) and
+# read at container start.
+#
+# The full Apple Container experience (scripts/apple-container/setup.sh
+# + run.sh) takes a different path: it spins up a host-side Keychain
+# bridge process and delivers the token over localhost HTTP with
+# bearer auth, so the token never sits on disk. Power users and
+# production deployments should prefer setup.sh.
+#
+# Both paths share the same hardening: --read-only, --cap-drop ALL,
+# --init, non-root user, read-only /workspace + /state volumes,
+# 127.0.0.1-only port binding. The difference is only in how the
+# gateway token reaches the gateway process.
 
 set -euo pipefail
 
@@ -33,6 +50,8 @@ TOKEN_KEY_VOLUME="openclaw-token-key"
 WORKSPACE_VOLUME="openclaw-workspace"
 HOST_DOMAIN="host.container.internal"
 HOST_LOCALHOST_IP="203.0.113.113"
+# Runtime: node (default) or bun. Overridable via env or --runtime.
+CONTAINER_RUNTIME="${OPENCLAW_APPLE_CONTAINER_RUNTIME:-node}"
 
 # ── Local script path ───────────────────────────────────────────
 LOCAL_SCRIPT_DIR="${CONFIG_DIR}/bin"
@@ -136,6 +155,14 @@ read_token() {
   security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w 2>/dev/null || echo ""
 }
 
+# ── Validate runtime ────────────────────────────────────────────
+validate_runtime() {
+  case "$CONTAINER_RUNTIME" in
+    node|bun) ;;
+    *) fail "Invalid CONTAINER_RUNTIME: '$CONTAINER_RUNTIME' (expected node or bun)." ;;
+  esac
+}
+
 # ── Ensure volumes ──────────────────────────────────────────────
 ensure_volume() {
   local name="$1"
@@ -193,6 +220,7 @@ cmd_install() {
   # 1. Check prerequisites
   step "Checking prerequisites..."
   preflight
+  validate_runtime
   ok "macOS + Apple Silicon + Apple Container"
 
   # 2. Check if already installed
@@ -255,7 +283,7 @@ cmd_install() {
     "$IMAGE" \
     sh -c "
       if [ -f /app/openclaw.mjs ]; then
-        exec node /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 --token \"\$(cat /token-key/token 2>/dev/null || true)\"
+        exec '$CONTAINER_RUNTIME' /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 --token \"\$(cat /token-key/token 2>/dev/null || true)\"
       else
         echo 'Gateway not found in image.' && exit 1
       fi
@@ -269,7 +297,7 @@ cmd_install() {
   container cp "$staging/token" "$CONTAINER_NAME:/token-key/token" 2>/dev/null || true
   rm -rf "$staging"
 
-  ok "Container created"
+  ok "Container created (runtime: $CONTAINER_RUNTIME)"
 
   # 9. Self-install
   self_install
@@ -345,6 +373,7 @@ cmd_stop() {
 
 cmd_upgrade() {
   preflight
+  validate_runtime
 
   step "Upgrading OpenClaw..."
   echo ""
@@ -389,7 +418,7 @@ cmd_upgrade() {
     "$IMAGE" \
     sh -c "
       if [ -f /app/openclaw.mjs ]; then
-        exec node /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 --token \"\$(cat /token-key/token 2>/dev/null || true)\"
+        exec '$CONTAINER_RUNTIME' /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 --token \"\$(cat /token-key/token 2>/dev/null || true)\"
       else
         echo 'Gateway not found in image.' && exit 1
       fi
@@ -403,7 +432,7 @@ cmd_upgrade() {
   container cp "$staging/token" "$CONTAINER_NAME:/token-key/token" 2>/dev/null || true
   rm -rf "$staging"
 
-  ok "Container recreated (state preserved in volumes)"
+  ok "Container recreated (state preserved in volumes, runtime: $CONTAINER_RUNTIME)"
 
   # Start
   echo ""
@@ -513,6 +542,27 @@ cmd_logs() {
 COMMAND="${1:-install}"
 shift 2>/dev/null || true
 
+# Parse runtime flag (must come before subcommand dispatch).
+# Usage: bootstrap.sh install --runtime bun
+#        bootstrap.sh upgrade --runtime node
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --runtime)
+      shift
+      CONTAINER_RUNTIME="${1:-}"
+      [[ -n "$CONTAINER_RUNTIME" ]] || fail "--runtime requires a value (node or bun)."
+      shift
+      ;;
+    --runtime=*)
+      CONTAINER_RUNTIME="${1#--runtime=}"
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
 case "$COMMAND" in
   install|setup)  cmd_install ;;
   run|start)      cmd_run ;;
@@ -525,7 +575,7 @@ case "$COMMAND" in
     echo ""
     echo "OpenClaw Apple Container"
     echo ""
-    echo "Usage: bootstrap.sh <command>"
+    echo "Usage: bootstrap.sh <command> [--runtime node|bun]"
     echo ""
     echo "Commands:"
     echo "  install    First-time setup (pull, configure, create container) [default]"
@@ -535,6 +585,10 @@ case "$COMMAND" in
     echo "  status     Show installation status"
     echo "  logs       Show container logs"
     echo "  uninstall  Remove everything (container, volumes, config, token)"
+    echo ""
+    echo "Flags:"
+    echo "  --runtime node|bun  JS runtime inside the container (default: node)"
+    echo "                       Override with env: OPENCLAW_APPLE_CONTAINER_RUNTIME"
     echo ""
     echo "One-line install:"
     echo '  bash <(curl -fsSL https://raw.githubusercontent.com/markfietje/openclaw/main/scripts/apple-container/bootstrap.sh)'
