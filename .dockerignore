@@ -29,6 +29,11 @@ __openclaw_vitest__
 *.mov
 *.wav
 *.mp3
+
+# Required Control UI PWA/icon assets. Keep the broad media ignore above,
+# but include these small public assets in Docker/Apple Container builds.
+!ui/public/apple-touch-icon.png
+!ui/public/favicon-32.png
 node_modules
 **/node_modules
 .pnpm-store
