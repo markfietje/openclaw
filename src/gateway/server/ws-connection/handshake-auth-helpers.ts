@@ -82,6 +82,7 @@ export function shouldAllowSilentLocalPairing(params: {
   isControlUi: boolean;
   isWebchat: boolean;
   isNativeAppUi?: boolean;
+  isNodeHost?: boolean;
   reason: "not-paired" | "role-upgrade" | "scope-upgrade" | "metadata-upgrade";
 }): boolean {
   if (params.locality === "remote") {
@@ -107,6 +108,7 @@ export function shouldAllowSilentLocalPairing(params: {
     !params.hasBrowserOriginHeader &&
     !params.isControlUi &&
     !params.isWebchat &&
+    params.isNodeHost !== true &&
     ((params.locality === "direct_local" && params.isNativeAppUi === true) ||
       params.locality === "cli_container_local" ||
       params.locality === "shared_secret_loopback_local")
