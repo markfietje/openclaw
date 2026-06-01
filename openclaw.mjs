@@ -260,11 +260,6 @@ if (
   }
 }
 
-const getErrorMessage = (err) =>
-  err && typeof err === "object" && "message" in err && typeof err.message === "string"
-    ? err.message
-    : "";
-
 const isModuleNotFoundError = (err) =>
   err && typeof err === "object" && "code" in err && err.code === "ERR_MODULE_NOT_FOUND";
 
