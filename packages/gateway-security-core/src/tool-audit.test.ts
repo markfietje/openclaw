@@ -2,7 +2,7 @@ import { readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createToolAuditLogger, verifyLine, type ToolAuditLogger } from "./tool-audit.js";
+import { createToolAuditLogger, verifyToolAuditLine, type ToolAuditLogger } from "./tool-audit.js";
 
 describe("tool audit logger", () => {
   let testDir: string;
@@ -147,8 +147,8 @@ describe("tool audit logger", () => {
     expect(typeof parsed.hmac).toBe("string");
     expect(parsed.hmac).toHaveLength(64); // sha256 hex digest
 
-    // verifyLine should return valid
-    const result = verifyLine(line, token);
+    // verifyToolAuditLine should return valid
+    const result = verifyToolAuditLine(line, token);
     expect(result.valid).toBe(true);
     expect(result.entry).toBeDefined();
     expect(result.entry!.event).toBe("tool.call");
@@ -156,7 +156,7 @@ describe("tool audit logger", () => {
     expect(result.entry!.actorId).toBe("user-456");
   });
 
-  it("verifyLine detects tampering", async () => {
+  it("verifyToolAuditLine detects tampering", async () => {
     const dir = makeTestDir();
     const token = "test-hmac-secret";
     logger = createToolAuditLogger({ logDir: dir, token });
@@ -171,23 +171,23 @@ describe("tool audit logger", () => {
     const originalLine = content.trim();
 
     // Verify original is valid
-    expect(verifyLine(originalLine, token).valid).toBe(true);
+    expect(verifyToolAuditLine(originalLine, token).valid).toBe(true);
 
     // Tamper with the tool name
     const tamperedLine = originalLine.replace('"file_read"', '"file_write"');
-    expect(verifyLine(tamperedLine, token).valid).toBe(false);
+    expect(verifyToolAuditLine(tamperedLine, token).valid).toBe(false);
 
     // Tamper with the hmac itself
     const parsed = JSON.parse(originalLine) as { hmac: string };
     const flippedHmac = parsed.hmac.slice(0, -2) + (parsed.hmac.endsWith("00") ? "01" : "00");
     const hmacTampered = originalLine.replace(parsed.hmac, flippedHmac);
-    expect(verifyLine(hmacTampered, token).valid).toBe(false);
+    expect(verifyToolAuditLine(hmacTampered, token).valid).toBe(false);
 
     // Wrong token should also fail
-    expect(verifyLine(originalLine, "wrong-token").valid).toBe(false);
+    expect(verifyToolAuditLine(originalLine, "wrong-token").valid).toBe(false);
 
     // No token but signed line should fail
-    expect(verifyLine(originalLine, "").valid).toBe(false);
+    expect(verifyToolAuditLine(originalLine, "").valid).toBe(false);
   });
 
   it("rotation works when file exceeds maxBytes", async () => {
@@ -241,8 +241,8 @@ describe("tool audit logger", () => {
     expect(lines).toHaveLength(count);
 
     // Each line should be valid JSON with correct structure
-    for (let i = 0; i < lines.length; i++) {
-      const entry = JSON.parse(lines[i]);
+    for (const line of lines) {
+      const entry = JSON.parse(line);
       expect(entry.source).toBe("gateway");
       expect(entry.ts).toBeDefined();
       expect(entry.tool).toMatch(/^tool_\d+$/);
@@ -259,14 +259,14 @@ describe("tool audit logger", () => {
       tool: "exec",
     });
 
-    const result = verifyLine(line, "");
+    const result = verifyToolAuditLine(line, "");
     expect(result.valid).toBe(true);
     expect(result.entry).toBeDefined();
     expect(result.entry!.tool).toBe("exec");
   });
 
   it("rejects malformed JSON", () => {
-    const result = verifyLine("not json at all", "");
+    const result = verifyToolAuditLine("not json at all", "");
     expect(result.valid).toBe(false);
   });
 
@@ -280,7 +280,7 @@ describe("tool audit logger", () => {
       hmac: "abc123",
     });
 
-    const result = verifyLine(line, "");
+    const result = verifyToolAuditLine(line, "");
     expect(result.valid).toBe(false);
   });
 
@@ -293,7 +293,7 @@ describe("tool audit logger", () => {
       tool: "exec",
     });
 
-    const result = verifyLine(line, "some-secret");
+    const result = verifyToolAuditLine(line, "some-secret");
     expect(result.valid).toBe(false);
   });
 });

@@ -159,16 +159,18 @@ server.on("clientError", (_error, socket) => {
   socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
 });
 
-server.listen(port, host, async () => {
-  const address = server.address();
-  const selectedPort = typeof address === "object" && address ? address.port : port;
-  if (portFile) {
-    await mkdir(dirname(portFile), { recursive: true, mode: 0o700 });
-    await writeFile(portFile, `${selectedPort}\n`, { mode: 0o600 });
-  }
-  if (pidFile) {
-    await mkdir(dirname(pidFile), { recursive: true, mode: 0o700 });
-    await writeFile(pidFile, `${process.pid}\n`, { mode: 0o600 });
-  }
-  console.error(`OpenClaw Keychain bridge listening on ${host}:${selectedPort}`);
+server.listen(port, host, () => {
+  void (async () => {
+    const address = server.address();
+    const selectedPort = typeof address === "object" && address ? address.port : port;
+    if (portFile) {
+      await mkdir(dirname(portFile), { recursive: true, mode: 0o700 });
+      await writeFile(portFile, `${selectedPort}\n`, { mode: 0o600 });
+    }
+    if (pidFile) {
+      await mkdir(dirname(pidFile), { recursive: true, mode: 0o700 });
+      await writeFile(pidFile, `${process.pid}\n`, { mode: 0o600 });
+    }
+    console.error(`OpenClaw Keychain bridge listening on ${host}:${selectedPort}`);
+  })();
 });

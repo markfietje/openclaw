@@ -90,9 +90,9 @@ export function createOutboundRedactor(config?: OutboundRedactorConfig): Outboun
 
   // Dynamic secret values — added at runtime.
   const dynamicSecrets = new Set<string>();
-  let _redactionCount = 0;
-  let _dynamicRegexDirty = true;
-  let _dynamicRegex: RegExp | null = null;
+  let redactionCount = 0;
+  let dynamicRegexDirty = true;
+  let dynamicRegex: RegExp | null = null;
 
   // Seed with known secrets that meet the minimum length requirement.
   for (const secret of knownSecrets) {
@@ -104,15 +104,15 @@ export function createOutboundRedactor(config?: OutboundRedactorConfig): Outboun
   /** Build (or rebuild) the combined regex for dynamic secrets. */
   function compileDynamicRegex(): void {
     if (dynamicSecrets.size === 0) {
-      _dynamicRegex = null;
-      _dynamicRegexDirty = false;
+      dynamicRegex = null;
+      dynamicRegexDirty = false;
       return;
     }
     const escaped = Array.from(dynamicSecrets).map(escapeRegExp);
     // Sort by length descending so longer secrets match first.
     escaped.sort((a, b) => b.length - a.length);
-    _dynamicRegex = new RegExp(escaped.join("|"), "g");
-    _dynamicRegexDirty = false;
+    dynamicRegex = new RegExp(escaped.join("|"), "g");
+    dynamicRegexDirty = false;
   }
 
   return {
@@ -122,7 +122,7 @@ export function createOutboundRedactor(config?: OutboundRedactorConfig): Outboun
       }
       if (!dynamicSecrets.has(value)) {
         dynamicSecrets.add(value);
-        _dynamicRegexDirty = true;
+        dynamicRegexDirty = true;
       }
     },
 
@@ -142,12 +142,12 @@ export function createOutboundRedactor(config?: OutboundRedactorConfig): Outboun
       }
 
       // 3. Apply dynamic secret patterns (lazy-compiled).
-      if (_dynamicRegexDirty) {
+      if (dynamicRegexDirty) {
         compileDynamicRegex();
       }
-      if (_dynamicRegex) {
-        _dynamicRegex.lastIndex = 0;
-        result = result.replace(_dynamicRegex, SENTINEL);
+      if (dynamicRegex) {
+        dynamicRegex.lastIndex = 0;
+        result = result.replace(dynamicRegex, SENTINEL);
       }
 
       // 4. Apply generic param-style patterns last. These won't match the
@@ -161,14 +161,14 @@ export function createOutboundRedactor(config?: OutboundRedactorConfig): Outboun
       const sentinelCount = result.split(SENTINEL).length - 1;
       if (sentinelCount > 0) {
         result = result.replaceAll(SENTINEL, REDACTION_PLACEHOLDER);
-        _redactionCount += sentinelCount;
+        redactionCount += sentinelCount;
       }
 
       return result;
     },
 
     get redactionCount(): number {
-      return _redactionCount;
+      return redactionCount;
     },
   };
 }

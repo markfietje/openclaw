@@ -15,6 +15,9 @@ type CoreGatewayMethodSpec = {
   controlPlaneWrite?: true;
 };
 
+// This is the canonical core method policy table: every core handler must appear here so
+// listing, authorization, startup availability, and write throttling stay in sync.
+
 export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "health", scope: "operator.read" },
   { name: "diagnostics.stability", scope: "operator.read" },
@@ -117,6 +120,14 @@ export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "skills.upload.commit", scope: "operator.admin" },
   { name: "skills.install", scope: "operator.admin" },
   { name: "skills.update", scope: "operator.admin" },
+  { name: "skills.proposals.list", scope: "operator.read" },
+  { name: "skills.proposals.inspect", scope: "operator.read" },
+  { name: "skills.proposals.create", scope: "operator.admin" },
+  { name: "skills.proposals.update", scope: "operator.admin" },
+  { name: "skills.proposals.revise", scope: "operator.admin" },
+  { name: "skills.proposals.apply", scope: "operator.admin" },
+  { name: "skills.proposals.reject", scope: "operator.admin" },
+  { name: "skills.proposals.quarantine", scope: "operator.admin" },
   { name: "update.status", scope: "operator.admin" },
   { name: "update.run", scope: "operator.admin", controlPlaneWrite: true },
   { name: "voicewake.get", scope: "operator.read" },

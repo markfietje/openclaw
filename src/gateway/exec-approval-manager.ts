@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type {
   ExecApprovalDecision,
@@ -19,6 +20,10 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
 function scheduleResolvedEntryCleanup(cleanup: () => void): void {
   const timer = setTimeout(cleanup, RESOLVED_ENTRY_GRACE_MS);
   unrefTimer(timer);
+}
+
+function resolveApprovalTimeoutMs(timeoutMs: number): number {
+  return resolveTimerTimeoutMs(timeoutMs, 1);
 }
 
 type ExecApprovalRequestPayload = InfraExecApprovalRequestPayload;
@@ -57,7 +62,8 @@ export class ExecApprovalManager<TPayload = ExecApprovalRequestPayload> {
 
   create(request: TPayload, timeoutMs: number, id?: string | null): ExecApprovalRecord<TPayload> {
     const now = Date.now();
-    const expiresAtMs = resolveExpiresAtMsFromDurationMs(timeoutMs, { nowMs: now });
+    const resolvedTimeoutMs = resolveApprovalTimeoutMs(timeoutMs);
+    const expiresAtMs = resolveExpiresAtMsFromDurationMs(resolvedTimeoutMs, { nowMs: now });
     if (expiresAtMs === undefined) {
       throw new Error("approval expiry is unavailable");
     }
@@ -103,9 +109,10 @@ export class ExecApprovalManager<TPayload = ExecApprovalRequestPayload> {
       timer: null as unknown as ReturnType<typeof setTimeout>,
       promise,
     };
+    const timerDelayMs = resolveApprovalTimeoutMs(timeoutMs);
     entry.timer = setTimeout(() => {
       this.expire(record.id);
-    }, timeoutMs);
+    }, timerDelayMs);
     this.pending.set(record.id, entry);
     return promise;
   }

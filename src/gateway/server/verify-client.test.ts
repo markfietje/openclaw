@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars -- tests destructure `log` from createVerifyClient() for shared assertions; not all tests need it */
 import type { IncomingMessage } from "node:http";
 import net from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -212,7 +213,7 @@ describe("createGatewayVerifyClient", () => {
         security: { strictHeaderValidation: false },
       }),
     );
-    const { verify } = createVerifyClient();
+    const { verify, log } = createVerifyClient();
     const req = createMockReq({
       remoteAddress: "127.0.0.1",
       headers: {
@@ -245,7 +246,7 @@ describe("createGatewayVerifyClient", () => {
         security: { requireSubprotocol: true },
       }),
     );
-    const { verify } = createVerifyClient();
+    const { verify, log } = createVerifyClient();
     const req = createMockReq({
       remoteAddress: "127.0.0.1",
       headers: { "sec-websocket-protocol": "openclaw-gateway-v1" },
@@ -260,7 +261,7 @@ describe("createGatewayVerifyClient", () => {
         security: { requireSubprotocol: true },
       }),
     );
-    const { verify } = createVerifyClient();
+    const { verify, log } = createVerifyClient();
     const req = createMockReq({
       remoteAddress: "127.0.0.1",
       headers: { "sec-websocket-protocol": "other, openclaw-gateway-v1" },
@@ -275,7 +276,7 @@ describe("createGatewayVerifyClient", () => {
         security: { requireSubprotocol: true },
       }),
     );
-    const { verify } = createVerifyClient();
+    const { verify, log } = createVerifyClient();
     const req = createMockReq({
       remoteAddress: "127.0.0.1",
       headers: { "sec-websocket-protocol": "some-other-protocol" },
@@ -330,7 +331,7 @@ describe("createGatewayVerifyClient", () => {
         security: { strictHeaderValidation: true },
       }),
     );
-    const { verify } = createVerifyClient();
+    const { verify, log } = createVerifyClient();
     const req = createMockReq({
       remoteAddress: "127.0.0.1",
       headers: { "x-forwarded-for": "10.0.0.1, 10.0.0.2" },
@@ -484,7 +485,7 @@ describe("createGatewayVerifyClient", () => {
         },
       }),
     );
-    const { verify, log } = createVerifyClient();
+    const { verify } = createVerifyClient();
     const req = createMockReq({
       remoteAddress: "192.168.1.1",
       headers: {

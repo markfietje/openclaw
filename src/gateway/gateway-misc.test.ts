@@ -123,7 +123,7 @@ describe("GatewayClient", () => {
     const last = wsMockState.last as { url: unknown; opts: unknown } | null;
     const opts = last?.opts as { maxPayload?: number } | undefined;
 
-    expect(last?.url).toBe("ws://127.0.0.1:1");
+    expect(last?.url).toBe("ws://127.0.0.1:1/gateway");
     expect(opts?.maxPayload).toBe(25 * 1024 * 1024);
   });
 

@@ -62,6 +62,8 @@ function redactPresentationBlock(
       };
     case "divider":
       return block;
+    default:
+      return block;
   }
 }
 
@@ -94,6 +96,8 @@ function redactInteractiveBlock(
         ...(block.placeholder !== undefined ? { placeholder: redact(block.placeholder) } : {}),
         options: block.options.map((option) => redactOption(option, redact)),
       };
+    default:
+      return block;
   }
 }
 
@@ -118,7 +122,7 @@ function redactTtsSupplement(
 }
 
 function redactReplyPayload(payload: ReplyPayload, redactor: OutboundRedactor): ReplyPayload {
-  const redact = redactor.redact;
+  const redact = redactor.redact.bind(redactor);
   const redacted: ReplyPayload = {
     ...payload,
     ...(payload.text !== undefined ? { text: redact(payload.text) } : {}),

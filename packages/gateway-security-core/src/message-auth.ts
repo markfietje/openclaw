@@ -84,6 +84,8 @@ function operatorScopeToMessageCapability(scope: OperatorScope): string {
       return "admin:write";
     case TALK_SECRETS_SCOPE:
       return "talk:secrets";
+    default:
+      return "admin:read";
   }
 }
 
@@ -208,6 +210,8 @@ function messageDecisionAllowed(
       return hasMessageCapability(ctx, decision.capability);
     case "role":
       return ctx.role === decision.role;
+    default:
+      return false;
   }
 }
 
@@ -217,6 +221,8 @@ function formatMissingAuthorization(decision: MessageAuthorizationDecision): str
       return decision.capability;
     case "role":
       return `role:${decision.role}`;
+    default:
+      return "unknown";
   }
 }
 

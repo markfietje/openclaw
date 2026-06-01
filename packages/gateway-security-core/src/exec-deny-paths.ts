@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion, curly -- explicit string indices simplify the segment-vs-pattern comparison loop; parser uses early-return guards throughout */
 /**
  * Exec deny-path gate — prevents agents from reading sensitive files via the exec tool.
  *
@@ -124,10 +125,14 @@ function globMatchParts(
       nextGi++;
     }
     // If `**` is the last pattern segment, it matches everything remaining
-    if (nextGi === patternParts.length) return true;
+    if (nextGi === patternParts.length) {
+      return true;
+    }
     // Try matching the remainder of the pattern at every remaining position
     for (let i = pi; i <= pathParts.length; i++) {
-      if (globMatchParts(pathParts, i, patternParts, nextGi)) return true;
+      if (globMatchParts(pathParts, i, patternParts, nextGi)) {
+        return true;
+      }
     }
     return false;
   }
@@ -228,11 +233,17 @@ function expandTilde(token: string): string {
  * Matches tokens starting with `/`, `./`, `~`, or containing at least one `/`.
  */
 function looksLikePath(token: string): boolean {
-  if (token.length === 0) return false;
+  if (token.length === 0) {
+    return false;
+  }
   // Starts with / ./ ~
-  if (token[0] === "/" || token.startsWith("./") || token[0] === "~") return true;
+  if (token[0] === "/" || token.startsWith("./") || token[0] === "~") {
+    return true;
+  }
   // Contains a slash somewhere (but not just a lone `/` in a flag like `-r/path`)
-  if (token.includes("/") && !token.startsWith("-")) return true;
+  if (token.includes("/") && !token.startsWith("-")) {
+    return true;
+  }
   return false;
 }
 
@@ -241,11 +252,15 @@ function looksLikePath(token: string): boolean {
  * Returns `null` if the argument is a pure flag (e.g. `-la`, `--verbose`).
  */
 function stripFlag(token: string): string | null {
-  if (token === "--") return null; // end-of-flags sentinel
+  if (token === "--") {
+    return null; // end-of-flags sentinel
+  }
   if (token.startsWith("--")) {
     // `--option=value` → extract value portion
     const eqIdx = token.indexOf("=");
-    if (eqIdx !== -1) return token.slice(eqIdx + 1);
+    if (eqIdx !== -1) {
+      return token.slice(eqIdx + 1);
+    }
     return null; // bare long flag
   }
   if (token.startsWith("-") && token.length >= 2) {
@@ -279,7 +294,9 @@ export function extractPathsFromCommand(command: string): string[] {
     tokens.push(t);
   }
 
-  if (tokens.length === 0) return paths;
+  if (tokens.length === 0) {
+    return paths;
+  }
 
   // Detect the command name (first token, possibly with a path prefix)
   const commandName = tokens[0]!.split("/").pop() ?? tokens[0]!;
@@ -324,7 +341,9 @@ export function extractPathsFromCommand(command: string): string[] {
     }
 
     // Process-redirect `2>&1` etc — skip
-    if (/^\d*>&\d*$/.test(token)) continue;
+    if (/^\d*>&\d*$/.test(token)) {
+      continue;
+    }
 
     // Pipeline / command separators — reset command context
     if (token === "|" || token === "&&" || token === "||" || token === ";") {
@@ -397,7 +416,9 @@ export function checkExecDenyPath(
   const patterns: readonly string[] =
     config?.denyPathPatterns !== undefined ? config.denyPathPatterns : DEFAULT_EXEC_DENY_PATTERNS;
 
-  if (patterns.length === 0) return undefined;
+  if (patterns.length === 0) {
+    return undefined;
+  }
 
   const extractedPaths = extractPathsFromCommand(command);
 

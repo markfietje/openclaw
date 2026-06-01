@@ -128,13 +128,13 @@ type ReplyRunStateForTest = {
   waitersByKey?: Map<unknown, Set<ReplyRunWaiter>>;
 };
 
-function runCleanupActions(actions: CleanupAction[]): unknown {
-  let firstError: unknown;
+function runCleanupActions(actions: CleanupAction[]): Error | undefined {
+  let firstError: Error | undefined;
   for (const action of actions) {
     try {
       action();
     } catch (error) {
-      firstError ??= error;
+      firstError ??= error instanceof Error ? error : new Error(String(error));
     }
   }
   return firstError;
@@ -180,7 +180,7 @@ function resetOpenClawGlobalRunState(): void {
 
   const cleanupError = runCleanupActions(cleanupActions);
   if (cleanupError) {
-    throw cleanupError;
+    throw new Error(`Cleanup failed: ${cleanupError.message}`);
   }
 
   embeddedRunState?.activeRuns?.clear();

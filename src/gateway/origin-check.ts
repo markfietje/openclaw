@@ -1,10 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import net from "node:net";
 import { isPrivateOrLoopbackIpAddress } from "@openclaw/net-policy/ip";
-import {
-  normalizeLowercaseStringOrEmpty,
-  normalizeOptionalLowercaseString,
-} from "@openclaw/normalization-core/string-coerce";
 import { validateProtoMismatch, type ForwardedHeader } from "./forwarded-headers.js";
 import { isLoopbackHost, normalizeHostHeader, resolveHostName } from "./net.js";
 

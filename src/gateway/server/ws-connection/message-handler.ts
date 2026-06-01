@@ -25,6 +25,7 @@ import {
   formatValidationErrors,
   MIN_PROBE_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
+  type RequestFrame,
   validateConnectParams,
   validateRequestFrame,
 } from "../../../../packages/gateway-protocol/src/index.js";
@@ -509,7 +510,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     const text = rawDataToString(data);
     let parsed: unknown;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(text) as unknown;
     } catch {
       malformedFrameCount += 1;
       if (malformedFrameCount >= MAX_MALFORMED_FRAMES_BEFORE_CLOSE) {
@@ -551,13 +552,14 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         // Handshake must be a normal request:
         // { type:"req", method:"connect", params: ConnectParams }.
         const isRequestFrame = validateRequestFrame(parsed);
+        const preAuthParsed = parsed as RequestFrame;
         if (
           !isRequestFrame ||
-          parsed.method !== "connect" ||
-          !validateConnectParams(parsed.params)
+          preAuthParsed.method !== "connect" ||
+          !validateConnectParams(preAuthParsed.params)
         ) {
           const handshakeError = isRequestFrame
-            ? parsed.method === "connect"
+            ? preAuthParsed.method === "connect"
               ? `invalid connect params: ${formatValidationErrors(validateConnectParams.errors)}`
               : "invalid handshake: first request must be connect"
             : "invalid request frame";
@@ -569,7 +571,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
             handshakeError,
           });
           if (isRequestFrame) {
-            const req = parsed;
+            const req = parsed as RequestFrame;
             send({
               type: "res",
               id: req.id,
@@ -590,7 +592,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           return;
         }
 
-        const frame = parsed;
+        const frame = parsed as RequestFrame;
         const connectParams = frame.params as ConnectParams;
         const resolvedAuth = getResolvedAuth();
         const clientLabel = connectParams.client.displayName ?? connectParams.client.id;

@@ -133,7 +133,6 @@ export function createGatewayVerifyClient(
 ) => void {
   const { log, connectionRateLimiter, maxConnections, activeConnectionCount } = params;
 
-  // eslint-disable-next-line @typescript-eslint/max-params -- ws callback signature
   return (info, callback) => {
     const { req } = info;
     const configSnapshot = loadConfig();
@@ -142,15 +141,15 @@ export function createGatewayVerifyClient(
     const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
     const allowRealIpFallback = configSnapshot.gateway?.allowRealIpFallback === true;
 
-    const headerValue = (value: string | string[] | undefined) =>
+    const firstHeader = (value: string | string[] | undefined) =>
       Array.isArray(value) ? value[0] : value;
 
     const remoteAddr = req.socket?.remoteAddress;
-    const forwardedFor = headerValue(req.headers["x-forwarded-for"]);
-    const realIp = headerValue(req.headers["x-real-ip"]);
-    const forwardedHost = headerValue(req.headers["x-forwarded-host"]);
-    const xForwardedProto = headerValue(req.headers["x-forwarded-proto"]);
-    const forwarded = headerValue(req.headers.forwarded);
+    const forwardedFor = firstHeader(req.headers["x-forwarded-for"]);
+    const realIp = firstHeader(req.headers["x-real-ip"]);
+    const forwardedHost = firstHeader(req.headers["x-forwarded-host"]);
+    const xForwardedProto = firstHeader(req.headers["x-forwarded-proto"]);
+    const forwarded = firstHeader(req.headers.forwarded);
 
     // 0. Connection limits — prevent resource exhaustion before any auth work
     if (maxConnections !== undefined && maxConnections > 0 && activeConnectionCount) {
