@@ -1,5 +1,6 @@
 // OpenClaw Gateway client facade.
 // Wraps the shared gateway-client package with OpenClaw host dependencies.
+import { WS_ENDPOINT } from "@openclaw/gateway-security-core/ws-endpoint";
 import {
   GatewayClient as BaseGatewayClient,
   GATEWAY_CLOSE_CODE_HINTS as BASE_GATEWAY_CLOSE_CODE_HINTS,
@@ -158,6 +159,19 @@ export type GatewayClientConnectionMetadata = {
   preauthHandshakeTimeoutMs?: number;
 };
 
+function normalizeGatewayWebSocketUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    if (url.pathname === "" || url.pathname === "/") {
+      url.pathname = WS_ENDPOINT.LEGACY;
+      return url.toString();
+    }
+  } catch {
+    // Keep malformed URLs on the existing error path.
+  }
+  return rawUrl;
+}
+
 function createOpenClawGatewayClientHostDeps(
   overrides?: GatewayClientHostDeps,
 ): GatewayClientHostDeps {
@@ -195,8 +209,10 @@ export class GatewayClient {
   constructor(opts: GatewayClientOptions) {
     // Inject host deps here so the reusable package stays decoupled from
     // OpenClaw device identity, token storage, proxy routing, and logging.
+    const url = opts.url ? normalizeGatewayWebSocketUrl(opts.url) : opts.url;
     this.#client = new BaseGatewayClient({
       ...opts,
+      url,
       clientVersion: opts.clientVersion ?? VERSION,
       hostDeps: createOpenClawGatewayClientHostDeps(opts.hostDeps),
     });
