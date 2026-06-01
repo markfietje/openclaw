@@ -142,13 +142,13 @@ type DiagnosticEventsStateForTest = {
   asyncQueue?: unknown[];
 };
 
-function runCleanupActions(actions: CleanupAction[]): unknown {
-  let firstError: unknown;
+function runCleanupActions(actions: CleanupAction[]): Error | undefined {
+  let firstError: Error | undefined;
   for (const action of actions) {
     try {
       action();
     } catch (error) {
-      firstError ??= error;
+      firstError ??= error instanceof Error ? error : new Error(String(error));
     }
   }
   return firstError;
