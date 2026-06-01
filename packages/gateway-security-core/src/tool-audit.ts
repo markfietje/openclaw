@@ -68,7 +68,7 @@ function computeHmac(jsonWithoutHmac: string, token: string): string {
  * has no `hmac` field and `token` is empty — backward-compatible mode).
  * Returns `{ valid: false }` otherwise.
  */
-export function verifyLine(
+export function verifyToolAuditLine(
   line: string,
   token: string,
 ): { valid: boolean; entry?: ToolAuditEntry } {
@@ -165,7 +165,7 @@ export function createToolAuditLogger(config?: ToolAuditLogConfig): ToolAuditLog
       const jsonWithoutHmac = JSON.stringify(line);
       const hmacHex = computeHmac(jsonWithoutHmac, hmacToken);
       // hmacHex is a hex string (only [0-9a-f]) — safe to inject into JSON.
-      data = jsonWithoutHmac.slice(0, -1) + `,"hmac":"${hmacHex}"}` + "\n";
+      data = `${jsonWithoutHmac.slice(0, -1)},"hmac":"${hmacHex}"}\n`;
     } else {
       data = JSON.stringify(line) + "\n";
     }

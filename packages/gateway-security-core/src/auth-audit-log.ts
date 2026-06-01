@@ -153,7 +153,7 @@ export function createAuthAuditLogger(config?: AuthAuditLogConfig): AuthAuditLog
       const jsonWithoutHmac = JSON.stringify(line);
       const hmacHex = computeHmac(jsonWithoutHmac, hmacToken);
       // hmacHex is a hex string (only [0-9a-f]) — safe to inject into JSON.
-      data = jsonWithoutHmac.slice(0, -1) + `,"hmac":"${hmacHex}"}` + "\n";
+      data = `${jsonWithoutHmac.slice(0, -1)},"hmac":"${hmacHex}"}\n`;
     } else {
       data = JSON.stringify(line) + "\n";
     }
