@@ -28,12 +28,22 @@
       "types": "./dist/ip-restriction-policy.d.mts",
       "import": "./dist/ip-restriction-policy.mjs",
       "default": "./dist/ip-restriction-policy.mjs"
+    },
+    "./ws-endpoint": {
+      "types": "./dist/ws-endpoint.d.mts",
+      "import": "./dist/ws-endpoint.mjs",
+      "default": "./dist/ws-endpoint.mjs"
+    },
+    "./ws-protocol": {
+      "types": "./dist/ws-protocol.d.mts",
+      "import": "./dist/ws-protocol.mjs",
+      "default": "./dist/ws-protocol.mjs"
     }
   },
   "dependencies": {
     "@openclaw/net-policy": "workspace:*"
   },
   "scripts": {
-    "build": "tsdown src/index.ts src/capabilities.ts src/device-session-authority.ts src/ip-restriction-policy.ts --no-config --platform node --format esm --dts --out-dir dist --clean"
+    "build": "tsdown src/index.ts src/capabilities.ts src/device-session-authority.ts src/ip-restriction-policy.ts src/ws-endpoint.ts src/ws-protocol.ts --no-config --platform node --format esm --dts --out-dir dist --clean"
   }
 }
