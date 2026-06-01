@@ -14,20 +14,55 @@
       "import": "./dist/index.mjs",
       "default": "./dist/index.mjs"
     },
+    "./auth-audit-log": {
+      "types": "./dist/auth-audit-log.d.mts",
+      "import": "./dist/auth-audit-log.mjs",
+      "default": "./dist/auth-audit-log.mjs"
+    },
     "./capabilities": {
       "types": "./dist/capabilities.d.mts",
       "import": "./dist/capabilities.mjs",
       "default": "./dist/capabilities.mjs"
+    },
+    "./connection-rate-limit": {
+      "types": "./dist/connection-rate-limit.d.mts",
+      "import": "./dist/connection-rate-limit.mjs",
+      "default": "./dist/connection-rate-limit.mjs"
     },
     "./device-session-authority": {
       "types": "./dist/device-session-authority.d.mts",
       "import": "./dist/device-session-authority.mjs",
       "default": "./dist/device-session-authority.mjs"
     },
+    "./exec-deny-paths": {
+      "types": "./dist/exec-deny-paths.d.mts",
+      "import": "./dist/exec-deny-paths.mjs",
+      "default": "./dist/exec-deny-paths.mjs"
+    },
     "./ip-restriction-policy": {
       "types": "./dist/ip-restriction-policy.d.mts",
       "import": "./dist/ip-restriction-policy.mjs",
       "default": "./dist/ip-restriction-policy.mjs"
+    },
+    "./message-auth": {
+      "types": "./dist/message-auth.d.mts",
+      "import": "./dist/message-auth.mjs",
+      "default": "./dist/message-auth.mjs"
+    },
+    "./request-rate-limit": {
+      "types": "./dist/request-rate-limit.d.mts",
+      "import": "./dist/request-rate-limit.mjs",
+      "default": "./dist/request-rate-limit.mjs"
+    },
+    "./startup-security-checks": {
+      "types": "./dist/startup-security-checks.d.mts",
+      "import": "./dist/startup-security-checks.mjs",
+      "default": "./dist/startup-security-checks.mjs"
+    },
+    "./tool-audit": {
+      "types": "./dist/tool-audit.d.mts",
+      "import": "./dist/tool-audit.mjs",
+      "default": "./dist/tool-audit.mjs"
     },
     "./ws-endpoint": {
       "types": "./dist/ws-endpoint.d.mts",
@@ -44,6 +79,6 @@
     "@openclaw/net-policy": "workspace:*"
   },
   "scripts": {
-    "build": "tsdown src/index.ts src/capabilities.ts src/device-session-authority.ts src/ip-restriction-policy.ts src/ws-endpoint.ts src/ws-protocol.ts --no-config --platform node --format esm --dts --out-dir dist --clean"
+    "build": "tsdown"
   }
 }

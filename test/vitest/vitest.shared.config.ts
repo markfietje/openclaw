@@ -404,6 +404,16 @@ export const sharedVitestConfig = {
         replacement: path.join(repoRoot, "packages", "normalization-core", "src", "index.ts"),
       },
       {
+        find: "@openclaw/gateway-security-core/auth-audit-log",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "auth-audit-log.ts",
+        ),
+      },
+      {
         find: "@openclaw/gateway-security-core/capabilities",
         replacement: path.join(
           repoRoot,
@@ -411,6 +421,16 @@ export const sharedVitestConfig = {
           "gateway-security-core",
           "src",
           "capabilities.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/connection-rate-limit",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "connection-rate-limit.ts",
         ),
       },
       {
@@ -424,6 +444,16 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: "@openclaw/gateway-security-core/exec-deny-paths",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "exec-deny-paths.ts",
+        ),
+      },
+      {
         find: "@openclaw/gateway-security-core/ip-restriction-policy",
         replacement: path.join(
           repoRoot,
@@ -431,6 +461,46 @@ export const sharedVitestConfig = {
           "gateway-security-core",
           "src",
           "ip-restriction-policy.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/message-auth",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "message-auth.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/request-rate-limit",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "request-rate-limit.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/startup-security-checks",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "startup-security-checks.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/tool-audit",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "tool-audit.ts",
         ),
       },
       {

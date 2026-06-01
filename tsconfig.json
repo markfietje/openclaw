@@ -64,14 +64,35 @@
       "@openclaw/gateway-protocol": ["./packages/gateway-protocol/src/index.ts"],
       "@openclaw/gateway-protocol/*": ["./packages/gateway-protocol/src/*"],
       "@openclaw/gateway-security-core": ["./packages/gateway-security-core/src/index.ts"],
+      "@openclaw/gateway-security-core/auth-audit-log": [
+        "./packages/gateway-security-core/src/auth-audit-log.ts"
+      ],
       "@openclaw/gateway-security-core/capabilities": [
         "./packages/gateway-security-core/src/capabilities.ts"
+      ],
+      "@openclaw/gateway-security-core/connection-rate-limit": [
+        "./packages/gateway-security-core/src/connection-rate-limit.ts"
       ],
       "@openclaw/gateway-security-core/device-session-authority": [
         "./packages/gateway-security-core/src/device-session-authority.ts"
       ],
+      "@openclaw/gateway-security-core/exec-deny-paths": [
+        "./packages/gateway-security-core/src/exec-deny-paths.ts"
+      ],
       "@openclaw/gateway-security-core/ip-restriction-policy": [
         "./packages/gateway-security-core/src/ip-restriction-policy.ts"
+      ],
+      "@openclaw/gateway-security-core/message-auth": [
+        "./packages/gateway-security-core/src/message-auth.ts"
+      ],
+      "@openclaw/gateway-security-core/request-rate-limit": [
+        "./packages/gateway-security-core/src/request-rate-limit.ts"
+      ],
+      "@openclaw/gateway-security-core/startup-security-checks": [
+        "./packages/gateway-security-core/src/startup-security-checks.ts"
+      ],
+      "@openclaw/gateway-security-core/tool-audit": [
+        "./packages/gateway-security-core/src/tool-audit.ts"
       ],
       "@openclaw/gateway-security-core/ws-endpoint": [
         "./packages/gateway-security-core/src/ws-endpoint.ts"

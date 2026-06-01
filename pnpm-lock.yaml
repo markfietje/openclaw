@@ -1809,6 +1809,12 @@ importers:
         specifier: 1.1.39
         version: 1.1.39
 
+  packages/gateway-security-core:
+    dependencies:
+      '@openclaw/net-policy':
+        specifier: workspace:*
+        version: link:../net-policy
+
   packages/llm-core:
     dependencies:
       typebox:
