@@ -269,28 +269,35 @@ const isModuleNotFoundError = (err) =>
   err && typeof err === "object" && "code" in err && err.code === "ERR_MODULE_NOT_FOUND";
 
 const isDirectModuleNotFoundError = (err, specifier) => {
-  const message = getErrorMessage(err);
-  const bunSpecifierMiss =
-    message.includes(`Cannot find module '${specifier}'`) ||
-    message.includes(`Cannot find module "${specifier}"`);
-  const launcherPath = fileURLToPath(import.meta.url);
-  const bunLauncherImporterMiss =
-    message.includes(` from '${launcherPath}'`) || message.includes(` from "${launcherPath}"`);
-
   const expectedUrl = new URL(specifier, import.meta.url);
-  const expectedPath = fileURLToPath(expectedUrl);
-  const nodePathMiss =
-    message.includes(`Cannot find module '${expectedPath}'`) ||
-    message.includes(`Cannot find module "${expectedPath}"`);
-
-  if (isModuleNotFoundError(err)) {
-    if (err && typeof err === "object" && "url" in err && err.url === expectedUrl.href) {
-      return true;
-    }
-    return nodePathMiss || (bunSpecifierMiss && bunLauncherImporterMiss);
+  const message =
+    err && typeof err === "object" && "message" in err && typeof err.message === "string"
+      ? err.message
+      : "";
+  const launcherPath = fileURLToPath(import.meta.url);
+  const isBunDirectMissing =
+    (message.includes(`Cannot find module '${specifier}' from '${launcherPath}'`) ||
+      message.includes(`Cannot find module "${specifier}" from "${launcherPath}"`)) &&
+    !message.includes("\n");
+  if (isBunDirectMissing) {
+    return true;
   }
 
-  return bunSpecifierMiss && bunLauncherImporterMiss;
+  // Bun reports the direct specifier and importer instead of Node's absolute
+  // resolved path. Keep this narrow so transitive missing imports still surface.
+  if (!isModuleNotFoundError(err)) {
+    return false;
+  }
+
+  if ("url" in err && err.url === expectedUrl.href) {
+    return true;
+  }
+
+  const expectedPath = fileURLToPath(expectedUrl);
+  return (
+    message.includes(`Cannot find module '${expectedPath}'`) ||
+    message.includes(`Cannot find module "${expectedPath}"`)
+  );
 };
 
 const installProcessWarningFilter = async () => {
