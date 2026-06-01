@@ -1,3 +1,4 @@
+import { WS_ENDPOINT } from "@openclaw/gateway-security-core/ws-endpoint";
 import {
   GatewayClient as BaseGatewayClient,
   GATEWAY_CLOSE_CODE_HINTS as BASE_GATEWAY_CLOSE_CODE_HINTS,
@@ -156,6 +157,19 @@ export type GatewayClientConnectionMetadata = {
   preauthHandshakeTimeoutMs?: number;
 };
 
+function normalizeGatewayWebSocketUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    if (url.pathname === "" || url.pathname === "/") {
+      url.pathname = WS_ENDPOINT.LEGACY;
+      return url.toString();
+    }
+  } catch {
+    // Keep malformed URLs on the existing error path.
+  }
+  return rawUrl;
+}
+
 function createOpenClawGatewayClientHostDeps(
   overrides?: GatewayClientHostDeps,
 ): GatewayClientHostDeps {
@@ -191,8 +205,10 @@ export class GatewayClient {
   #client: BaseGatewayClient;
 
   constructor(opts: GatewayClientOptions) {
+    const url = opts.url ? normalizeGatewayWebSocketUrl(opts.url) : opts.url;
     this.#client = new BaseGatewayClient({
       ...opts,
+      url,
       clientVersion: opts.clientVersion ?? VERSION,
       hostDeps: createOpenClawGatewayClientHostDeps(opts.hostDeps),
     });
