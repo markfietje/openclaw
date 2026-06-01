@@ -175,6 +175,42 @@ function resolveForwardedClientIp(params: {
   return undefined;
 }
 
+/**
+ * Parse RFC 7239 `Forwarded` header and extract the client IP from `for=` fields.
+ * Self-contained to avoid circular dependency with forwarded-headers.ts.
+ */
+function resolveForwardedHeaderClientIp(params: {
+  forwarded?: string;
+  trustedProxies?: string[];
+}): string | undefined {
+  if (!params.forwarded || !params.trustedProxies?.length) {
+    return undefined;
+  }
+
+  const entries: string[] = [];
+  for (const segment of params.forwarded.split(/\s*,\s*/)) {
+    const forMatch = segment.match(/for=(?:"([^"]+)"|([^;,]+))/i);
+    if (forMatch) {
+      const ip = parseIpLiteral(forMatch[1] ?? forMatch[2]);
+      if (ip) {
+        entries.push(ip);
+      }
+    }
+  }
+
+  // Walk right-to-left and return the first untrusted hop.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const hop = entries[i];
+    if (isLoopbackAddress(hop)) {
+      continue;
+    }
+    if (!isTrustedProxyAddress(hop, params.trustedProxies)) {
+      return hop;
+    }
+  }
+  return undefined;
+}
+
 export function isTrustedProxyAddress(ip: string | undefined, trustedProxies?: string[]): boolean {
   const normalized = normalizeIp(ip);
   if (!normalized || !trustedProxies || trustedProxies.length === 0) {
@@ -193,6 +229,7 @@ export function isTrustedProxyAddress(ip: string | undefined, trustedProxies?: s
 export function resolveClientIp(params: {
   remoteAddr?: string;
   forwardedFor?: string;
+  forwarded?: string | string[];
   realIp?: string;
   trustedProxies?: string[];
   /** Default false: only trust X-Real-IP when explicitly enabled. */
@@ -208,6 +245,22 @@ export function resolveClientIp(params: {
   // Fail closed when traffic comes from a trusted proxy but client-origin headers
   // are missing or invalid. Falling back to the proxy's own IP can accidentally
   // treat unrelated requests as local/trusted.
+
+  // Try RFC 7239 Forwarded header first (standard takes precedence over X-Forwarded-For).
+  const forwardedRaw =
+    typeof params.forwarded === "string"
+      ? params.forwarded
+      : Array.isArray(params.forwarded)
+        ? params.forwarded[0]
+        : undefined;
+  const rfcForwardedIp = resolveForwardedHeaderClientIp({
+    forwarded: forwardedRaw,
+    trustedProxies: params.trustedProxies,
+  });
+  if (rfcForwardedIp) {
+    return rfcForwardedIp;
+  }
+
   const forwardedIp = resolveForwardedClientIp({
     forwardedFor: params.forwardedFor,
     trustedProxies: params.trustedProxies,
@@ -218,11 +271,132 @@ export function resolveClientIp(params: {
   if (params.allowRealIpFallback) {
     return parseRealIp(params.realIp);
   }
+  // Loopback fallback: when all proxy header resolution fails but the remote
+  // address is loopback, the connection is direct (no proxy). Loopback is
+  // non-spoofable — only local processes can originate from it — so it is safe
+  // to treat the remote address as the client IP. This prevents direct CLI/TUI
+  // connections from being misclassified as broken proxy connections when
+  // loopback is also listed in trustedProxies (common when Tailscale Serve
+  // proxies from the same loopback address).
+  if (isLoopbackAddress(remote)) {
+    return remote;
+  }
   return undefined;
 }
 
 function headerValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+interface StrictHeaderResult {
+  ok: true;
+  value: string;
+}
+interface StrictHeaderError {
+  ok: false;
+  reason: "duplicate" | "chain-not-allowed" | "missing";
+}
+type StrictHeaderParseResult = StrictHeaderResult | StrictHeaderError;
+
+const SENSITIVE_HEADERS = new Set([
+  "host",
+  "origin",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "x-forwarded-for",
+  "x-real-ip",
+  "forwarded",
+]);
+
+function strictHeader(value: string | string[] | undefined): StrictHeaderParseResult {
+  if (value === undefined || value === "") {
+    return { ok: false, reason: "missing" };
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length !== 1) {
+      return { ok: false, reason: "duplicate" };
+    }
+    const single = value[0];
+    if (typeof single !== "string" || !single) {
+      return { ok: false, reason: "missing" };
+    }
+    if (single.includes(",")) {
+      return { ok: false, reason: "chain-not-allowed" };
+    }
+    return { ok: true, value: single.trim() };
+  }
+
+  if (typeof value !== "string" || !value) {
+    return { ok: false, reason: "missing" };
+  }
+
+  if (value.includes(",")) {
+    return { ok: false, reason: "chain-not-allowed" };
+  }
+
+  return { ok: true, value: value.trim() };
+}
+
+export function validateSensitiveHeaders(
+  headers: Record<string, string | string[] | undefined>,
+): { ok: false; header: string; reason: string } | { ok: true } {
+  for (const headerName of SENSITIVE_HEADERS) {
+    const value = headers[headerName];
+    if (value === undefined) {
+      continue;
+    }
+    const result = strictHeader(value);
+    if (!result.ok) {
+      return {
+        ok: false,
+        header: headerName,
+        reason: result.reason,
+      };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Detect contradictions between `X-Forwarded-For` and `Forwarded` headers.
+ * When both are present, extract the rightmost untrusted hop from each and
+ * verify they agree. Callers with `trustedProxies` context should invoke this
+ * after `validateSensitiveHeaders` to catch header contradiction attacks.
+ */
+export function validateForwardedHeaderConsistency(
+  headers: Record<string, string | string[] | undefined>,
+  trustedProxies?: string[],
+): { ok: true } | { ok: false; reason: string } {
+  const xff = headerValue(headers["x-forwarded-for"]);
+  const fwd = headerValue(headers["forwarded"]);
+
+  if (!xff || !fwd) {
+    return { ok: true };
+  }
+
+  const xffIp = resolveForwardedClientIp({ forwardedFor: xff, trustedProxies });
+  const fwdIp = resolveForwardedHeaderClientIp({
+    forwarded: fwd,
+    trustedProxies,
+  });
+
+  if (xffIp && fwdIp && xffIp !== fwdIp) {
+    return {
+      ok: false,
+      reason: `forwarded header inconsistency: X-Forwarded-For resolves to ${xffIp} but Forwarded resolves to ${fwdIp}`,
+    };
+  }
+
+  return { ok: true };
+}
+
+export function extractNormalizedHeader(
+  headers: Record<string, string | string[] | undefined>,
+  name: string,
+): string | undefined {
+  const value = headers[name];
+  return headerValue(value);
 }
 
 export function resolveRequestClientIp(
@@ -236,6 +410,7 @@ export function resolveRequestClientIp(
   return resolveClientIp({
     remoteAddr: req.socket?.remoteAddress ?? "",
     forwardedFor: headerValue(req.headers?.["x-forwarded-for"]),
+    forwarded: req.headers?.["forwarded"],
     realIp: headerValue(req.headers?.["x-real-ip"]),
     trustedProxies,
     allowRealIpFallback,
