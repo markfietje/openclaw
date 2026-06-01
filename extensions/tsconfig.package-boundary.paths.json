@@ -248,6 +248,18 @@
       "@openclaw/normalization-core/*": [
         "../dist/plugin-sdk/packages/normalization-core/src/*.d.ts"
       ],
+      "@openclaw/gateway-security-core": [
+        "../dist/plugin-sdk/packages/gateway-security-core/src/index.d.ts"
+      ],
+      "@openclaw/gateway-security-core/capabilities": [
+        "../dist/plugin-sdk/packages/gateway-security-core/src/capabilities.d.ts"
+      ],
+      "@openclaw/gateway-security-core/device-session-authority": [
+        "../dist/plugin-sdk/packages/gateway-security-core/src/device-session-authority.d.ts"
+      ],
+      "@openclaw/gateway-security-core/ip-restriction-policy": [
+        "../dist/plugin-sdk/packages/gateway-security-core/src/ip-restriction-policy.d.ts"
+      ],
       "@openclaw/acp-core": [
         "../dist/plugin-sdk/packages/acp-core/src/index.d.ts"
       ],
