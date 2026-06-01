@@ -456,6 +456,8 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
 
   const isWebchatConnect = (p: ConnectParams | null | undefined) => isWebchatClient(p?.client);
   const unauthorizedFloodGuard = new UnauthorizedFloodGuard();
+  const MAX_MALFORMED_FRAMES_BEFORE_CLOSE = 3;
+  let malformedFrameCount = 0;
   let deviceCredentialMutationBarrier: Promise<void> | undefined;
   const browserSecurity = resolveHandshakeBrowserSecurityContext({
     requestOrigin,
@@ -505,8 +507,23 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     }
 
     const text = rawDataToString(data);
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(text);
+      parsed = JSON.parse(text);
+    } catch {
+      malformedFrameCount += 1;
+      if (malformedFrameCount >= MAX_MALFORMED_FRAMES_BEFORE_CLOSE) {
+        setCloseCause("too-many-malformed-frames", {
+          count: malformedFrameCount,
+        });
+        logWsControl.warn(
+          `too many invalid frames conn=${connId} count=${malformedFrameCount} remote=${remoteAddr ?? "?"}`,
+        );
+        close(1008, "too many invalid frames");
+      }
+      return;
+    }
+    try {
       const frameType =
         parsed && typeof parsed === "object" && "type" in parsed
           ? typeof (parsed as { type?: unknown }).type === "string"
@@ -2028,7 +2045,11 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         });
       })().catch((err: unknown) => {
         logGateway.error(`request handler failed: ${formatForLog(err)}`);
-        respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.UNAVAILABLE, "gateway request unavailable"),
+        );
       });
       if (DEVICE_CREDENTIAL_INVALIDATING_METHODS.has(req.method)) {
         const barrier = dispatch.finally(() => {

@@ -25,6 +25,7 @@ import { clearNodeWakeState } from "../server-methods/nodes-wake-state.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "../server-methods/types.js";
 import { formatError } from "../server-utils.js";
 import { logWs } from "../ws-log.js";
+import type { AuthenticatedConnectionBudget } from "./authenticated-connection-budget.js";
 import { getHealthVersion, incrementPresenceVersion } from "./health-state.js";
 import type { PreauthConnectionBudget } from "./preauth-connection-budget.js";
 import { broadcastPresenceSnapshot } from "./presence-events.js";
@@ -139,6 +140,7 @@ export type GatewayWsSharedHandlerParams = {
   wss: WebSocketServer;
   clients: Set<GatewayWsClient>;
   preauthConnectionBudget: PreauthConnectionBudget;
+  authenticatedConnectionBudget?: AuthenticatedConnectionBudget;
   port: number;
   gatewayHost?: string;
   pluginSurfaceScheme?: "http" | "https";
@@ -215,6 +217,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     wss,
     clients,
     preauthConnectionBudget,
+    authenticatedConnectionBudget,
     port,
     pluginSurfaceScheme,
     getPluginNodeCapabilities,
@@ -522,6 +525,23 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       setClient: (next) => {
         if (closed) {
           return false;
+        }
+        if (authenticatedConnectionBudget) {
+          const deviceId = next.connect.device?.id;
+          if (!authenticatedConnectionBudget.acquire(deviceId, connId)) {
+            setCloseCause("authenticated-connection-budget-exhausted", {
+              deviceId,
+            });
+            logWsControl.warn(
+              `authenticated connection budget exhausted conn=${connId} device=${deviceId ?? "unknown"} remote=${remoteAddr ?? "?"}`,
+            );
+            try {
+              socket.close(1008, "authenticated connection limit exceeded");
+            } catch {
+              // socket may already be in CLOSING; close() will still emit.
+            }
+            return false;
+          }
         }
         releasePreauthBudget();
         client = next;
