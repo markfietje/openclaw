@@ -2,6 +2,10 @@
 // Authorizes HTTP/websocket gateway requests across shared-secret, Tailscale, and proxy modes.
 import type { IncomingMessage } from "node:http";
 import {
+  isIpAllowed,
+  type IpRestrictionConfig,
+} from "@openclaw/gateway-security-core/ip-restriction-policy";
+import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
@@ -88,6 +92,8 @@ export type AuthorizeGatewayConnectParams = {
     allowedOrigins?: string[];
     allowHostHeaderOriginFallback?: boolean;
   };
+  /** IP restriction configuration for gateway access control. */
+  ipRestriction?: IpRestrictionConfig;
 };
 
 type TailscaleUser = {
@@ -486,6 +492,14 @@ async function authorizeGatewayConnectCore(
   const { authSurface, limiter, ip, rateLimitScope, localDirect } =
     resolveGatewayAuthRequestContext(params);
   const allowTailscaleHeaderAuth = shouldAllowTailscaleHeaderAuth(authSurface);
+
+  // IP restriction check — fail fast for blocked IPs before any auth mode
+  // dispatch. Restriction applies regardless of auth mode so an operator can
+  // pin a public listener to a known network without trusting the proxy chain.
+  if (params.ipRestriction && !isIpAllowed(ip, params.ipRestriction)) {
+    limiter?.recordFailure(ip, rateLimitScope);
+    return { ok: false, reason: "ip_not_allowed" };
+  }
 
   if (auth.mode === "trusted-proxy") {
     // Same-host reverse proxies may forward identity headers without a full
