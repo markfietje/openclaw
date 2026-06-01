@@ -216,8 +216,7 @@ export class ExecApprovalManager<TPayload = ExecApprovalRequestPayload> {
 
   create(request: TPayload, timeoutMs: number, id?: string | null): ExecApprovalRecord<TPayload> {
     const now = Date.now();
-    const resolvedTimeoutMs = resolveApprovalTimeoutMs(timeoutMs);
-    const expiresAtMs = resolveExpiresAtMsFromDurationMs(resolvedTimeoutMs, { nowMs: now });
+    const expiresAtMs = resolveExpiresAtMsFromDurationMs(timeoutMs, { nowMs: now });
     if (expiresAtMs === undefined) {
       throw new Error("approval expiry is unavailable");
     }
