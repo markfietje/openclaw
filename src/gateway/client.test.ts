@@ -419,7 +419,9 @@ describe("GatewayClient security checks", () => {
 
     client.start();
 
-    expect(proxylineRegisterBypassMock).toHaveBeenCalledWith({ url: "ws://127.0.0.1:18789" });
+    expect(proxylineRegisterBypassMock).toHaveBeenCalledWith({
+      url: "ws://127.0.0.1:18789/gateway",
+    });
     expect(bypassActiveDuringConstruction).toEqual([true]);
     expect(proxylineUnregisterBypassMock).toHaveBeenCalledOnce();
     const ws = getLatestWs();
@@ -443,7 +445,9 @@ describe("GatewayClient security checks", () => {
 
     client.start();
 
-    expect(proxylineRegisterBypassMock).toHaveBeenCalledWith({ url: "ws://127.0.0.1:18789" });
+    expect(proxylineRegisterBypassMock).toHaveBeenCalledWith({
+      url: "ws://127.0.0.1:18789/gateway",
+    });
     expect(proxylineUnregisterBypassMock).toHaveBeenCalledOnce();
     const ws = getLatestWs();
 
