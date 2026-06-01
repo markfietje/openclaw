@@ -380,13 +380,35 @@ describe("ws connect policy", () => {
       },
       true,
     );
-    expectClearsUnboundScopes(
-      {
+    expect(
+      shouldClearUnboundScopesForMissingDeviceIdentity({
+        decision: { kind: "allow" },
         controlUiAuthPolicy: nonControlUi,
+        preserveInsecureLocalControlUiScopes: false,
+        preserveLocalBackendSharedAuthScopes: true,
+        authMethod: "token",
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldClearUnboundScopesForMissingDeviceIdentity({
+        decision: { kind: "allow" },
+        controlUiAuthPolicy: nonControlUi,
+        preserveInsecureLocalControlUiScopes: false,
+        preserveLocalBackendSharedAuthScopes: true,
+        authMethod: "password",
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldClearUnboundScopesForMissingDeviceIdentity({
+        decision: { kind: "allow" },
+        controlUiAuthPolicy: nonControlUi,
+        preserveInsecureLocalControlUiScopes: false,
+        preserveLocalBackendSharedAuthScopes: true,
         authMethod: "trusted-proxy",
-      },
-      true,
-    );
+      }),
+    ).toBe(true);
     expectClearsUnboundScopes(
       {
         controlUiAuthPolicy: nonControlUi,
