@@ -21,6 +21,7 @@ import {
   MIN_CLIENT_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
 } from "../../../packages/gateway-protocol/src/version.js";
+import { GATEWAY_WS_SUBPROTOCOL } from "../../../packages/gateway-security-core/src/ws-protocol.js";
 import { buildDeviceAuthPayload } from "../../../src/gateway/device-auth.js";
 import {
   clearDeviceAuthToken,
@@ -601,7 +602,7 @@ export class GatewayBrowserClient {
     }
     let ws: WebSocket;
     try {
-      ws = new WebSocket(this.opts.url);
+      ws = new WebSocket(this.opts.url, [GATEWAY_WS_SUBPROTOCOL]);
     } catch (err) {
       const error = formatBrowserWebSocketConstructorError(err, this.opts.url);
       this.ws = null;

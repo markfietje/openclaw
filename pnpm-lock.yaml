@@ -1912,6 +1912,9 @@ importers:
       '@openclaw/gateway-protocol':
         specifier: workspace:*
         version: link:../gateway-protocol
+      '@openclaw/gateway-security-core':
+        specifier: workspace:*
+        version: link:../gateway-security-core
       ipaddr.js:
         specifier: 2.4.0
         version: 2.4.0
