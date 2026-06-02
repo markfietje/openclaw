@@ -2,6 +2,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { checkExecDenyPath } from "@openclaw/gateway-security-core/exec-deny-paths";
 import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalLowercaseString,
@@ -1297,6 +1298,17 @@ function removeParsedSegmentText(
     remaining = remaining.replace(raw, " ");
   }
   return remaining;
+}
+
+export function commandMatchesExecDenyPath(command: string): {
+  matched: boolean;
+  pattern?: string;
+} {
+  const matchedPattern = checkExecDenyPath(command);
+  if (matchedPattern === undefined) {
+    return { matched: false };
+  }
+  return { matched: true, pattern: matchedPattern };
 }
 
 export function commandRequiresSecurityAuditSuppressionApproval(params: {
