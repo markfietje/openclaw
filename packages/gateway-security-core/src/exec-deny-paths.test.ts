@@ -253,4 +253,41 @@ describe("extractPathsFromCommand", () => {
     const paths = extractPathsFromCommand("tail -n 10 /var/log/syslog");
     expect(paths).toEqual(["/var/log/syslog"]);
   });
+
+  describe("shell unwrapping", () => {
+    it("unwraps bash -c and extracts inner command paths", () => {
+      const paths = extractPathsFromCommand('bash -c "cat .env"');
+      expect(paths).toContain(".env");
+    });
+
+    it("unwraps sh -c with single quotes", () => {
+      const paths = extractPathsFromCommand("sh -c 'cat ~/.ssh/id_rsa'");
+      expect(paths).toContain("~/.ssh/id_rsa");
+    });
+
+    it("unwraps zsh -c", () => {
+      const paths = extractPathsFromCommand('zsh -c "cat ~/.openclaw/secrets/key"');
+      expect(paths).toContain("~/.openclaw/secrets/key");
+    });
+
+    it("unwraps /bin/sh -c with absolute shell path", () => {
+      const paths = extractPathsFromCommand('/bin/sh -c "cat credentials/db.pem"');
+      expect(paths).toContain("credentials/db.pem");
+    });
+
+    it("unwraps fish -c", () => {
+      const paths = extractPathsFromCommand('fish -c "cat .env"');
+      expect(paths).toContain(".env");
+    });
+
+    it("passes through non-shell commands unchanged", () => {
+      const paths = extractPathsFromCommand("cat /etc/hosts");
+      expect(paths).toEqual(["/etc/hosts"]);
+    });
+
+    it("handles shell without -c as normal command", () => {
+      const paths = extractPathsFromCommand("bash ./script.sh");
+      expect(paths).toContain("./script.sh");
+    });
+  });
 });

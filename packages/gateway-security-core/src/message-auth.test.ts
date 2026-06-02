@@ -74,4 +74,60 @@ describe("gateway message authorization", () => {
 
     expect(result).toMatchObject({ ok: true, capability: "admin:read" });
   });
+
+  it("denies when scopes are empty against a capability-gated method", () => {
+    const ctx = createCtx({ role: "operator", scopes: [] });
+    const result = authorizeMessage(ctx, "gateway.method.diagnostics.stability", {
+      requireCapabilityForAll: true,
+      logDenied: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.missingCapability).toBeDefined();
+    }
+  });
+
+  it("allows unknown methods when no decision is resolved", () => {
+    const ctx = createCtx({ role: "operator", scopes: [] });
+    const decision = resolveMessageAuthorizationDecision("gateway.method.nonexistent");
+    expect(decision).toBeUndefined();
+  });
+
+  it("denies subset scope against a write-gated method", () => {
+    const ctx = createCtx({ role: "operator", scopes: ["admin:read"] });
+    const result = authorizeMessage(ctx, "gateway.method.tasks.cancel", {
+      requireCapabilityForAll: true,
+      logDenied: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.missingCapability).toContain("admin:write");
+    }
+  });
+
+  it("denies when scopes are empty even with requireCapabilityForAll false", () => {
+    const ctx = createCtx({ role: "operator", scopes: [] });
+    const result = authorizeMessage(ctx, "gateway.method.diagnostics.stability", {
+      requireCapabilityForAll: false,
+      logDenied: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.missingCapability).toBeDefined();
+    }
+  });
+
+  it("denies when role is missing against a role-gated method", () => {
+    const ctx = createCtx({ scopes: ["admin:write"] });
+    const decision = resolveMessageAuthorizationDecision(
+      "gateway.method.node.pluginSurface.refresh",
+    );
+    if (decision?.kind === "role") {
+      const result = authorizeMessage(ctx, "gateway.method.node.pluginSurface.refresh", {
+        requireCapabilityForAll: true,
+        logDenied: false,
+      });
+      expect(result.ok).toBe(false);
+    }
+  });
 });
