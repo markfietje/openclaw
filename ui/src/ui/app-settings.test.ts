@@ -419,6 +419,32 @@ describe("applySettingsFromUrl", () => {
     expect(host.settings.lastActiveSessionKey).toBe("main");
   });
 
+  it("applies same-origin gateway endpoint URLs without confirmation", () => {
+    setTestWindowUrl(
+      "https://control.example/chat#gatewayUrl=wss%3A%2F%2Fcontrol.example%2Fgateway&token=test-token",
+    );
+    const host = createHost("chat");
+    host.settings = {
+      ...host.settings,
+      gatewayUrl: "wss://control.example",
+      token: "",
+      sessionKey: "agent:test_old:main",
+      lastActiveSessionKey: "agent:test_old:main",
+    };
+    host.sessionKey = "agent:test_old:main";
+
+    applySettingsFromUrl(host);
+
+    expect(host.settings.gatewayUrl).toBe("wss://control.example/gateway");
+    expect(host.settings.token).toBe("test-token");
+    expect(host.sessionKey).toBe("main");
+    expect(host.settings.sessionKey).toBe("main");
+    expect(host.settings.lastActiveSessionKey).toBe("main");
+    expect(host.pendingGatewayUrl).toBeNull();
+    expect(host.pendingGatewayToken).toBeNull();
+    expect(window.location.hash).toBe("");
+  });
+
   it("characterizes token, session, and gateway URL combinations", () => {
     const scenarios = [
       {
