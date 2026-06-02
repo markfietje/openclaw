@@ -471,7 +471,7 @@ start_keychain_bridge() {
   # process argument lists (launchctl submit / ps aux).
   cat >"$BRIDGE_ENV_FILE" <<BRIDGE_ENV
 OPENCLAW_KEYCHAIN_BRIDGE_TOKEN=$BRIDGE_TOKEN
-OPENCLAW_KEYCHAIN_BRIDGE_HOST=127.0.0.1
+OPENCLAW_KEYCHAIN_BRIDGE_HOST=0.0.0.0
 OPENCLAW_KEYCHAIN_BRIDGE_PORT=0
 OPENCLAW_KEYCHAIN_BRIDGE_PORT_FILE=$BRIDGE_PORT_FILE
 OPENCLAW_KEYCHAIN_BRIDGE_PID_FILE=$BRIDGE_PID_FILE
@@ -481,9 +481,10 @@ OPENCLAW_KEYCHAIN_BRIDGE_KEYCHAIN_TIMEOUT_MS=$BRIDGE_TIMEOUT_MS
 BRIDGE_ENV
   chmod 600 "$BRIDGE_ENV_FILE"
 
-  # Apple Container routes host.container.internal (203.0.113.113) to the host's
-  # loopback, so binding to 127.0.0.1 is sufficient and avoids exposing the bridge
-  # on LAN/Wi-Fi interfaces. The per-run bearer token still gates access.
+  # Apple Container 0.12.3 vmnet NAT only delivers traffic to the network's
+  # gateway IP when the host listener is bound to a wildcard. Bind to 0.0.0.0
+  # and rely on the per-run bearer token to gate /secret; /healthz returns
+  # {"ok":true} with no sensitive data.
   if command -v launchctl >/dev/null 2>&1; then
     launchctl submit \
       -l "$BRIDGE_LAUNCH_LABEL" \
@@ -544,7 +545,7 @@ require_keychain_bridge_container_reachable() {
         --cap-drop ALL \
         --init \
         --user 1000:1000 \
-        --env "OPENCLAW_KEYCHAIN_BRIDGE_URL=http://${HOST_DOMAIN}:${BRIDGE_PORT}" \
+        --env "OPENCLAW_KEYCHAIN_BRIDGE_URL=http://${BRIDGE_HOST_IP}:${BRIDGE_PORT}" \
         --env "OPENCLAW_KEYCHAIN_BRIDGE_TOKEN_FILE=${BRIDGE_TOKEN_FILE_PATH}" \
     --env "OPENCLAW_KEYCHAIN_BRIDGE_TIMEOUT_MS=${BRIDGE_TIMEOUT_MS}" \
         --mount "type=volume,source=${STATE_VOLUME},target=/home/node/.openclaw,readonly" \
@@ -658,6 +659,31 @@ else
   info "Network commands unavailable, using default network."
 fi
 
+# Apple Container 0.12.3 vmnet NAT delivers the container's view of the host
+# (the network's gateway IP) only to wildcard listeners on the host. The
+# host.container.internal -> 127.0.0.1 mapping is no longer reachable, so the
+# bridge URL must use the gateway IP. Fall back to HOST_DOMAIN if detection
+# fails so the user can override OPENCLAW_APPLE_CONTAINER_HOST_DOMAIN.
+BRIDGE_HOST_IP="$(
+  if [[ "${#NETWORK_ARGS[@]}" -gt 0 ]]; then
+    container network inspect "${NETWORK_ARGS[1]}" 2>/dev/null
+  else
+    container network inspect default 2>/dev/null
+  fi | node -e '
+let d="";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (c) => d += c);
+process.stdin.on("end", () => {
+  try {
+    const arr = JSON.parse(d);
+    const gw = arr && arr[0] && arr[0].status && arr[0].status.ipv4Gateway;
+    if (typeof gw === "string" && /^[0-9.]+$/.test(gw)) process.stdout.write(gw);
+  } catch {}
+});
+'
+)"
+[[ -z "$BRIDGE_HOST_IP" ]] && BRIDGE_HOST_IP="$HOST_DOMAIN"
+
 # ── Code overlay volume (set by sync-hot.sh) ───────────────────
 # When OPENCLAW_APPLE_CONTAINER_CODE_VOLUME names an existing volume,
 # mount it at /app to overlay the image's dist/, skills/, etc.
@@ -756,7 +782,7 @@ container_run_gateway() {
     --env "TERM=xterm-256color" \
     --env "OPENCLAW_STATE_DIR=/home/node/.openclaw" \
     --env "OPENCLAW_CONFIG_PATH=/home/node/.openclaw/openclaw.json" \
-    --env "OPENCLAW_KEYCHAIN_BRIDGE_URL=http://${HOST_DOMAIN}:${BRIDGE_PORT}" \
+    --env "OPENCLAW_KEYCHAIN_BRIDGE_URL=http://${BRIDGE_HOST_IP}:${BRIDGE_PORT}" \
     --env "OPENCLAW_KEYCHAIN_BRIDGE_TOKEN_FILE=${BRIDGE_TOKEN_FILE_PATH}" \
     --env "OPENCLAW_KEYCHAIN_BRIDGE_TIMEOUT_MS=${BRIDGE_TIMEOUT_MS}" \
     --mount "type=volume,source=${STATE_VOLUME},target=/home/node/.openclaw" \
