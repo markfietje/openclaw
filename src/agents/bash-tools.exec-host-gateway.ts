@@ -9,6 +9,7 @@ import { describeInterpreterInlineEval } from "../infra/command-analysis/inline-
 import { detectPolicyInlineEval } from "../infra/command-analysis/policy.js";
 import {
   addDurableCommandApproval,
+  commandMatchesExecDenyPath,
   commandRequiresSecurityAuditSuppressionApproval,
   type ExecAsk,
   resolveExecApprovalAllowedDecisions,
@@ -424,6 +425,8 @@ export async function processGatewayAllowlist(
       env: params.env,
       segments: allowlistEval.segments,
     }) && !(hostSecurity === "full" && hostAsk === "off");
+  const denyPathMatch = commandMatchesExecDenyPath(params.command);
+  const requiresDenyPathApproval = denyPathMatch.matched && hostSecurity !== "full";
   const requiresAsk =
     requiresExecApproval({
       ask: hostAsk,
@@ -435,7 +438,8 @@ export async function processGatewayAllowlist(
     requiresAllowlistPlanApproval ||
     requiresHeredocApproval ||
     requiresInlineEvalApproval ||
-    requiresSecurityAuditSuppressionApproval;
+    requiresSecurityAuditSuppressionApproval ||
+    requiresDenyPathApproval;
   if (requiresHeredocApproval) {
     params.warnings.push(
       "Warning: heredoc execution requires reviewer or explicit approval in allowlist mode.",
@@ -449,6 +453,11 @@ export async function processGatewayAllowlist(
   if (requiresSecurityAuditSuppressionApproval) {
     params.warnings.push(
       "Warning: security audit suppression changes require explicit approval unless exec is running in yolo mode.",
+    );
+  }
+  if (requiresDenyPathApproval && denyPathMatch.pattern !== undefined) {
+    params.warnings.push(
+      `Warning: command references sensitive path matching deny pattern "${denyPathMatch.pattern}"; explicit approval is required.`,
     );
   }
   if (requiresAsk) {
