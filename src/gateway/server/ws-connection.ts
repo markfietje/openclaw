@@ -356,6 +356,9 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       releasePreauthBudget();
       if (client) {
         clients.delete(client);
+        if (authenticatedConnectionBudget) {
+          authenticatedConnectionBudget.release(client.connect?.device?.id, connId);
+        }
       }
       try {
         socket.close(code, reason);
