@@ -127,7 +127,7 @@ export function setLastActiveSessionKey(host: LastActiveSessionHost, next: strin
   host.applySettings({ ...host.settings, lastActiveSessionKey: trimmed });
 }
 
-function isViteDevPage(): boolean {
+export function isViteDevPage(): boolean {
   if (typeof document === "undefined") {
     return false;
   }
