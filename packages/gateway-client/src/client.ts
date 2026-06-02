@@ -25,6 +25,7 @@ import {
   parseCanonicalIpAddress,
   type ParsedIpAddress,
 } from "@openclaw/net-policy/ip";
+import { GATEWAY_WS_SUBPROTOCOL } from "@openclaw/gateway-security-core/ws-protocol";
 import { WebSocket, type ClientOptions, type CertMeta } from "ws";
 import {
   buildGatewayConnectAuth,
@@ -573,6 +574,7 @@ export class GatewayClient {
     const wsOptions: FingerprintCheckingClientOptions = {
       maxPayload: 25 * 1024 * 1024,
       ...(this.opts.origin ? { origin: this.opts.origin } : {}),
+      protocols: [GATEWAY_WS_SUBPROTOCOL],
     };
     if (url.startsWith("wss://") && this.opts.tlsFingerprint) {
       wsOptions.rejectUnauthorized = false;

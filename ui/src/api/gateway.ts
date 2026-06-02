@@ -31,6 +31,7 @@ import {
   MIN_CLIENT_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
 } from "@openclaw/gateway-client/browser";
+import { GATEWAY_WS_SUBPROTOCOL } from "../../../packages/gateway-security-core/src/ws-protocol.js";
 import {
   clearDeviceAuthToken,
   loadDeviceAuthToken,
@@ -408,7 +409,7 @@ export class GatewayBrowserClient {
   }
 
   private createSocket(handlers: GatewayProtocolSocketHandlers): GatewayProtocolSocket {
-    const socket = new WebSocket(this.opts.url);
+    const socket = new WebSocket(this.opts.url, [GATEWAY_WS_SUBPROTOCOL]);
     socket.addEventListener("open", handlers.open);
     socket.addEventListener("message", (event) => handlers.message(String(event.data ?? "")));
     socket.addEventListener("close", (event) => handlers.close(event.code, event.reason ?? ""));
