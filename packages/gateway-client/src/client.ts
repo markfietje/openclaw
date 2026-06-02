@@ -23,6 +23,7 @@ import {
 } from "@openclaw/gateway-protocol/connect-error-details";
 import { resolveGatewayStartupRetryAfterMs } from "@openclaw/gateway-protocol/startup-unavailable";
 import { MIN_CLIENT_PROTOCOL_VERSION, PROTOCOL_VERSION } from "@openclaw/gateway-protocol/version";
+import { GATEWAY_WS_SUBPROTOCOL } from "@openclaw/gateway-security-core/ws-protocol";
 import ipaddr from "ipaddr.js";
 import { WebSocket, type ClientOptions, type CertMeta } from "ws";
 import { buildDeviceAuthPayloadV3 } from "./device-auth.js";
@@ -631,6 +632,7 @@ export class GatewayClient {
     this.deps.beforeConnect();
     const wsOptions: FingerprintCheckingClientOptions = {
       maxPayload: 25 * 1024 * 1024,
+      protocols: [GATEWAY_WS_SUBPROTOCOL],
     };
     if (url.startsWith("wss://") && this.opts.tlsFingerprint) {
       wsOptions.rejectUnauthorized = false;
