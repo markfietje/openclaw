@@ -251,6 +251,20 @@ function applyNativeControlAuth(host: SettingsHost) {
   }
 }
 
+function isSameOriginGatewayEndpoint(gatewayUrl: string): boolean {
+  try {
+    const pageUrl = new URL(window.location.href);
+    const parsedGatewayUrl = new URL(gatewayUrl, pageUrl);
+    if (parsedGatewayUrl.protocol !== "ws:" && parsedGatewayUrl.protocol !== "wss:") {
+      return false;
+    }
+    const gatewayPath = parsedGatewayUrl.pathname.replace(/\/+$/, "") || "/";
+    return parsedGatewayUrl.host === pageUrl.host && gatewayPath === "/gateway";
+  } catch {
+    return false;
+  }
+}
+
 export function applySettingsFromUrl(host: SettingsHost) {
   applyNativeControlAuth(host);
   if (!window.location.search && !window.location.hash) {
@@ -263,6 +277,9 @@ export function applySettingsFromUrl(host: SettingsHost) {
   const gatewayUrlRaw = params.get("gatewayUrl") ?? hashParams.get("gatewayUrl");
   const nextGatewayUrl = normalizeOptionalString(gatewayUrlRaw) ?? "";
   const gatewayUrlChanged = Boolean(nextGatewayUrl && nextGatewayUrl !== host.settings.gatewayUrl);
+  const shouldConfirmGatewayUrlChange = Boolean(
+    gatewayUrlChanged && !isSameOriginGatewayEndpoint(nextGatewayUrl),
+  );
   // Prefer fragment tokens over query tokens. Fragments avoid server-side request
   // logs and referrer leakage; query-param tokens remain a one-time legacy fallback
   // for compatibility with older deep links.
@@ -271,7 +288,7 @@ export function applySettingsFromUrl(host: SettingsHost) {
   const hasTokenParam = hashToken != null || queryToken != null;
   const token = normalizeOptionalString(hashToken ?? queryToken);
   const session = normalizeOptionalString(params.get("session") ?? hashParams.get("session"));
-  const shouldResetSessionForToken = Boolean(token && !session && !gatewayUrlChanged);
+  const shouldResetSessionForToken = Boolean(token && !session && !shouldConfirmGatewayUrlChange);
   let shouldCleanUrl = false;
 
   if (params.has("token")) {
@@ -286,7 +303,7 @@ export function applySettingsFromUrl(host: SettingsHost) {
         "[openclaw] Auth token passed as query parameter (?token=). Use URL fragment instead: #token=<token>. Query parameters may appear in server logs.",
       );
     }
-    if (token && gatewayUrlChanged) {
+    if (token && shouldConfirmGatewayUrlChange) {
       host.pendingGatewayToken = token;
     } else if (token && token !== host.settings.token) {
       applySettings(host, { ...host.settings, token });
@@ -316,8 +333,20 @@ export function applySettingsFromUrl(host: SettingsHost) {
   }
 
   if (gatewayUrlRaw != null) {
-    host.pendingGatewayUrl = gatewayUrlChanged ? nextGatewayUrl : null;
-    host.pendingGatewayToken = gatewayUrlChanged ? (token ?? null) : null;
+    if (shouldConfirmGatewayUrlChange) {
+      host.pendingGatewayUrl = nextGatewayUrl;
+      host.pendingGatewayToken = token ?? null;
+    } else {
+      host.pendingGatewayUrl = null;
+      host.pendingGatewayToken = null;
+      if (gatewayUrlChanged) {
+        applySettings(host, {
+          ...host.settings,
+          gatewayUrl: nextGatewayUrl,
+          ...(token ? { token } : {}),
+        });
+      }
+    }
     params.delete("gatewayUrl");
     hashParams.delete("gatewayUrl");
     shouldCleanUrl = true;

@@ -804,4 +804,20 @@ describe("control UI routing", () => {
 
     expectConfirmedGatewayChange(app);
   });
+
+  it("accepts same-origin gateway endpoint links without a confirmation prompt", async () => {
+    const gatewayUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${
+      window.location.host
+    }/gateway`;
+    const app = mountApp(`/ui/overview#gatewayUrl=${encodeURIComponent(gatewayUrl)}&token=abc123`);
+    await app.updateComplete;
+
+    expect(app.settings.gatewayUrl).toBe(gatewayUrl);
+    expect(app.settings.token).toBe("abc123");
+    expect(app.pendingGatewayUrl).toBeNull();
+    const confirmButton = Array.from(app.querySelectorAll<HTMLButtonElement>("button")).find(
+      (candidate) => candidate.textContent?.trim() === "Confirm",
+    );
+    expect(confirmButton).toBeUndefined();
+  });
 });
