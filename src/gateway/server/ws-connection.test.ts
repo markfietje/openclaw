@@ -328,6 +328,7 @@ describe("attachGatewayWsConnectionHandler", () => {
     expect(authenticatedConnectionBudget.acquire).toHaveBeenCalledWith(
       "device-1",
       expect.any(String),
+      expect.any(String),
     );
     expect(authenticatedConnectionBudget.release).not.toHaveBeenCalled();
     expect(socket.close).toHaveBeenCalledWith(1008, "authenticated connection limit exceeded");
