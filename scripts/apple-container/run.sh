@@ -212,6 +212,9 @@ open_dashboard() {
   require_cmd open
   local url=""
   url="$(dashboard_url)"
+  if [[ -z "$url" ]]; then
+    return 1
+  fi
   open "$url"
   info "Opened Control UI in the default browser."
 }
@@ -292,7 +295,7 @@ let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);proc
 # from `tailscale serve status` output.
 detect_tailscale_origin() {
   local origin=""
-  origin="$(tailscale serve status 2>/dev/null \
+  origin="$(timeout 5 tailscale serve status 2>/dev/null \
     | node -e '
 let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{
   const lines = d.split("\n");
@@ -624,6 +627,7 @@ const cfg = JSON.parse(fs.readFileSync(src, "utf8"));
 cfg.secrets ??= {};
 cfg.secrets.providers ??= {};
 cfg.secrets.providers.gateway_token ??= {};
+cfg.secrets.providers.gateway_token.source = "exec";
 cfg.secrets.providers.gateway_token.command = "/home/node/.openclaw/openclaw-gateway-token-resolver";
 cfg.secrets.providers.gateway_token.passEnv = [
   "OPENCLAW_KEYCHAIN_BRIDGE_URL",
@@ -828,7 +832,7 @@ do_run() {
 
     local http_code=""
     for _ in {1..30}; do
-      http_code="$(curl -s -o /dev/null -w "%{http_code}" \
+      http_code="$(curl -s --connect-timeout 1 --max-time 2 -o /dev/null -w "%{http_code}" \
         "http://127.0.0.1:${HOST_PORT}/healthz" 2>/dev/null || true)"
       [[ "$http_code" == "200" ]] && break
       sleep 1
@@ -852,7 +856,7 @@ do_run() {
           fail "Container failed to start after trustedProxies update."
         fi
         sleep 1
-        http_code="$(curl -s -o /dev/null -w "%{http_code}" \
+        http_code="$(curl -s --connect-timeout 1 --max-time 2 -o /dev/null -w "%{http_code}" \
           "http://127.0.0.1:${HOST_PORT}/healthz" 2>/dev/null || true)"
         if [[ "$http_code" == "200" ]]; then
           info "Health check after restart: OK (/healthz returned 200)"
@@ -866,7 +870,9 @@ do_run() {
           copy_dashboard_url
         fi
       else
-        open_dashboard
+        if ! open_dashboard; then
+          info "Dashboard URL available via: scripts/apple-container/run.sh --open-dashboard"
+        fi
       fi
     else
       info "Health check: /healthz returned ${http_code} (may still be starting)"
