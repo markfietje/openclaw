@@ -270,6 +270,23 @@ function stripFlag(token: string): string | null {
   return token;
 }
 
+const SHELL_WRAPPERS: ReadonlySet<string> = new Set(["bash", "sh", "zsh", "dash", "ksh", "fish"]);
+
+function unwrapShellInvocation(tokens: string[]): string {
+  const binaryName = tokens[0]?.split("/").pop() ?? "";
+  if (tokens.length >= 3 && SHELL_WRAPPERS.has(binaryName) && tokens[1] === "-c") {
+    const inner = tokens.slice(2).join(" ");
+    if (
+      (inner.startsWith('"') && inner.endsWith('"')) ||
+      (inner.startsWith("'") && inner.endsWith("'"))
+    ) {
+      return inner.slice(1, -1);
+    }
+    return inner;
+  }
+  return tokens.join(" ");
+}
+
 /**
  * Extract file paths from a shell command string. Best-effort — does not
  * implement a full shell parser.
@@ -282,8 +299,10 @@ function stripFlag(token: string): string | null {
 export function extractPathsFromCommand(command: string): string[] {
   const paths: string[] = [];
 
-  // Tokenize — naive whitespace split, then trim surrounding quotes
-  const rawTokens = command.trim().split(/\s+/);
+  let rawTokens = command.trim().split(/\s+/);
+  const unwrapped = unwrapShellInvocation(rawTokens);
+  rawTokens = unwrapped.split(/\s+/);
+
   const tokens: string[] = [];
   for (const raw of rawTokens) {
     // Strip matching surrounding quotes

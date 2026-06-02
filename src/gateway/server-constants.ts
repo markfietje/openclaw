@@ -7,7 +7,7 @@ export const MAX_PREAUTH_PAYLOAD_BYTES = 64 * 1024;
 /** Default per-IP WebSocket connection cap. Override via gateway.security.maxWebSocketConnections. */
 export const DEFAULT_MAX_WEBSOCKET_CONNECTIONS = 64;
 /** Default minimum TLS version for gateway HTTPS listeners. Override via gateway.security.tlsMinVersion. */
-export const DEFAULT_TLS_MIN_VERSION: "TLSv1.2" | "TLSv1.3" = "TLSv1.2";
+export const DEFAULT_TLS_MIN_VERSION: "TLSv1.2" | "TLSv1.3" = "TLSv1.3";
 
 /**
  * Resolve the WebSocket max payload size from config with a safe fallback.

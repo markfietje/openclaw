@@ -6,6 +6,7 @@ import {
 } from "@openclaw/gateway-security-core/ip-restriction-policy";
 import { hasGatewayWsSubprotocol } from "@openclaw/gateway-security-core/ws-protocol";
 import { loadConfig } from "../../config/io.js";
+import type { OpenClawConfig } from "../../config/types.js";
 import {
   isLoopbackAddress,
   isTrustedProxyAddress,
@@ -28,6 +29,8 @@ export type GatewayVerifyClientParams = {
   maxConnections?: number;
   /** Current connection count accessor — called on each verifyClient invocation. */
   activeConnectionCount?: () => number;
+  /** Cached config snapshot getter. Falls back to loadConfig() when not provided. */
+  getConfigSnapshot?: () => OpenClawConfig;
 };
 
 type GatewayVerifyClientInfo = { origin: string; secure: boolean; req: IncomingMessage };
@@ -131,11 +134,12 @@ export function createGatewayVerifyClient(
   info: { origin: string; secure: boolean; req: IncomingMessage },
   callback: (result: boolean, code?: number, message?: string) => void,
 ) => void {
-  const { log, connectionRateLimiter, maxConnections, activeConnectionCount } = params;
+  const { log, connectionRateLimiter, maxConnections, activeConnectionCount, getConfigSnapshot } =
+    params;
 
   return (info, callback) => {
     const { req } = info;
-    const configSnapshot = loadConfig();
+    const configSnapshot = getConfigSnapshot?.() ?? loadConfig();
     const securityConfig = configSnapshot.gateway?.security ?? {};
     const controlUiConfig = configSnapshot.gateway?.controlUi;
     const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
