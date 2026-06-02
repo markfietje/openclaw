@@ -55,7 +55,7 @@ import {
 } from "./server/preauth-connection-budget.js";
 import type { ReadinessChecker } from "./server/readiness.js";
 import type { GatewayTlsRuntime } from "./server/tls.js";
-import { createGatewayVerifyClient } from "./server/verify-client.js";
+import { createRuntimeVerifyClient } from "./server/verify-client.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
 type GatewayPluginRequestHandler = (
@@ -278,7 +278,7 @@ export async function createGatewayRuntimeState(params: {
     const connectionRateLimiter = createConnectionRateLimiter(params.connectionRateLimitConfig);
     const verifyClient =
       params.verifyClient ??
-      createGatewayVerifyClient({
+      createRuntimeVerifyClient({
         log: params.log,
         connectionRateLimiter,
         maxConnections: params.maxWebSocketConnections,
