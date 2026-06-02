@@ -40,7 +40,7 @@ function getPassphrase(env: NodeJS.ProcessEnv): string | undefined {
 }
 
 function deriveKey(passphrase: string, salt: Buffer): Buffer {
-  return scryptSync(passphrase, salt, 32, { N: 16384 });
+  return scryptSync(passphrase, salt, 32, { N: 131072, maxmem: 128 * 131072 * 8 * 2 });
 }
 
 function encryptJson(data: unknown, passphrase: string): string {

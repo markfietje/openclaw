@@ -18,6 +18,7 @@ import type { PluginNodeCapabilitySurface } from "../../plugin-node-capability.j
 import type { GatewayRole } from "../../role-policy.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "../../server-methods/types.js";
 import type { GatewayWsClient, WsHandshakePhase } from "../ws-types.js";
+import type { DeviceSessionAuthorityTracker } from "@openclaw/gateway-security-core/device-session-authority";
 import type { resolveControlUiAuthPolicy } from "./connect-policy.js";
 import type { resolvePairingLocality } from "./handshake-auth-helpers.js";
 
@@ -54,6 +55,7 @@ export type GatewayWsMessageHandlerParams = {
   browserRateLimiter?: AuthRateLimiter;
   nodeReapprovalCoordinator?: NodeReapprovalCoordinator;
   isStartupPending?: () => boolean;
+  deviceSessionAuthorityTracker?: DeviceSessionAuthorityTracker;
   gatewayMethods: string[];
   events: string[];
   extraHandlers: GatewayRequestHandlers;

@@ -30,20 +30,26 @@ const SPECIFIC_PATTERNS: readonly RegExp[] = [
   /sk_live_[a-zA-Z0-9]{20,}/g, // Stripe live keys (before generic sk-)
   /sk_test_[a-zA-Z0-9]{20,}/g, // Stripe test keys (before generic sk-)
   /sk-[a-zA-Z0-9]{20,}/g, // OpenAI API keys
+  /sk-ant-api03-[a-zA-Z0-9\-_]{20,}/g, // Anthropic API keys
+  /AKIA[0-9A-Z]{16}/g, // AWS access key IDs
+  /AIza[0-9A-Za-z\-_]{35}/g, // Google API keys
   /ghp_[a-zA-Z0-9]{36}/g, // GitHub PATs
   /gho_[a-zA-Z0-9]{36}/g, // GitHub OAuth tokens
   /ghs_[a-zA-Z0-9]{36}/g, // GitHub app tokens
   /xox[bpras]-[a-zA-Z0-9-]+/g, // Slack tokens
   /BOT_TOKEN=[^\s&"'`,;]+/gi, // Bot tokens in URLs/params
-  /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/g, // Private keys
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g, // Private keys (RSA, EC, OpenSSH)
+  /-----BEGIN ENCRYPTED PRIVATE KEY-----/g, // PKCS#8 encrypted private keys
+  /-----BEGIN PRIVATE KEY-----/g, // PKCS#8 bare private keys (Ed25519, etc.)
 ];
 
 // Generic param-style patterns — applied after specific patterns so that
 // structured secrets (e.g. ghp_...) are already redacted.
 const GENERIC_PATTERNS: readonly RegExp[] = [
-  /api[_-]?key[=:]\s*[^\s&"'`,;]{8,}/gi, // Generic API key params
-  /token[=:]\s*[^\s&"'`,;]{8,}/gi, // Generic token params
-  /password[=:]\s*[^\s&"'`,;]{8,}/gi, // Password params
+  /api[_-]?key[=:]\s*[^\s&"'`,;]{8,}/gi,
+  /token[=:]\s*[^\s&"'`,;]{8,}/gi,
+  /password[=:]\s*[^\s&"'`,;]{8,}/gi,
+  /secret[_-]?key[=:]\s*[^\s&"'`,;]{8,}/gi,
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────

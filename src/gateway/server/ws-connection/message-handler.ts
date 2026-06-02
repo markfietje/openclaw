@@ -1,5 +1,9 @@
 // WebSocket message handler validates frames, dispatches gateway RPCs, manages pairing, and reports responses.
 import type { RawData } from "ws";
+import type {
+  DeviceSessionAuthoritySnapshot,
+  DeviceSessionAuthorityTracker,
+} from "@openclaw/gateway-security-core/device-session-authority";
 import {
   authorizeMessage,
   createMessageAuthContext,
@@ -93,6 +97,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     requestUserAgent,
     rateLimiter,
     browserRateLimiter,
+    deviceSessionAuthorityTracker,
     buildRequestContext,
     send,
     close,
@@ -191,6 +196,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
   };
 
   let messageAuthContext: MessageAuthorizationContext | undefined;
+  let deviceSessionAuthority: DeviceSessionAuthoritySnapshot | null = null;
 
   const handleMessage = async (data: RawData) => {
     if (isClosed()) {
@@ -422,12 +428,27 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           scopes: authenticated.scopes,
           endpoint: "ws-message",
         });
+        const deviceId = connectParams.device?.id;
+        const sessionRole = connectParams.client?.mode;
+        if (deviceId && sessionRole) {
+          deviceSessionAuthority = deviceSessionAuthorityTracker?.createSnapshot({
+            deviceId,
+            role: sessionRole,
+          });
+        }
         await attachAuthenticatedGatewayConnect(phaseContext, deviceAuthorized);
+        return;
+      }
+      if (deviceSessionAuthorityTracker?.isStale(deviceSessionAuthority)) {
+        setCloseCause("session-authority-stale", {
+          deviceId: connectParams.device?.id,
+        });
+        close(4001, "session authority changed");
         return;
       }
       if (
         messageAuthContext !== undefined &&
-        configSnapshot.gateway?.security?.messageAuth?.enabled === true
+        configSnapshot.gateway?.security?.messageAuth?.enabled !== false
       ) {
         const req = parsed as RequestFrame;
         const messageType = `gateway.method.${req.method}`;

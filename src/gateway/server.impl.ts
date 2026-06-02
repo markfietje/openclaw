@@ -6,7 +6,10 @@ import {
   createAuthAuditLogger,
   type AuthAuditLogger,
 } from "@openclaw/gateway-security-core/auth-audit-log";
-import { runStartupSecurityChecks } from "@openclaw/gateway-security-core/startup-security-checks";
+import {
+  assertStartupSecurityFindingsAllowed,
+  runStartupSecurityChecks,
+} from "@openclaw/gateway-security-core/startup-security-checks";
 import {
   createToolAuditLogger,
   type ToolAuditLogger,
@@ -1015,7 +1018,7 @@ export async function startGatewayServer(
     const findings = runStartupSecurityChecks({
       isNetworkExposed: !isLoopbackHost(bindHost),
       hasTls: cfgAtStart.gateway?.tls?.enabled === true,
-      terminatedUpstream: cfgAtStart.gateway?.trustedProxies !== undefined,
+      terminatedUpstream: (cfgAtStart.gateway?.trustedProxies?.length ?? 0) > 0,
       authMode,
       ...(bindHost ? { bindAddress: bindHost } : {}),
       ...(authMode === "token" ? { tokenLength: readGatewayToken()?.length } : {}),
@@ -1024,6 +1027,7 @@ export async function startGatewayServer(
       const level = finding.severity === "critical" ? "warn" : "info";
       log[level](`[startup-security] ${finding.id}: ${finding.message}`);
     }
+    assertStartupSecurityFindingsAllowed(findings, process.env);
   }
   const {
     controlUiBasePath,
@@ -1211,6 +1215,7 @@ export async function startGatewayServer(
     toolEventRecipients,
     getWorkerIngressEndpoint,
     getMcpAppSandboxPort,
+    deviceSessionAuthorityTracker,
   } = await startupTrace.measure("runtime.state", () =>
     createGatewayRuntimeState({
       cfg: cfgAtStart,
@@ -2054,6 +2059,7 @@ export async function startGatewayServer(
         nodeReapprovalCoordinator,
         preauthHandshakeTimeoutMs,
         isStartupPending: isGatewayStartupPending,
+        deviceSessionAuthorityTracker,
         gatewayMethods: runtimeState.gatewayMethods,
         events: GATEWAY_EVENTS,
         logGateway: log,

@@ -75,6 +75,11 @@ import {
   type ConfigHealthFingerprint,
   type ConfigHealthState,
 } from "./io.health-state.js";
+import {
+  readGatewayToken,
+  verifyConfigHmacSync,
+  writeConfigHmacSigSync,
+} from "./io.hmac-integrity.js";
 import { throwInvalidConfig } from "./io.invalid-config.js";
 import { stampConfigWriteMetadata } from "./io.meta.js";
 import {
@@ -1794,6 +1799,16 @@ export function createConfigIO(
         return {};
       }
       const raw = deps.fs.readFileSync(configPath, "utf-8");
+      const hmacResult = verifyConfigHmacSync(configPath, raw);
+      if (!hmacResult.ok && hmacResult.kind === "mismatch") {
+        deps.logger.warn(
+          `[config-integrity] HMAC mismatch on ${configPath}. Config may have been tampered with.`,
+        );
+      } else if (!hmacResult.ok && hmacResult.kind === "no_sig" && hmacResult.suspicious) {
+        deps.logger.warn(
+          `[config-integrity] Missing HMAC signature for ${configPath} (file > 100 bytes).`,
+        );
+      }
       const parsed = deps.json5.parse(raw);
       const readResolution = resolveConfigForRead(
         resolveConfigIncludesForRead(parsed, configPath, deps),
@@ -2752,6 +2767,14 @@ export function createConfigIO(
           );
         }
         throw error;
+      }
+      try {
+        const token = readGatewayToken(deps.env);
+        if (token) {
+          writeConfigHmacSigSync(configPath, json, token);
+        }
+      } catch {
+        // HMAC signing failure is non-fatal — log and continue
       }
       logConfigOverwrite();
       logConfigWriteAnomalies();

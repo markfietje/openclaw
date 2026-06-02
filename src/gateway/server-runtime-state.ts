@@ -14,6 +14,7 @@ import {
   createConnectionRateLimiter,
   type ConnectionRateLimiter,
 } from "@openclaw/gateway-security-core/connection-rate-limit";
+import { DeviceSessionAuthorityTracker } from "@openclaw/gateway-security-core/device-session-authority";
 import type { ToolAuditLogger } from "@openclaw/gateway-security-core/tool-audit";
 import { WebSocketServer } from "ws";
 import { resolveMcpAppSandboxPort } from "../agents/mcp-app-sandbox.js";
@@ -174,6 +175,7 @@ export async function createGatewayRuntimeState(params: {
   toolEventRecipients: ReturnType<typeof createToolEventRecipientRegistry>;
   getWorkerIngressEndpoint: () => { host: "127.0.0.1"; port: number } | undefined;
   getMcpAppSandboxPort: () => number | undefined;
+  deviceSessionAuthorityTracker: DeviceSessionAuthorityTracker;
 }> {
   pinActivePluginHttpRouteRegistry(params.pluginRegistry);
   pinActivePluginSessionExtensionRegistry(params.pluginRegistry);
@@ -303,6 +305,8 @@ export async function createGatewayRuntimeState(params: {
     const authenticatedConnectionBudget = createAuthenticatedConnectionBudget(
       params.authenticatedConnectionLimit,
     );
+    const deviceSessionAuthorityTracker: DeviceSessionAuthorityTracker =
+      new DeviceSessionAuthorityTracker();
     // Suppress unused-binding warning; maxWebSocketConnections is consumed by the upgrade
     // preflight (verifyClient) via the runtime state, not directly here.
     void (params.maxWebSocketConnections ?? DEFAULT_MAX_WEBSOCKET_CONNECTIONS);
@@ -529,6 +533,7 @@ export async function createGatewayRuntimeState(params: {
           ? undefined
           : { host: "127.0.0.1" as const, port: workerIngressPort },
       getMcpAppSandboxPort: () => mcpAppSandboxPort,
+      deviceSessionAuthorityTracker,
     };
   } catch (err) {
     // If state creation fails after pins are installed, release them immediately so later
