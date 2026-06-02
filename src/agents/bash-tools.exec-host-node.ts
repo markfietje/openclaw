@@ -199,6 +199,8 @@ export async function executeNodeHostCommand(
     nodeAsk,
     inlineEvalHit,
     requiresSecurityAuditSuppressionApproval,
+    requiresDenyPathApproval,
+    denyPathPattern,
     autoReviewArgv,
     allowAlwaysPersistence,
   } = approvalAnalysis;
@@ -223,10 +225,16 @@ export async function executeNodeHostCommand(
       durableApprovalSatisfied,
     }) ||
     inlineEvalHit !== null ||
-    requiresSecurityAuditSuppressionApproval;
+    requiresSecurityAuditSuppressionApproval ||
+    requiresDenyPathApproval;
   if (requiresSecurityAuditSuppressionApproval) {
     params.warnings.push(
       "Warning: security audit suppression changes require explicit approval unless exec is running in yolo mode.",
+    );
+  }
+  if (requiresDenyPathApproval && denyPathPattern !== undefined) {
+    params.warnings.push(
+      `Warning: command references sensitive path matching deny pattern "${denyPathPattern}"; explicit approval is required.`,
     );
   }
   const registerNodeApproval = async (
