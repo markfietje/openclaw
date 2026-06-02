@@ -118,7 +118,6 @@ import { recordRemoteNodeInfo, refreshRemoteNodeBins } from "../../../skills/run
 import {
   isBrowserOperatorUiClient,
   isEphemeralGatewayClient,
-  isOperatorUiClient,
   isWebchatClient,
 } from "../../../utils/message-channel.js";
 import { resolveRuntimeServiceVersion } from "../../../version.js";
@@ -996,7 +995,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         connectParams.role = role;
         connectParams.scopes = scopes;
 
-        const isControlUi = isOperatorUiClient(connectParams.client);
+        const isControlUi = isBrowserOperatorUiClient(connectParams.client);
         const isBrowserOperatorUi = isBrowserOperatorUiClient(connectParams.client);
         const isWebchat = isWebchatConnect(connectParams);
         const isNativeAppUi =
