@@ -301,10 +301,10 @@ export function createGatewayVerifyClient(
   };
 }
 
-export type GatewayVerifyClientFactoryParams = {
-  log: { info: (msg: string) => void; warn: (msg: string) => void };
-  connectionRateLimiter?: ConnectionRateLimiter;
-  maxConnections?: number;
+export type GatewayVerifyClientFactoryParams = Omit<
+  GatewayVerifyClientParams,
+  "activeConnectionCount" | "getConfigSnapshot"
+> & {
   activeConnectionCount: () => number;
   getConfigSnapshot: () => OpenClawConfig;
 };
@@ -312,11 +312,5 @@ export type GatewayVerifyClientFactoryParams = {
 export function createRuntimeVerifyClient(
   params: GatewayVerifyClientFactoryParams,
 ): ReturnType<typeof createGatewayVerifyClient> {
-  return createGatewayVerifyClient({
-    log: params.log,
-    connectionRateLimiter: params.connectionRateLimiter,
-    maxConnections: params.maxConnections,
-    activeConnectionCount: params.activeConnectionCount,
-    getConfigSnapshot: params.getConfigSnapshot,
-  });
+  return createGatewayVerifyClient(params);
 }

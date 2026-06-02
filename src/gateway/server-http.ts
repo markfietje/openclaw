@@ -49,7 +49,6 @@ import {
 import type { PreauthConnectionBudget } from "./server/preauth-connection-budget.js";
 import type { ReadinessChecker } from "./server/readiness.js";
 import {
-  createGatewayVerifyClient,
   runGatewayUpgradePreflight,
   type GatewayUpgradePreflightResult,
   type GatewayVerifyClient,
@@ -539,8 +538,6 @@ export function createGatewayHttpServer(opts: {
   authenticatedConnectionBudget?: AuthenticatedConnectionBudget;
   /** Optional cap on concurrent WebSocket connections (enforced in pre-handshake). */
   maxWebSocketConnections?: number;
-  /** Optional explicit verify-client factory override. */
-  verifyClient?: ReturnType<typeof createGatewayVerifyClient>;
   getReadiness?: ReadinessChecker;
   getRuntimeConfig?: () => OpenClawConfig;
   tlsOptions?: TlsOptions;
@@ -942,8 +939,6 @@ export function attachGatewayUpgradeHandler(opts: {
   authenticatedConnectionBudget?: AuthenticatedConnectionBudget;
   /** Optional cap on concurrent WebSocket connections (enforced in pre-handshake). */
   maxWebSocketConnections?: number;
-  /** Optional explicit verify-client factory override. */
-  verifyClient?: ReturnType<typeof createGatewayVerifyClient>;
   /** Optional logger for error diagnostics. */
   log?: { warn: (msg: string) => void };
 }) {
