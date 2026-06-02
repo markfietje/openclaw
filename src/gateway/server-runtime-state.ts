@@ -8,6 +8,7 @@ import {
   createConnectionRateLimiter,
   type ConnectionRateLimiter,
 } from "@openclaw/gateway-security-core/connection-rate-limit";
+import { DeviceSessionAuthorityTracker } from "@openclaw/gateway-security-core/device-session-authority";
 import type { ToolAuditLogger } from "@openclaw/gateway-security-core/tool-audit";
 import { WebSocketServer } from "ws";
 import type { CliDeps } from "../cli/deps.types.js";
@@ -149,6 +150,7 @@ export async function createGatewayRuntimeState(params: {
   ) => ChatRunEntry | undefined;
   chatAbortControllers: Map<string, ChatAbortControllerEntry>;
   toolEventRecipients: ReturnType<typeof createToolEventRecipientRegistry>;
+  deviceSessionAuthorityTracker: DeviceSessionAuthorityTracker;
 }> {
   pinActivePluginHttpRouteRegistry(params.pluginRegistry);
   if (params.pinChannelRegistry !== false) {
@@ -274,6 +276,8 @@ export async function createGatewayRuntimeState(params: {
     const authenticatedConnectionBudget = createAuthenticatedConnectionBudget(
       params.authenticatedConnectionLimit,
     );
+    const deviceSessionAuthorityTracker: DeviceSessionAuthorityTracker =
+      new DeviceSessionAuthorityTracker();
     // Suppress unused-binding warning; maxWebSocketConnections is consumed by the upgrade
     // preflight (verifyClient) via the runtime state, not directly here.
     void (params.maxWebSocketConnections ?? DEFAULT_MAX_WEBSOCKET_CONNECTIONS);
@@ -419,6 +423,7 @@ export async function createGatewayRuntimeState(params: {
       removeChatRun,
       chatAbortControllers,
       toolEventRecipients,
+      deviceSessionAuthorityTracker,
     };
   } catch (err) {
     // If state creation fails after pins are installed, release them immediately so later

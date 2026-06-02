@@ -3,6 +3,7 @@ import fs from "node:fs";
 import type { IncomingMessage } from "node:http";
 import os from "node:os";
 import path from "node:path";
+import type { DeviceSessionAuthorityTracker } from "@openclaw/gateway-security-core/device-session-authority";
 import {
   authorizeMessage,
   createMessageAuthContext,
@@ -369,6 +370,7 @@ export type GatewayWsMessageHandlerParams = {
   /** Browser-origin fallback limiter (loopback is never exempt). */
   browserRateLimiter?: AuthRateLimiter;
   isStartupPending?: () => boolean;
+  deviceSessionAuthorityTracker?: DeviceSessionAuthorityTracker;
   gatewayMethods: string[];
   events: string[];
   extraHandlers: GatewayRequestHandlers;
@@ -413,6 +415,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     rateLimiter,
     browserRateLimiter,
     isStartupPending,
+    deviceSessionAuthorityTracker,
     gatewayMethods,
     events,
     extraHandlers,
@@ -1771,6 +1774,15 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           ...(Object.keys(pluginNodeCapabilitySurfaces).length > 0
             ? { pluginNodeCapabilitySurfaces }
             : {}),
+          ...(() => {
+            const deviceId = connectParams.device?.id;
+            const role = connectParams.client?.mode;
+            if (deviceId && role) {
+              const snap = deviceSessionAuthorityTracker?.createSnapshot({ deviceId, role });
+              if (snap) return { deviceSessionAuthority: snap };
+            }
+            return {};
+          })(),
         };
         for (const entry of pendingPluginNodeCapabilities) {
           setClientPluginNodeCapability({
@@ -2026,6 +2038,14 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         return;
       }
 
+      if (deviceSessionAuthorityTracker?.isStale(client?.deviceSessionAuthority)) {
+        setCloseCause("session-authority-stale", {
+          deviceId: client?.connect.device?.id,
+        });
+        close(4001, "session authority changed");
+        return;
+      }
+
       // After handshake, accept only req frames
       if (!validateRequestFrame(parsed)) {
         send({
@@ -2043,7 +2063,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
       logWs("in", "req", { connId, id: req.id, method: req.method });
       if (
         messageAuthContext !== undefined &&
-        configSnapshot.gateway?.security?.messageAuth?.enabled === true
+        configSnapshot.gateway?.security?.messageAuth?.enabled !== false
       ) {
         const messageType = `gateway.method.${req.method}`;
         const methodRegistry = getMethodRegistry?.();
