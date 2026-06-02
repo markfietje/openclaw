@@ -297,6 +297,7 @@ export async function createGatewayRuntimeState(params: {
     const wss = new WebSocketServer({
       noServer: true,
       maxPayload: resolveMaxPayloadBytes(params.maxPayloadBytes),
+      perMessageDeflate: false,
     });
     const preauthConnectionBudget = createPreauthConnectionBudget();
     const workerPreauthConnectionBudget = createPreauthConnectionBudget();
