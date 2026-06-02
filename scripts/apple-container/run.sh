@@ -107,7 +107,8 @@ show_help() {
   echo "  OPENCLAW_APPLE_CONTAINER_RUNTIME          Runtime: node or bun (default: node)"
   echo "  OPENCLAW_APPLE_CONTAINER_OPEN_DASHBOARD   Open dashboard after start (1/true/yes/on)"
   echo "  OPENCLAW_APPLE_CONTAINER_STATE_VOLUME     State volume (default: openclaw-state)"
-  echo "  OPENCLAW_APPLE_CONTAINER_WORKSPACE_VOLUME Workspace volume (default: openclaw-workspace)"
+  echo "  OPENCLAW_APPLE_CONTAINER_WORKSPACE_DIR    Workspace host dir (default: ~/.openclaw/workspace)"
+  echo "  OPENCLAW_APPLE_CONTAINER_WORKSPACE_VOLUME Legacy workspace volume name, used only for one-time migration (default: openclaw-workspace)"
   echo "  OPENCLAW_APPLE_CONTAINER_KEYCHAIN_SERVICE Keychain service name"
   echo "  OPENCLAW_APPLE_CONTAINER_KEYCHAIN_ACCOUNT Keychain account name"
   echo "  OPENCLAW_APPLE_CONTAINER_KEYCHAIN_BRIDGE_TIMEOUT_MS Bridge request timeout (default: 15000)"
@@ -142,6 +143,9 @@ CONTAINER_MEMORY="${OPENCLAW_APPLE_CONTAINER_MEMORY:-1g}"
 CONTAINER_RUNTIME="${OPENCLAW_APPLE_CONTAINER_RUNTIME:-node}"
 OPEN_DASHBOARD="${OPENCLAW_APPLE_CONTAINER_OPEN_DASHBOARD:-}"
 STATE_VOLUME="${OPENCLAW_APPLE_CONTAINER_STATE_VOLUME:-openclaw-state}"
+WORKSPACE_HOST_DIR="${OPENCLAW_APPLE_CONTAINER_WORKSPACE_DIR:-${OPENCLAW_CONFIG_DIR}/workspace}"
+# Legacy named volume that held the workspace before bind-mounting
+# ~/.openclaw/workspace. Read once for one-time migration, then ignored.
 WORKSPACE_VOLUME="${OPENCLAW_APPLE_CONTAINER_WORKSPACE_VOLUME:-openclaw-workspace}"
 KEYCHAIN_SERVICE="${OPENCLAW_APPLE_CONTAINER_KEYCHAIN_SERVICE:-ai.openclaw.apple-container.gateway-token}"
 KEYCHAIN_ACCOUNT="${OPENCLAW_APPLE_CONTAINER_KEYCHAIN_ACCOUNT:-${USER:-openclaw}}"
@@ -433,12 +437,14 @@ validate_port "container port" "$CONTAINER_PORT"
   fail "Invalid state volume: $STATE_VOLUME"
 [[ "$WORKSPACE_VOLUME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
   fail "Invalid workspace volume: $WORKSPACE_VOLUME"
+[[ "$WORKSPACE_HOST_DIR" == /* ]] ||
+  fail "Invalid workspace host dir: must be an absolute path ($WORKSPACE_HOST_DIR)"
 require_existing_file "config file" "$CONFIG_JSON"
 if ! container volume list --quiet 2>/dev/null | grep -qx "$STATE_VOLUME"; then
   fail "Missing state volume: $STATE_VOLUME. Run: scripts/apple-container/setup.sh"
 fi
-if ! container volume list --quiet 2>/dev/null | grep -qx "$WORKSPACE_VOLUME"; then
-  fail "Missing workspace volume: $WORKSPACE_VOLUME. Run: scripts/apple-container/setup.sh"
+if [[ ! -d "$WORKSPACE_HOST_DIR" ]]; then
+  fail "Missing workspace host dir: $WORKSPACE_HOST_DIR. Run: mkdir -p '$WORKSPACE_HOST_DIR'"
 fi
 if ! container system dns list --quiet 2>/dev/null | grep -qx "$HOST_DOMAIN"; then
   fail "Missing host bridge DNS '${HOST_DOMAIN}'. Run: scripts/apple-container/setup.sh"
@@ -593,6 +599,25 @@ stage_runtime_volumes() {
   printf '%s' "${BRIDGE_TOKEN}" >"${config_stage_dir}/bridge-token"
   chmod 600 "${config_stage_dir}/bridge-token"
 
+  # Ensure the host workspace dir exists with mode 0750 before binding it
+  # into the staging container. The staging container chowns its contents
+  # to 1000:1000 so the gateway's `node` user can read/write; mark loses
+  # direct write access from the host as a result.
+  install -d -m 0750 "$WORKSPACE_HOST_DIR"
+
+  # One-shot migration: if the legacy named volume still exists and the
+  # host dir is empty (no user edits yet), copy its contents across so we
+  # don't lose the previous container's bootstrap files.
+  local legacy_mount_args=()
+  local did_legacy_migrate=0
+  if container volume list --quiet 2>/dev/null | grep -qx "$WORKSPACE_VOLUME"; then
+    if [[ -z "$(ls -A "$WORKSPACE_HOST_DIR" 2>/dev/null)" ]]; then
+      info "Migrating legacy workspace volume '${WORKSPACE_VOLUME}' to ${WORKSPACE_HOST_DIR}..."
+      legacy_mount_args=(--mount "type=volume,source=${WORKSPACE_VOLUME},target=/workspace-legacy,readonly")
+      did_legacy_migrate=1
+    fi
+  fi
+
   container delete "$temp_name" >/dev/null 2>&1 || true
   info "Preparing runtime volumes..."
   if ! container run \
@@ -602,7 +627,8 @@ stage_runtime_volumes() {
     --tmpfs /tmp \
     --user 0:0 \
     --mount "type=volume,source=${STATE_VOLUME},target=/home/node/.openclaw" \
-    --mount "type=volume,source=${WORKSPACE_VOLUME},target=/home/node/.openclaw/workspace" \
+    --mount "type=bind,source=${WORKSPACE_HOST_DIR},target=/home/node/.openclaw/workspace" \
+    "${legacy_mount_args[@]}" \
     --mount "type=bind,source=${config_stage_dir},target=/openclaw-host-config,readonly" \
     "$OPENCLAW_IMAGE" \
     sh -lc '
@@ -620,6 +646,16 @@ stage_runtime_volumes() {
       # Write bridge token as a file owned by node, mode 0400 (read-only).
       # The token resolver reads this file instead of /proc/self/environ.
       install -m 0400 -o 1000 -g 1000 /openclaw-host-config/bridge-token /home/node/.openclaw/bridge-token
+      # One-shot copy from the legacy named volume if mounted.
+      if [ -d /workspace-legacy ]; then
+        cp -a /workspace-legacy/. /home/node/.openclaw/workspace/
+      fi
+      # chown the bind-mounted workspace so the image user (uid 1000) can
+      # read/write MEMORY.md and the bootstrap files. mark loses direct
+      # write on the host; use sudo chown -R mark:staff <file> to edit.
+      chown -R 1000:1000 /home/node/.openclaw/workspace
+      # Seed an empty MEMORY.md if the agent has not created one yet.
+      [ -f /home/node/.openclaw/workspace/MEMORY.md ] || install -m 0640 -o 1000 -g 1000 /dev/null /home/node/.openclaw/workspace/MEMORY.md
       node - <<'"'"'NODE'"'"'
 const fs = require("node:fs");
 const src = "/openclaw-host-config/openclaw.json";
@@ -645,6 +681,15 @@ NODE
     fail "Failed to prepare runtime volumes."
   fi
   rm -rf "$config_stage_dir"
+
+  # Drop the legacy named volume now that its contents live on the host,
+  # unless the user opted out via OPENCLAW_APPLE_CONTAINER_KEEP_WORKSPACE_VOLUME=1.
+  if [[ "$did_legacy_migrate" -eq 1 ]] && ! is_enabled "${OPENCLAW_APPLE_CONTAINER_KEEP_WORKSPACE_VOLUME:-0}"; then
+    if container volume list --quiet 2>/dev/null | grep -qx "$WORKSPACE_VOLUME"; then
+      container volume rm "$WORKSPACE_VOLUME" >/dev/null 2>&1 || true
+      info "Removed legacy workspace volume '${WORKSPACE_VOLUME}'."
+    fi
+  fi
 }
 
 NETWORK_ARGS=()
@@ -723,7 +768,7 @@ do_status() {
   echo "State:     ${STATE_VOLUME}"
   echo "Keychain:  ${KEYCHAIN_SERVICE} (${KEYCHAIN_ACCOUNT})"
   echo "Host DNS:  ${HOST_DOMAIN}"
-  echo "Workspace: ${WORKSPACE_VOLUME}"
+  echo "Workspace: ${WORKSPACE_HOST_DIR} (host bind)"
   if [[ -f "$BRIDGE_PID_FILE" ]]; then
     local pid=""
     pid="$(<"$BRIDGE_PID_FILE")"
@@ -786,7 +831,7 @@ container_run_gateway() {
     --env "OPENCLAW_KEYCHAIN_BRIDGE_TOKEN_FILE=${BRIDGE_TOKEN_FILE_PATH}" \
     --env "OPENCLAW_KEYCHAIN_BRIDGE_TIMEOUT_MS=${BRIDGE_TIMEOUT_MS}" \
     --mount "type=volume,source=${STATE_VOLUME},target=/home/node/.openclaw" \
-    --mount "type=volume,source=${WORKSPACE_VOLUME},target=/home/node/.openclaw/workspace" \
+    --mount "type=bind,source=${WORKSPACE_HOST_DIR},target=/home/node/.openclaw/workspace" \
     "${NETWORK_ARGS[@]}" \
     "${CODE_OVERLAY_MOUNTS[@]}" \
     "$OPENCLAW_IMAGE" \

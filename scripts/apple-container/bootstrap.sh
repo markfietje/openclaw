@@ -47,6 +47,9 @@ KEYCHAIN_ACCOUNT="$(id -un)"
 NETWORK_NAME="openclaw-net"
 STATE_VOLUME="openclaw-state"
 TOKEN_KEY_VOLUME="openclaw-token-key"
+WORKSPACE_HOST_DIR="${CONFIG_DIR}/workspace"
+# Legacy named volume that held the workspace before bind-mounting the
+# host dir above. Used for one-time migration, then ignored.
 WORKSPACE_VOLUME="openclaw-workspace"
 HOST_DOMAIN="host.container.internal"
 HOST_LOCALHOST_IP="203.0.113.113"
@@ -246,8 +249,11 @@ cmd_install() {
   step "Creating volumes..."
   ensure_volume "$STATE_VOLUME"
   ensure_volume "$TOKEN_KEY_VOLUME"
-  ensure_volume "$WORKSPACE_VOLUME"
   ok "Volumes created"
+
+  step "Creating workspace host dir..."
+  install -d -m 0750 "$WORKSPACE_HOST_DIR"
+  ok "Workspace dir ready: $WORKSPACE_HOST_DIR"
 
   # 5. Create network
   step "Creating network..."
@@ -276,7 +282,7 @@ cmd_install() {
     --publish "127.0.0.1:${HOST_PORT}:18789" \
     --volume "$STATE_VOLUME:/state" \
     --volume "$TOKEN_KEY_VOLUME:/token-key" \
-    --volume "$WORKSPACE_VOLUME:/workspace" \
+    --volume "${WORKSPACE_HOST_DIR}:/workspace" \
     --read-only \
     --cap-drop ALL \
     --init \
