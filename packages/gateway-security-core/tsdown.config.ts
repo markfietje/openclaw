@@ -13,7 +13,6 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/auth-audit-log.ts",
-    "src/capabilities.ts",
     "src/connection-rate-limit.ts",
     "src/device-session-authority.ts",
     "src/exec-deny-paths.ts",

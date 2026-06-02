@@ -19,11 +19,7 @@
       "import": "./dist/auth-audit-log.mjs",
       "default": "./dist/auth-audit-log.mjs"
     },
-    "./capabilities": {
-      "types": "./dist/capabilities.d.mts",
-      "import": "./dist/capabilities.mjs",
-      "default": "./dist/capabilities.mjs"
-    },
+
     "./connection-rate-limit": {
       "types": "./dist/connection-rate-limit.d.mts",
       "import": "./dist/connection-rate-limit.mjs",
