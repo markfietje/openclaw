@@ -53,6 +53,7 @@ import {
 } from "./server/preauth-connection-budget.js";
 import type { ReadinessChecker } from "./server/readiness.js";
 import type { GatewayTlsRuntime } from "./server/tls.js";
+import { createGatewayVerifyClient } from "./server/verify-client.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
 type GatewayPluginRequestHandler = (
@@ -272,6 +273,15 @@ export async function createGatewayRuntimeState(params: {
     const preauthConnectionBudget = createPreauthConnectionBudget();
     // Per-IP connection rate limit (rejects clients hammering the upgrade endpoint).
     const connectionRateLimiter = createConnectionRateLimiter(params.connectionRateLimitConfig);
+    const verifyClient =
+      params.verifyClient ??
+      createGatewayVerifyClient({
+        log: params.log,
+        connectionRateLimiter,
+        maxConnections: params.maxWebSocketConnections,
+        activeConnectionCount: () => clients.size,
+        getConfigSnapshot: () => params.cfg,
+      });
     // Per-identity authenticated-connection budget (caps simultaneous WS sockets per device).
     const authenticatedConnectionBudget = createAuthenticatedConnectionBudget(
       params.authenticatedConnectionLimit,
@@ -328,6 +338,7 @@ export async function createGatewayRuntimeState(params: {
         authenticatedConnectionBudget,
         maxWebSocketConnections: params.maxWebSocketConnections,
         verifyClient: params.verifyClient,
+        verifyUpgradeRequest: verifyClient,
         log: params.log,
       });
       httpServers.push(httpServer);
