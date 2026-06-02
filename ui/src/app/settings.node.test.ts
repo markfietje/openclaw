@@ -8,6 +8,7 @@ import {
   persistSessionToken,
   resolvePageGatewaySettings,
   resolveApplicationStartupSettings,
+  saveLocalUserIdentity,
   saveSettings,
   type UiSettings,
 } from "./settings.ts";
@@ -843,5 +844,72 @@ describe("loadSettings default gateway URL derivation", () => {
       name: null,
       avatar: null,
     });
+  });
+});
+
+describe("resolveApplicationStartupSettings gateway deep links", () => {
+  function baselineSettings(gatewayUrl: string): UiSettings {
+    return {
+      ...loadSettings(),
+      gatewayUrl,
+      token: "",
+      sessionKey: "agent:test_old:main",
+      lastActiveSessionKey: "agent:test_old:main",
+    };
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", createStorageMock());
+    vi.stubGlobal("sessionStorage", createStorageMock());
+    vi.stubGlobal("navigator", { language: "en-US" } as Navigator);
+    setControlUiBasePath(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    setControlUiBasePath(undefined);
+    vi.unstubAllGlobals();
+  });
+
+  it("applies same-origin /gateway endpoint URLs directly without confirmation", () => {
+    // Global location drives the same-origin comparison (browser env concern).
+    setTestLocation({
+      protocol: "https:",
+      host: "control.example",
+      pathname: "/chat",
+    });
+    const initial = baselineSettings("wss://control.example");
+
+    const result = resolveApplicationStartupSettings(initial, {
+      pathname: "/chat",
+      search: "",
+      hash: "gatewayUrl=wss%3A%2F%2Fcontrol.example%2Fgateway&token=test-token",
+    });
+
+    expect(result.settings.gatewayUrl).toBe("wss://control.example/gateway");
+    expect(result.settings.token).toBe("test-token");
+    expect(result.settings.sessionKey).toBe("main");
+    expect(result.settings.lastActiveSessionKey).toBe("main");
+    expect(result.pendingGatewayUrl).toBeNull();
+    expect(result.pendingGatewayToken).toBeNull();
+  });
+
+  it("routes cross-origin gateway URL changes through the confirmation flow", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "control.example",
+      pathname: "/chat",
+    });
+    const initial = baselineSettings("wss://control.example");
+
+    const result = resolveApplicationStartupSettings(initial, {
+      pathname: "/chat",
+      search: "",
+      hash: "gatewayUrl=wss%3A%2F%2Fother.example%2Fgateway&token=cross-token",
+    });
+
+    expect(result.pendingGatewayUrl).toBe("wss://other.example/gateway");
+    expect(result.pendingGatewayToken).toBe("cross-token");
+    expect(result.settings.gatewayUrl).toBe("wss://control.example");
   });
 });

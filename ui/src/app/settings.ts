@@ -159,6 +159,31 @@ declare global {
   }
 }
 
+/**
+ * Returns true when a deep-link gateway URL points at the Control UI's own
+ * /gateway endpoint on the same origin. Such links are applied directly
+ * (with any accompanying token) instead of routing through the cross-origin
+ * confirmation flow. Reads the global `location` (window.location in the
+ * browser) rather than the injected startup location, since the comparison is
+ * inherently a browser-environment concern.
+ */
+function isSameOriginGatewayEndpoint(gatewayUrl: string): boolean {
+  if (typeof location === "undefined" || !location.protocol || !location.host) {
+    return false;
+  }
+  try {
+    const pageUrl = new URL(`${location.protocol}//${location.host}`);
+    const parsedGatewayUrl = new URL(gatewayUrl, pageUrl);
+    if (parsedGatewayUrl.protocol !== "ws:" && parsedGatewayUrl.protocol !== "wss:") {
+      return false;
+    }
+    const gatewayPath = parsedGatewayUrl.pathname.replace(/\/+$/, "") || "/";
+    return parsedGatewayUrl.host === pageUrl.host && gatewayPath === "/gateway";
+  } catch {
+    return false;
+  }
+}
+
 export function resolveApplicationStartupSettings(
   initialSettings: UiSettings,
   location: ApplicationStartupLocation,
@@ -225,6 +250,11 @@ export function resolveApplicationStartupSettings(
   const gatewayUrlRaw = params.get("gatewayUrl") ?? hashParams.get("gatewayUrl");
   const nextGatewayUrl = normalizeOptionalString(gatewayUrlRaw) ?? "";
   const gatewayUrlChanged = Boolean(nextGatewayUrl && nextGatewayUrl !== settings.gatewayUrl);
+  // Same-origin /gateway deep links are applied directly; only cross-origin or
+  // non-/gateway changes route through pendingGatewayUrl + confirmation.
+  const shouldConfirmGatewayUrlChange = Boolean(
+    gatewayUrlChanged && !isSameOriginGatewayEndpoint(nextGatewayUrl),
+  );
   const queryToken = params.get("token");
   const hashToken = hashParams.get("token");
   const hasTokenParam = hashToken != null || queryToken != null;
@@ -232,7 +262,7 @@ export function resolveApplicationStartupSettings(
   const hasBootstrapTokenParam = hashParams.has("bootstrapToken");
   const bootstrapToken = normalizeOptionalString(hashParams.get("bootstrapToken"));
   const session = normalizeOptionalString(params.get("session") ?? hashParams.get("session"));
-  const shouldResetSessionForToken = Boolean(token && !session && !gatewayUrlChanged);
+  const shouldResetSessionForToken = Boolean(token && !session && !shouldConfirmGatewayUrlChange);
   let shouldCleanUrl = false;
 
   if (params.has("token")) {
@@ -247,7 +277,7 @@ export function resolveApplicationStartupSettings(
         "[openclaw] Auth token passed as query parameter (?token=). Use URL fragment instead: #token=<token>. Query parameters may appear in server logs.",
       );
     }
-    if (token && gatewayUrlChanged) {
+    if (token && shouldConfirmGatewayUrlChange) {
       pendingGatewayToken = token;
     } else if (token) {
       updateSettings({ token });
@@ -283,11 +313,20 @@ export function resolveApplicationStartupSettings(
   }
 
   if (gatewayUrlRaw != null) {
-    pendingGatewayUrl = gatewayUrlChanged ? nextGatewayUrl : null;
-    if (!gatewayUrlChanged) {
+    if (shouldConfirmGatewayUrlChange) {
+      pendingGatewayUrl = nextGatewayUrl;
+      // pendingGatewayToken, if any, was already staged in the token block.
+    } else {
+      pendingGatewayUrl = null;
       pendingGatewayToken = null;
-    } else if (pendingBootstrapToken) {
-      pendingGatewayToken = null;
+      if (gatewayUrlChanged) {
+        // Same-origin /gateway endpoint: apply directly with any token.
+        updateSettings({
+          gatewayUrl: nextGatewayUrl,
+          ...(token ? { token } : {}),
+        });
+      }
+    }
     }
     params.delete("gatewayUrl");
     hashParams.delete("gatewayUrl");
