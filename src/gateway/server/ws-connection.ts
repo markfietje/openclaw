@@ -1,6 +1,7 @@
 // Gateway WebSocket connection handler owns pre-auth limits, handshake auth, presence, and message-handler attachment.
 import { randomUUID } from "node:crypto";
 import type { Socket } from "node:net";
+import type { DeviceSessionAuthorityTracker } from "@openclaw/gateway-security-core/device-session-authority";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { RawData, WebSocket, WebSocketServer } from "ws";
 import {
@@ -161,6 +162,7 @@ export type GatewayWsSharedHandlerParams = {
   nodeReapprovalCoordinator?: NodeReapprovalCoordinator;
   preauthHandshakeTimeoutMs?: number;
   isStartupPending?: () => boolean;
+  deviceSessionAuthorityTracker?: DeviceSessionAuthorityTracker;
   gatewayMethods: string[];
   events: string[];
   refreshHealthSnapshot: GatewayRequestContext["refreshHealthSnapshot"];
@@ -536,6 +538,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       browserRateLimiter,
       nodeReapprovalCoordinator,
       isStartupPending,
+      deviceSessionAuthorityTracker: params.deviceSessionAuthorityTracker,
       gatewayMethods,
       events,
       extraHandlers,
@@ -553,7 +556,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
         }
         if (authenticatedConnectionBudget) {
           const deviceId = next.connect.device?.id;
-          if (!authenticatedConnectionBudget.acquire(deviceId, connId)) {
+          if (!authenticatedConnectionBudget.acquire(deviceId, connId, remoteAddr)) {
             setCloseCause("authenticated-connection-budget-exhausted", {
               deviceId,
             });

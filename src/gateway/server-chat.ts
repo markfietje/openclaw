@@ -9,6 +9,7 @@ import { getRuntimeConfig } from "../config/io.js";
 import { type AgentEventPayload, getAgentRunContext } from "../infra/agent-events.js";
 import { detectErrorKind, type ErrorKind } from "../infra/errors.js";
 import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
+import { createOutboundDeliveryPayloadRedactor } from "../infra/outbound/redaction.js";
 import { isAcpSessionKey, isSubagentSessionKey } from "../sessions/session-key-utils.js";
 import { resolveAssistantEventPhase } from "../shared/chat-message-content.js";
 import { setSafeTimeout } from "../utils/timer-delay.js";
@@ -882,20 +883,36 @@ export function createAgentEventHandler({
     chatRunState.deltaSentAt.set(clientRunId, now);
   };
 
+  let cachedRedactor: ((payload: unknown) => unknown) | undefined;
+  const getRedactor = () => {
+    if (!cachedRedactor) {
+      try {
+        const cfg = getRuntimeConfig();
+        cachedRedactor = createOutboundDeliveryPayloadRedactor(cfg) as (
+          payload: unknown,
+        ) => unknown;
+      } catch {
+        cachedRedactor = (p: unknown) => p;
+      }
+    }
+    return cachedRedactor;
+  };
+
   const sendChatPayload = (
     sessionKey: string,
     payload: unknown,
     opts?: { agentId?: string; controlUiVisible?: boolean; dropIfSlow?: boolean },
   ) => {
     const deliverySessionKey = resolveSessionDeliveryKey(sessionKey, opts?.agentId);
+    const redacted = getRedactor()(payload);
     if (opts?.controlUiVisible ?? true) {
-      broadcast("chat", payload, { dropIfSlow: opts?.dropIfSlow });
-      sendNodeSessionPayloadForAgent(sessionKey, "chat", payload, opts?.agentId);
+      broadcast("chat", redacted, { dropIfSlow: opts?.dropIfSlow });
+      sendNodeSessionPayloadForAgent(sessionKey, "chat", redacted, opts?.agentId);
       return;
     }
     const recipients = sessionMessageSubscribers.get(deliverySessionKey);
     if (recipients.size > 0) {
-      broadcastToConnIds("chat", payload, recipients, { dropIfSlow: opts?.dropIfSlow });
+      broadcastToConnIds("chat", redacted, recipients, { dropIfSlow: opts?.dropIfSlow });
     }
   };
 
