@@ -348,10 +348,10 @@ export async function createGatewayRuntimeState(params: {
         connectionRateLimiter,
         authenticatedConnectionBudget,
         maxWebSocketConnections: params.maxWebSocketConnections,
-        verifyClient: params.verifyClient,
         getReadiness: params.getReadiness,
         isTerminalEnabled: params.isTerminalEnabled,
         tlsOptions: params.gatewayTls?.enabled ? params.gatewayTls.tlsOptions : undefined,
+        tlsMinVersion: params.cfg.gateway?.security?.tlsMinVersion,
       });
       // Attach upgrade handler BEFORE listening to prevent race condition
       attachGatewayUpgradeHandler({
@@ -369,7 +369,6 @@ export async function createGatewayRuntimeState(params: {
         connectionRateLimiter,
         authenticatedConnectionBudget,
         maxWebSocketConnections: params.maxWebSocketConnections,
-        verifyClient: params.verifyClient,
         verifyUpgradeRequest: verifyClient,
         log: params.log,
       });
