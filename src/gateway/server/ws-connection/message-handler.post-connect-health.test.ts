@@ -208,16 +208,17 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
       connId: "conn-invalidated",
       connectNonce: "nonce-invalidated",
       refreshHealthSnapshot: vi.fn(async () => createHealthSummary()),
+      requestOrigin: "http://127.0.0.1:19001",
     });
 
     harness.sendConnect("connect-invalidated", {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       client: {
-        id: "openclaw-tui",
+        id: "openclaw-control-ui",
         version: "dev",
         platform: "test",
-        mode: "cli",
+        mode: "ui",
       },
       role: "operator",
       scopes: ["operator.read"],
@@ -267,16 +268,17 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
       connId: "conn-invalidating",
       connectNonce: "nonce-invalidating",
       refreshHealthSnapshot: vi.fn(async () => createHealthSummary()),
+      requestOrigin: "http://127.0.0.1:19001",
     });
 
     harness.sendConnect("connect-invalidating", {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       client: {
-        id: "openclaw-tui",
+        id: "openclaw-control-ui",
         version: "dev",
         platform: "test",
-        mode: "cli",
+        mode: "ui",
       },
       role: "operator",
       scopes: ["operator.pairing"],
@@ -370,16 +372,17 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
       connId: "conn-invalid",
       connectNonce: "nonce-invalid",
       refreshHealthSnapshot: vi.fn(async () => createHealthSummary()),
+      requestOrigin: "http://127.0.0.1:19001",
     });
 
     harness.sendConnect("connect-invalid", {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       client: {
-        id: "openclaw-tui",
+        id: "openclaw-control-ui",
         version: "dev",
         platform: "test",
-        mode: "cli",
+        mode: "ui",
       },
       role: "operator",
       scopes: ["operator.read"],
@@ -549,13 +552,14 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
       socket,
       upgradeReq: {
         url: "/gateway",
-        headers: { host: "127.0.0.1:19001" },
+        headers: { host: "127.0.0.1:19001", origin: "http://127.0.0.1:19001" },
         socket: { localAddress: "127.0.0.1", remoteAddress: "127.0.0.1" },
       } as unknown as IncomingMessage,
       connId: "conn-1",
       remoteAddr: "127.0.0.1",
       localAddr: "127.0.0.1",
       requestHost: "127.0.0.1:19001",
+      requestOrigin: "http://127.0.0.1:19001",
       connectNonce: "nonce-1",
       getResolvedAuth: () => resolvedAuth,
       gatewayMethods: [],
@@ -592,10 +596,10 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
           client: {
-            id: "openclaw-tui",
+            id: "openclaw-control-ui",
             version: "dev",
             platform: "test",
-            mode: "cli",
+            mode: "ui",
           },
           role: "operator",
           scopes: ["operator.read"],
