@@ -5,6 +5,12 @@ import type { IncomingMessage } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import {
+  authorizeMessage,
+  createMessageAuthContext,
+  resolveMessageAuthorizationDecision,
+  type MessageAuthorizationContext,
+} from "@openclaw/gateway-security-core/message-auth";
+import {
   normalizeSortedUniqueTrimmedStringList,
   uniqueStrings,
 } from "@openclaw/normalization-core/string-normalization";
@@ -629,6 +635,8 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     close(4001, `client invalidated: ${reason}`);
     return true;
   };
+
+  let messageAuthContext: MessageAuthorizationContext | undefined;
 
   const handleMessage = async (data: RawData) => {
     if (isClosed()) {
@@ -1952,6 +1960,12 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           });
           return;
         }
+        messageAuthContext = createMessageAuthContext({
+          clientId: connectParams.client.id,
+          role,
+          scopes,
+          endpoint: "ws-message",
+        });
         setHandshakeState("connected");
         logWs("in", "connect", {
           connId,
@@ -2211,6 +2225,59 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
       }
       const req = parsed;
       logWs("in", "req", { connId, id: req.id, method: req.method });
+      if (
+        messageAuthContext !== undefined &&
+        configSnapshot.gateway?.security?.messageAuth?.enabled === true
+      ) {
+        const messageType = `gateway.method.${req.method}`;
+        const methodRegistry = getMethodRegistry?.();
+        const decision = resolveMessageAuthorizationDecision(messageType, {
+          ...(methodRegistry !== undefined ? { methodRegistry } : {}),
+        });
+        // Defense-in-depth (opt-in via gateway.security.messageAuth.enabled): enforce EXTRA
+        // capability checks (secrets, config-protected) and node-role gating. Standard operator
+        // scope checks (read/write/admin) are already enforced by server-methods with proper
+        // "missing scope" errors, and a few methods (e.g. "health") intentionally bypass scope.
+        if (decision !== undefined) {
+          let requiresExtraCheck = false;
+          if (decision.kind === "role" && decision.role === "node") {
+            requiresExtraCheck = true;
+          } else if (
+            decision.kind === "capability" &&
+            (decision.capability === "secrets:read" ||
+              decision.capability === "secrets:manage" ||
+              decision.capability === "admin:config")
+          ) {
+            requiresExtraCheck = true;
+          }
+          if (requiresExtraCheck) {
+            const authDecision = authorizeMessage(messageAuthContext, messageType, {
+              ...(methodRegistry !== undefined ? { methodRegistry } : {}),
+            });
+            if (!authDecision.ok) {
+              const isNodeRole = decision.kind === "role" && decision.role === "node";
+              const errorMessage = isNodeRole
+                ? `unauthorized role: ${messageAuthContext.role ?? "operator"} for method ${req.method}`
+                : `missing scope: ${authDecision.missingCapability} for method ${req.method}`;
+              send({
+                type: "res",
+                id: req.id,
+                ok: false,
+                error: errorShape(ErrorCodes.INVALID_REQUEST, errorMessage, {
+                  details: {
+                    code: "method-not-authorized",
+                    method: req.method,
+                    ...(isNodeRole
+                      ? { requiredRole: "node" }
+                      : { missingScope: authDecision.missingCapability }),
+                  },
+                }),
+              });
+              return;
+            }
+          }
+        }
+      }
       for (;;) {
         const barrier = deviceCredentialMutationBarrier;
         if (!barrier) {
