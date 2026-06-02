@@ -91,7 +91,7 @@ import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { createLazyPromise } from "../shared/lazy-runtime.js";
 import { recordRemoteNodeInfo, removeRemoteNodeInfo } from "../skills/runtime/remote.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
-import { resolveGatewayAuth } from "./auth.js";
+import { resolveGatewayAuth, validateCredentialStrength } from "./auth.js";
 import type { RestartRecoveryCandidate } from "./chat-abort.js";
 import type { ExecApprovalManager } from "./exec-approval-manager.js";
 import { revokeAttachGrantsForSession } from "./mcp-grant-store.js";
@@ -1032,6 +1032,18 @@ export async function startGatewayServer(
     tailscaleConfig,
     tailscaleMode,
   } = runtimeConfig;
+  {
+    const credentialCheck = validateCredentialStrength({
+      auth: resolvedAuth,
+      isNetworkExposed: !isLoopbackHost(bindHost),
+    });
+    for (const err of credentialCheck.errors) {
+      log.warn(`[startup-security] credential-strength: ${err}`);
+    }
+    for (const warning of credentialCheck.warnings) {
+      log.info(`[startup-security] credential-strength: ${warning}`);
+    }
+  }
   const getResolvedAuth = () =>
     resolveGatewayAuth({
       authConfig:

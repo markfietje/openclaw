@@ -1,6 +1,12 @@
 // WebSocket message handler validates frames, dispatches gateway RPCs, manages pairing, and reports responses.
 import type { RawData } from "ws";
 import {
+  authorizeMessage,
+  createMessageAuthContext,
+  resolveMessageAuthorizationDecision,
+  type MessageAuthorizationContext,
+} from "@openclaw/gateway-security-core/message-auth";
+import {
   GATEWAY_CLIENT_IDS,
   GATEWAY_CLIENT_MODES,
 } from "../../../../packages/gateway-protocol/src/client-info.js";
@@ -183,6 +189,8 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     // root lease so suspension cannot report ready while one is still active.
     void runWithGatewayIndependentRootWorkAdmission(run).catch(onError);
   };
+
+  let messageAuthContext: MessageAuthorizationContext | undefined;
 
   const handleMessage = async (data: RawData) => {
     if (isClosed()) {
@@ -407,8 +415,59 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         if (!deviceAuthorized) {
           return;
         }
+        messageAuthContext = createMessageAuthContext({
+          clientId: connectParams.client.id,
+          role: authenticated.role,
+          scopes: authenticated.scopes,
+          endpoint: "ws-message",
+        });
         await attachAuthenticatedGatewayConnect(phaseContext, deviceAuthorized);
         return;
+      }
+      if (
+        messageAuthContext !== undefined &&
+        configSnapshot.gateway?.security?.messageAuth?.enabled === true
+      ) {
+        const req = parsed as RequestFrame;
+        const messageType = `gateway.method.${req.method}`;
+        const decision = resolveMessageAuthorizationDecision(messageType, {});
+        if (decision !== undefined) {
+          let requiresExtraCheck = false;
+          if (decision.kind === "role" && decision.role === "node") {
+            requiresExtraCheck = true;
+          } else if (
+            decision.kind === "capability" &&
+            (decision.capability === "secrets:read" ||
+              decision.capability === "secrets:manage" ||
+              decision.capability === "admin:config")
+          ) {
+            requiresExtraCheck = true;
+          }
+          if (requiresExtraCheck) {
+            const authDecision = authorizeMessage(messageAuthContext, messageType, {});
+            if (!authDecision.ok) {
+              const isNodeRole = decision.kind === "role" && decision.role === "node";
+              const errorMessage = isNodeRole
+                ? `unauthorized role: ${messageAuthContext.role ?? "operator"} for method ${req.method}`
+                : `missing scope: ${authDecision.missingCapability} for method ${req.method}`;
+              send({
+                type: "res",
+                id: req.id,
+                ok: false,
+                error: errorShape(ErrorCodes.INVALID_REQUEST, errorMessage, {
+                  details: {
+                    code: "method-not-authorized",
+                    method: req.method,
+                    ...(isNodeRole
+                      ? { requiredRole: "node" }
+                      : { missingScope: authDecision.missingCapability }),
+                  },
+                }),
+              });
+              return;
+            }
+          }
+        }
       }
       await authenticatedRequestDispatcher.dispatch(parsed, client);
     } catch (err) {
