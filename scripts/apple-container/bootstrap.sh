@@ -273,13 +273,16 @@ cmd_install() {
   container create \
     --name "$CONTAINER_NAME" \
     --network "$NETWORK_NAME" \
-    --publish "${HOST_PORT}:18789" \
+    --publish "127.0.0.1:${HOST_PORT}:18789" \
     --volume "$STATE_VOLUME:/state" \
     --volume "$TOKEN_KEY_VOLUME:/token-key" \
     --volume "$WORKSPACE_VOLUME:/workspace" \
     --read-only \
     --cap-drop ALL \
     --init \
+    --user 1000:1000 \
+    --cpus 2 \
+    --memory 1g \
     "$IMAGE" \
     sh -c "
       if [ -f /app/openclaw.mjs ]; then
@@ -408,13 +411,16 @@ cmd_upgrade() {
   container create \
     --name "$CONTAINER_NAME" \
     --network "$NETWORK_NAME" \
-    --publish "${HOST_PORT}:18789" \
+    --publish "127.0.0.1:${HOST_PORT}:18789" \
     --volume "$STATE_VOLUME:/state" \
     --volume "$TOKEN_KEY_VOLUME:/token-key" \
     --volume "$WORKSPACE_VOLUME:/workspace" \
     --read-only \
     --cap-drop ALL \
     --init \
+    --user 1000:1000 \
+    --cpus 2 \
+    --memory 1g \
     "$IMAGE" \
     sh -c "
       if [ -f /app/openclaw.mjs ]; then

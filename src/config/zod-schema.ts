@@ -670,6 +670,65 @@ const CommitmentsSchema = z
   .strict()
   .optional();
 
+const GatewayIpRestrictionSchema = z
+  .object({
+    allow: z.array(z.string()).optional(),
+    deny: z.array(z.string()).optional(),
+  })
+  .strict();
+
+const GatewayAuditFlagSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+
+const GatewayConnectionRateLimitSchema = z
+  .object({
+    maxAttempts: z.number().int().positive().optional(),
+    windowMs: z.number().int().positive().optional(),
+    lockoutMs: z.number().int().positive().optional(),
+    exemptLoopback: z.boolean().optional(),
+    ipv6SubnetMask: z.number().int().min(0).max(128).optional(),
+  })
+  .strict();
+
+const GatewaySecurityConfigSchema = z
+  .object({
+    enableOutboundRedaction: z.boolean().optional(),
+    methodRateLimits: z.record(z.string(), z.number()).optional(),
+    connectionRateLimitPerMinute: z.number().int().positive().optional(),
+    browserRateLimitPerMinute: z.number().int().positive().optional(),
+    ipRestriction: GatewayIpRestrictionSchema.optional(),
+    strictHeaderValidation: z.boolean().optional(),
+    rejectUntrustedProxyHeaders: z.boolean().optional(),
+    dangerouslyAllowHostHeaderOriginFallback: z.boolean().optional(),
+    disableLocalhostPrivilege: z.boolean().optional(),
+    autoDisableLocalhostBehindProxy: z.boolean().optional(),
+    validateHostHeader: z.boolean().optional(),
+    strictProtoValidation: z.boolean().optional(),
+    ipAllowlist: z.array(z.string()).optional(),
+    ipBlocklist: z.array(z.string()).optional(),
+    requireSubprotocol: z.boolean().optional(),
+    authAudit: GatewayAuditFlagSchema.optional(),
+    toolAudit: GatewayAuditFlagSchema.optional(),
+    messageAuth: GatewayAuditFlagSchema.optional(),
+    dangerouslyAllowLegacyEndpointFallback: z.boolean().optional(),
+    dangerouslyAllowUnmappedMethods: z.boolean().optional(),
+    enableHandshakeTokens: z.boolean().optional(),
+    enableMessageAuthorization: z.boolean().optional(),
+    enablePingPong: z.boolean().optional(),
+    enableRateLimiting: z.boolean().optional(),
+    maxPayloadBytes: z.number().int().positive().optional(),
+    maxWebSocketConnections: z.number().int().positive().optional(),
+    connectionRateLimit: GatewayConnectionRateLimitSchema.optional(),
+    tlsMinVersion: z.enum(["TLSv1.2", "TLSv1.3"]).optional(),
+    enforceOriginCheckForAllClients: z.boolean().optional(),
+    pingIntervalMs: z.number().int().positive().optional(),
+    pongTimeoutMs: z.number().int().positive().optional(),
+  })
+  .strict();
+
 export const OpenClawSchema = z
   .object({
     $schema: z.string().optional(),
@@ -1307,6 +1366,7 @@ export const OpenClawSchema = z
           .optional(),
         trustedProxies: z.array(z.string()).optional(),
         allowRealIpFallback: z.boolean().optional(),
+        security: GatewaySecurityConfigSchema.optional(),
         tools: z
           .object({
             deny: z.array(z.string()).optional(),
