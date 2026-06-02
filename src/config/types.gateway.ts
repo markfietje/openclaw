@@ -490,6 +490,11 @@ export type GatewaySecurityConfig = {
     /** Enable tool audit logging. */
     enabled?: boolean;
   };
+  /** Per-message auth context for defense-in-depth capability gating (secrets, config-protected, node-role methods). */
+  messageAuth?: {
+    /** Enable extra capability checks for secrets.* and config.set_protected methods beyond the standard operator scope check. */
+    enabled?: boolean;
+  };
 };
 
 export type GatewayConfig = {
