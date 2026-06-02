@@ -1078,4 +1078,93 @@ describe("config schema", () => {
   it("returns null for missing config schema paths", () => {
     expect(lookupConfigSchema(baseSchema, "gateway.notReal.path")).toBeNull();
   });
+
+  it("accepts the gateway.security config surface matching the TS type", () => {
+    const result = OpenClawSchema.safeParse({
+      gateway: {
+        security: {
+          enableOutboundRedaction: true,
+          methodRateLimits: { "tools.invoke": 60 },
+          connectionRateLimitPerMinute: 30,
+          browserRateLimitPerMinute: 120,
+          ipRestriction: { allow: ["10.0.0.0/8"], deny: [] },
+          strictHeaderValidation: true,
+          rejectUntrustedProxyHeaders: true,
+          dangerouslyAllowHostHeaderOriginFallback: false,
+          disableLocalhostPrivilege: true,
+          autoDisableLocalhostBehindProxy: true,
+          validateHostHeader: true,
+          strictProtoValidation: true,
+          ipAllowlist: ["10.0.0.0/8"],
+          ipBlocklist: [],
+          requireSubprotocol: true,
+          authAudit: { enabled: false },
+          toolAudit: { enabled: false },
+          messageAuth: { enabled: true },
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts the documented fork security hardening knobs", () => {
+    const result = OpenClawSchema.safeParse({
+      gateway: {
+        security: {
+          strictHeaderValidation: true,
+          rejectUntrustedProxyHeaders: true,
+          dangerouslyAllowHostHeaderOriginFallback: false,
+          disableLocalhostPrivilege: true,
+          autoDisableLocalhostBehindProxy: true,
+          validateHostHeader: true,
+          strictProtoValidation: true,
+          requireSubprotocol: true,
+          dangerouslyAllowLegacyEndpointFallback: false,
+          dangerouslyAllowUnmappedMethods: false,
+          enableHandshakeTokens: true,
+          enableMessageAuthorization: true,
+          enablePingPong: true,
+          enableRateLimiting: true,
+          maxPayloadBytes: 26_214_400,
+          maxWebSocketConnections: 32,
+          connectionRateLimit: {
+            maxAttempts: 30,
+            windowMs: 10_000,
+            lockoutMs: 60_000,
+            exemptLoopback: false,
+            ipv6SubnetMask: 56,
+          },
+          tlsMinVersion: "TLSv1.3",
+          enforceOriginCheckForAllClients: true,
+          pingIntervalMs: 25_000,
+          pongTimeoutMs: 10_000,
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects unknown keys inside gateway.security", () => {
+    const result = OpenClawSchema.safeParse({
+      gateway: {
+        security: {
+          strictHeaderValidation: true,
+          // Not part of the security contract; strict mode must reject.
+          bogusFlag: true,
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const securityIssue = result.error.issues.find(
+        (issue) => JSON.stringify(issue.path) === JSON.stringify(["gateway", "security"]),
+      );
+      expect(securityIssue?.code).toBe("unrecognized_keys");
+      const keys = (securityIssue as { keys?: unknown } | undefined)?.keys;
+      expect(keys).toEqual(["bogusFlag"]);
+    }
+  });
 });
