@@ -1,23 +1,23 @@
 # Security Advisory: Device-Identity / Pairing Bypass via TUI Client ID Spoofing
 
-| Field                  | Detail                                                                                                                                                                                                                      |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **CVE**                | Pending                                                                                                                                                                                                                     |
-| **CWE**                | CWE-290: Authentication Bypass by Spoofing                                                                                                                                                                                  |
-| **Severity**           | 🟠 High                                                                                                                                                                                                                     |
-| **Affected Component** | `src/gateway/server/ws-connection/message-handler.ts`                                                                                                                                                                       |
-| **Introduced In**      | PR [#55730](https://github.com/openclaw/openclaw/pull/55730) — "fix: improve local onboarding and TUI hatch for loopback gateways"                                                                                          |
-| **Introduced By**      | **Shakker** (`@shakkernerd`, `shakkerdroid@gmail.com`)                                                                                                                                                                      |
-| **Merged By**          | **Shakker** (`@shakkernerd`) — self-merged                                                                                                                                                                                  |
-| **Merged At**          | 2026-03-27 10:32:13 UTC                                                                                                                                                                                                     |
-| **Fix Status**         | **Unfixed** in upstream `openclaw/openclaw` as of 2026-04-08 (12 days post-merge). **Zero commits, zero PRs, zero issues, zero maintainer response** to the HIGH severity finding. Mitigated in fork `markfietje/openclaw`. |
-| **Detection**          | Flagged by Aisle Security bot (🟠 High) and Greptile review bot. Ignored by maintainer.                                                                                                                                     |
+| Field                  | Detail                                                                                                                                                                                                                                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **CVE**                | Pending                                                                                                                                                                                                                                                                                            |
+| **CWE**                | CWE-290: Authentication Bypass by Spoofing                                                                                                                                                                                                                                                         |
+| **Severity**           | 🟠 High                                                                                                                                                                                                                                                                                            |
+| **Affected Component** | `src/gateway/server/ws-connection/message-handler.ts`                                                                                                                                                                                                                                              |
+| **Introduced In**      | PR [#55730](https://github.com/openclaw/openclaw/pull/55730) — "fix: improve local onboarding and TUI hatch for loopback gateways"                                                                                                                                                                 |
+| **Introduced By**      | `@shakkernerd`                                                                                                                                                                                                                                                                                     |
+| **Merged By**          | `@shakkernerd` (same account as author; merge timestamp 2026-03-27 10:32:13 UTC)                                                                                                                                                                                                                   |
+| **Merged At**          | 2026-03-27 10:32:13 UTC                                                                                                                                                                                                                                                                            |
+| **Fix Status**         | **Unfixed** in upstream `openclaw/openclaw` as of 2026-06-02 (~9 weeks post-merge). **Zero commits, zero PRs, zero issues addressing CWE-290.** Three automated security bots flagged the PR at merge time; no follow-up has been opened or merged since. Mitigated in fork `markfietje/openclaw`. |
+| **Detection**          | Flagged by Aisle Security bot (🟠 High) and Greptile review bot. Ignored by maintainer.                                                                                                                                                                                                            |
 
 ---
 
 ## 1. Executive Summary
 
-On March 27, 2026, maintainer **Shakker** (`@shakkernerd`) authored and self-merged [PR #55730](https://github.com/openclaw/openclaw/pull/55730) into the `openclaw/openclaw` repository. The PR was opened and merged within **4 minutes** with **no human review**, **no linked issue**, and **no response to automated security findings**.
+On 2026-03-27, `@shakkernerd` opened and merged [PR #55730](https://github.com/openclaw/openclaw/pull/55730) into `openclaw/openclaw`. The PR was opened and merged within **4 minutes** with **no human review**, **no linked issue**, and **no response to automated security findings**.
 
 The change widened `isOperatorUiClient()` to return `true` for both the browser Control UI (`openclaw-control-ui`) and the terminal UI (`openclaw-tui`). This function's return value was then used as the `isControlUi` flag to gate security-critical authentication policy decisions in the WebSocket handshake, including device-identity enforcement, pairing requirements, and auth bypass paths.
 
@@ -400,147 +400,153 @@ const controlUiAuthPolicy = resolveControlUiAuthPolicy({
 
 ### 4.2 What Was Said vs What Was Done
 
-**Three automated security tools** flagged this PR. The maintainer who authored and merged it:
+**Three automated security tools** flagged this PR. The PR author:
 
 - Did not wait for any automated review to complete (merged in 4 minutes)
 - Did not respond to any bot finding
 - Did not request review from any other human
-- Applied the `maintainer` label to bypass contribution guidelines
+- Carried the `maintainer` label on the PR
 - Force-pushed the branch (`d329000 → ab0331b`) after initial comments appeared, then merged immediately
 
-The `maintainer` label is significant — it marks the PR as authored by an internal team member, exempting it from the contribution quality gates that external contributors face.
+The `maintainer` label is documented on the PR. Whether it is configured to bypass required-reviewer gates in this repository is a configuration question; the label is observable on the PR.
 
 ---
 
-## 5. Why This Happened
+## 5. Observations on the PR Lifecycle
 
-### 5.1 Organizational Context
+### 5.1 Project Context
 
-The OpenClaw project is led by **Peter Steinberger** (`@steipete`, `steipete@gmail.com`), who has publicly stated his position on PR quality:
+The recorded state of `openclaw/openclaw` PRs in the window surrounding PR #55730 shows:
 
-> _"95% of PRs are worthless"_ (X/Twitter thread, March 2026)
+1. **External security PRs are merged with long latencies or are closed without merge.** See Appendix D for a catalog.
+2. **PRs labelled `maintainer` are merged in minutes.** The six PRs in Appendix A were all self-merged by the author account; median time from PR open to merge for the four that merged on the same day was under 5 minutes.
+3. **Security bot findings receive no human responses on the PRs in this set.** Section 4.1 records the bot output; Section B.2 records the same pattern across Appendix A.
+4. **`@openclaw/secops` is the designated reviewer in CODEOWNERS for the security-sensitive paths in question** (see Appendix B.2), but is not requested on any of the six PRs in Appendix A.
 
-> _"PRs should be 'here's my idea and I'll pay for the tokens'"_ (attributed to community discussion)
+### 5.2 The Specific Failure Mode of PR #55730
 
-> _"Got a PR? I don't use proxy but happy to review"_ (responding to a user asking for proxy support)
+PR #55730 was a **convenience fix** for TUI onboarding — making the terminal UI work more smoothly on loopback. The security implications were a side effect of using `isOperatorUiClient()` for security-sensitive gating instead of keeping a precise client ID check.
 
-This creates an environment where:
-
-1. **External contributors face high barriers** — substantial security PRs are closed without merge
-2. **Internal maintainers face no barriers** — self-merging in minutes with no review
-3. **Security tooling is decorative** — bots flag issues, but no one is required to read or act on them
-4. **The "circle of friends" dynamic** — trusted maintainers bypass the quality gates imposed on everyone else
-
-### 5.2 The Specific Failure Mode
-
-PR #55730 was a **convenience fix** for TUI onboarding — making the terminal UI work more smoothly on loopback. The security implications were an unintended side effect of using `isOperatorUiClient()` for security-sensitive gating instead of keeping a precise client ID check.
-
-The maintainer's intent was not malicious — they wanted to treat TUI as an "operator UI client" for UX purposes. The failure was:
+The failure was:
 
 1. **Conflating UX classification with security classification.** `isOperatorUiClient()` was a UX helper ("is this an operator-facing client?") that got repurposed as a security gate ("is this the privileged Control UI?").
 2. **No separation of concerns.** A single boolean `isControlUi` was used for both "should we show operator UI features" and "should we bypass device identity requirements."
 3. **No threat modeling.** The PR considered TUI convenience but did not consider that `client.id` is attacker-controlled.
 4. **No human review.** The author merged their own PR before automated tools finished analyzing it.
 
-### 5.3 Intentional Insecurity or Dismissal?
+### 5.3 Possible Interpretations of the 4-Minute Merge
 
-There are two possible interpretations:
+Two interpretations are consistent with the recorded data:
 
-**Hypothesis A: Dismissal of security warnings as overstated**
+**Interpretation A: Security warnings were viewed as overstated.** This reading is supported by the absence of any recorded human reply to the four bot findings on PR #55730, the same absence on the other five PRs in Appendix A, and the fact that the vulnerability remains on `upstream/main` as of 2026-06-02.
 
-The OpenClaw maintainership has a pattern of treating security hardening as low priority:
+**Interpretation B: Convenience was prioritized over security review.** The 4-minute merge window means the automated tools did not have time to complete their analysis before the merge. The finding timeline in Section 4.1 shows three of the four bot comments landing after the merge timestamp. A PR-merge gating rule that waits for automated security review to complete would have caught this.
 
-- Peter Steinberger publicly dismisses proxy support: _"I don't use proxy"_
-- External security PRs are closed without merge
-- Automated security bot findings are not responded to
-- The project's `checkBrowserOrigin()` in upstream has 5 parameters and zero reverse proxy awareness — while users publicly complain about "four months of proxy workarounds"
-
-This suggests a cultural attitude where security findings are viewed as theoretical noise rather than practical risk.
-
-**Hypothesis B: Prioritizing convenience over security**
-
-The PR's stated goal was to improve TUI onboarding UX. The security regression was an accidental side effect that was simply not considered important enough to block the merge. The 4-minute merge window suggests the maintainer did not read the security findings before merging — not that they read them and decided to proceed anyway.
-
-The most likely explanation is **both**: security warnings are viewed as overstated, AND convenience features are prioritized over security review. The result is the same — a HIGH severity vulnerability shipped to production.
+Both interpretations point to the same outcome: a HIGH severity vulnerability shipped to production with no human security review.
 
 ---
 
 ## 6. The Mitigated Alternative
 
-The fork `markfietje/openclaw` by **Mark Fietje** (`@markfietje`) is **not vulnerable** to this attack. The fix addresses the root cause (CWE-290) and adds defense-in-depth layers:
+The fork `markfietje/openclaw` by **Mark Fietje** (`@markfietje`) ships a working fix for CWE-290. The fix is a one-line behavior change at the existing call site, plus test coverage. Verified by code reading and test execution on 2026-06-02 against fork HEAD `5f0eb89562c`.
 
-### 6.1 Root Cause Fix: Separate Security and UX Classification
+### 6.1 Root Cause Fix: Use the Strict Helper at the Call Site
 
-```ts
-// markfietje/openclaw — NOT VULNERABLE
-// Security gate: direct constant comparison — only "openclaw-control-ui" matches.
-// "openclaw-tui" does NOT match — no Control UI bypass paths activated.
-const isControlUi = connectParams.client.id === GATEWAY_CLIENT_IDS.CONTROL_UI;
-// UX flag (non-security): used for hint messages only, never for auth decisions.
-const isTuiClient = connectParams.client.id === GATEWAY_CLIENT_IDS.TUI;
+The strict helper `isBrowserOperatorUiClient` already existed in the upstream codebase at `src/utils/message-channel.ts:52-55` and was already imported in the message handler at `src/gateway/server/ws-connection/message-handler.ts:96`. It was being used for the origin check gate on line 698 (`isBrowserOperatorUi`) but **not** for the `isControlUi` boolean on line 697. The fix is to use the strict helper for `isControlUi` too:
+
+```diff
+--- a/src/gateway/server/ws-connection/message-handler.ts
++++ b/src/gateway/server/ws-connection/message-handler.ts
+@@ -93,7 +93,6 @@
+ import {
+   isBrowserOperatorUiClient,
+   isGatewayCliClient,
+-  isOperatorUiClient,
+   isWebchatClient,
+ } from "../../../utils/message-channel.js";
+@@ -694,7 +693,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
+         connectParams.role = role;
+         connectParams.scopes = scopes;
+
+-        const isControlUi = isOperatorUiClient(connectParams.client);
++        const isControlUi = isBrowserOperatorUiClient(connectParams.client);
+         const isBrowserOperatorUi = isBrowserOperatorUiClient(connectParams.client);
+         const isWebchat = isWebchatConnect(connectParams);
 ```
 
-The upstream conflates UX classification (`isOperatorUiClient`) with security classification (`isControlUi`). The fork separates them: `isControlUi` is a strict security gate that only matches the browser Control UI. TUI is identified separately via `isTuiClient` for UX purposes and has its own dedicated auth path.
-
-### 6.2 Dedicated TUI Auth Path (Not a Browser Bypass)
-
-The TUI is a non-browser client — it connects via raw WebSocket without `Origin`, `Sec-Fetch-Site`, or other browser headers. Browser-oriented defenses (origin checks, Fetch Metadata) do not apply. Instead of piggybacking on the browser Control UI's bypass paths (which is what made the upstream vulnerable), the fork gives TUI its own local-only auth path:
+The two helpers, side by side at `src/utils/message-channel.ts:47-55`:
 
 ```ts
-// markfietje/openclaw — TUI local-only auth path
-const handleMissingDeviceIdentity = (): boolean => {
-  // Local TUI: trusted local process on loopback. No spoofing risk
-  // since loopback is only reachable from the local machine. Allow
-  // without device identity through a dedicated path that does NOT
-  // inherit the browser Control UI's allowInsecureAuth or
-  // dangerouslyDisableDeviceAuth config. Remote TUI connections must
-  // go through full device identity + auth (no bypass).
-  if (isTuiClient && isLocalClient && !device) {
-    return true;
-  }
-  // ... rest of Control UI / general auth flow
-};
+export function isOperatorUiClient(client?: GatewayClientInfoLike | null): boolean {
+  const clientId = normalizeGatewayClientName(client?.id);
+  return clientId === GATEWAY_CLIENT_NAMES.CONTROL_UI || clientId === GATEWAY_CLIENT_NAMES.TUI;
+}
 
-// Local TUI: skip pairing on loopback (dedicated path, not Control UI bypass).
-const skipControlUiPairingForDevice =
-  shouldSkipControlUiPairing(/* ... */) || (isTuiClient && isLocalClient);
+export function isBrowserOperatorUiClient(client?: GatewayClientInfoLike | null): boolean {
+  const clientId = normalizeGatewayClientName(client?.id);
+  return clientId === GATEWAY_CLIENT_NAMES.CONTROL_UI;
+}
 ```
 
-Key properties of this path:
+`isOperatorUiClient` matches both `openclaw-control-ui` and `openclaw-tui`. `isBrowserOperatorUiClient` matches only `openclaw-control-ui`. The fork switches the `isControlUi` boolean to use the strict helper.
 
-- **Loopback-only**: only works when `isLocalClient = true` (127.0.0.1 / ::1 / unix socket). Remote connections claiming `client.id = "openclaw-tui"` are rejected.
-- **No config inheritance**: does NOT read `gateway.controlUi.allowInsecureAuth` or `gateway.controlUi.dangerouslyDisableDeviceAuth`. Those browser-specific bypass flags cannot affect TUI auth.
-- **No `isControlUi` involvement**: the TUI path fires before the Control UI policy evaluation. Spoofing `"openclaw-tui"` never sets `isControlUi = true`, so none of the 4 bypass paths in the advisory are reachable.
+### 6.2 Why This Closes the Bypass
 
-### 6.3 Defense-in-Depth Layers
+`isControlUi` flows into `src/gateway/server/ws-connection/connect-policy.ts` where it gates five Control-UI-specific bypass paths. With the strict helper, a TUI client (`id = "openclaw-tui"`) produces `isControlUi = false` and cannot trigger any of them:
 
-Additionally, the fork provides independent defense layers that further reduce the attack surface even if a future regression were introduced:
+| Bypass path                                                                 | File:line                   | TUI result                                | CONTROL_UI result          |
+| --------------------------------------------------------------------------- | --------------------------- | ----------------------------------------- | -------------------------- |
+| `evaluateMissingDeviceIdentity`: trusted-proxy auth shortcut                | `connect-policy.ts:124`     | `reject-device-required` (no shared auth) | `allow`                    |
+| `evaluateMissingDeviceIdentity`: `dangerouslyDisableDeviceAuth` break-glass | `connect-policy.ts:127`     | `reject-device-required`                  | `allow`                    |
+| `evaluateMissingDeviceIdentity`: `allowInsecureAuth` localhost shortcut     | `connect-policy.ts:138-146` | `reject-device-required` (no shared auth) | `allow` (with shared auth) |
+| `shouldSkipControlUiPairing`: `authMode: none` pairing skip                 | `connect-policy.ts:54`      | `false` (must pair)                       | `true` (skip)              |
+| `shouldSkipControlUiPairing`: tailscale+operator+device pairing skip        | `connect-policy.ts:44`      | `false` (must pair)                       | `true` (skip)              |
+| `isTrustedProxyControlUiOperatorAuth`                                       | `connect-policy.ts:63-77`   | `false`                                   | `true`                     |
 
-```ts
-// markfietje/openclaw — endpoint isolation
-const requiresOriginCheck = endpointSecurity.requireOrigin || isControlUi || isWebchat;
-const enforceForAllClients = securityConfig.enforceOriginCheckForAllClients === true;
-```
+TUI clients continue to authenticate via the generic shared-auth path (`roleCanSkipDeviceIdentity` in `src/gateway/role-policy.ts:17`) and via full device identity. They simply do not inherit the browser Control UI's break-glass flags or localhost shortcut. The downstream policy functions are unchanged; they were correct given the input boolean — only the boolean was wrong.
 
-This means even if `isControlUi` were somehow bypassed, the endpoint security layer would still enforce origin checks based on the endpoint classification, not the client-supplied identity.
+### 6.3 Test Coverage Added
 
-The fork also addresses the broader security posture that the upstream lacks:
+Five new tests in `src/gateway/server/ws-connection/connect-policy.test.ts` derive `isControlUi` from a real `client` object via `isBrowserOperatorUiClient`, so a regression that reintroduces `isOperatorUiClient` at the call site would be caught by the policy tests as well as by reading the diff. The tests cover all five bypass paths above and assert TUI is rejected while CONTROL_UI is allowed.
 
-| Security Feature                      | Upstream (`openclaw/openclaw`)         | Fork (`markfietje/openclaw`)                                          |
-| ------------------------------------- | -------------------------------------- | --------------------------------------------------------------------- |
-| Client identity spoofing protection   | ❌ Vulnerable                          | ✅ Direct constant comparison for `isControlUi`                       |
-| TUI auth path isolation               | ❌ Inherits Control UI bypasses        | ✅ Dedicated loopback-only path, no config inheritance                |
-| Reverse proxy origin awareness        | ❌ None (5-param `checkBrowserOrigin`) | ✅ Full `X-Forwarded-Host`, `X-Forwarded-Proto`, RFC 7239 `Forwarded` |
-| SSL stripping prevention              | ❌ Not present                         | ✅ `strictProtoValidation`                                            |
-| Trusted proxy gate                    | ❌ Not present                         | ✅ `isTrustedProxy` validation                                        |
-| Endpoint isolation                    | ❌ Not present                         | ✅ `classifyWsEndpoint` / `isKnownWsEndpoint`                         |
-| Rate limiting                         | ❌ Not present                         | ✅ Per-connection frame limiting                                      |
-| Message authorization                 | ❌ Not present                         | ✅ Per-method capability auth                                         |
-| Timing-safe nonce comparison          | ❌ Uses `!==`                          | ✅ `safeEqualSecret`                                                  |
-| `Sec-Fetch-Site` cross-site rejection | ❌ Not present                         | ✅ OWASP Fetch Metadata defense                                       |
-| Protected config path auth            | ❌ Not present                         | ✅ Extra auth tier for security-sensitive config                      |
+Six new test cases in `src/utils/message-channel.test.ts` lock down the helper contract:
 
-This fork's PR was **closed** by upstream maintainers.
+- `isOperatorUiClient` matches both CONTROL_UI and TUI
+- `isBrowserOperatorUiClient` matches only CONTROL_UI, never TUI
+- `isWebchatClient` matches WEBCHAT mode and WEBCHAT_UI id
+- Whitespace and case are normalized before matching
+- Empty, null, undefined, and unknown client info return `false`
+- TUI id is never classified as Control UI even when `mode` is omitted
+
+Four fixtures in `src/gateway/server/ws-connection/message-handler.post-connect-health.test.ts` were updated. They were sending `client.id = "openclaw-tui"` to bypass the device-identity and origin checks during handshake, which only worked because of the bug. After the fix, they correctly use `client.id = "openclaw-control-ui"` with `mode: "ui"` and a matching `Origin` header. The tests' purpose is post-connect health behavior, not handshake, so this is a fixture correction, not a test change in behavior.
+
+### 6.4 Test Counts After the Fix
+
+| Test file                                                                      | Cases | Notes                                                         |
+| ------------------------------------------------------------------------------ | ----- | ------------------------------------------------------------- |
+| `src/utils/message-channel.test.ts`                                            | 12    | 6 pre-existing + 6 new (helper contract)                      |
+| `src/gateway/server/ws-connection/connect-policy.test.ts`                      | 13    | 8 pre-existing + 5 new (TUI cannot trigger Control-UI bypass) |
+| `src/gateway/server/ws-connection/message-handler.post-connect-health.test.ts` | 17    | unchanged count; 4 fixtures corrected                         |
+
+All targeted tests pass on 2026-06-02 against fork HEAD `5f0eb89562c`. The full `pnpm tsgo:all` typecheck shows a single pre-existing error in `src/gateway/server/verify-client.test.ts:8` unrelated to this fix (verified against `origin/main`).
+
+### 6.5 Defense-in-Depth Layers (Fork)
+
+The fork's broader security posture that the upstream lacks:
+
+| Security Feature                    | Upstream (`openclaw/openclaw`)         | Fork (`markfietje/openclaw`)                                     |
+| ----------------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
+| Client identity spoofing protection | ❌ `isOperatorUiClient()` (vulnerable) | ✅ `isBrowserOperatorUiClient()` (strict)                        |
+| Reverse proxy origin awareness      | ❌ 5-param `checkBrowserOrigin`        | ✅ RFC 7239 `Forwarded`, `X-Forwarded-Host`, `X-Forwarded-Proto` |
+| Trusted proxy gate                  | ❌ Not present                         | ✅ `isTrustedProxy` validation                                   |
+| Endpoint classification             | ❌ Not present                         | ✅ `classifyWsEndpoint` / `isKnownWsEndpoint`                    |
+| Per-connection rate limiting        | ❌ Not present                         | ✅ `connection-rate-limit` module                                |
+| Per-method capability auth          | ❌ Not present                         | ✅ `message-auth` module                                         |
+| Audit log                           | ❌ Not present                         | ✅ `auth-audit-log` module (HMAC-signed)                         |
+| Startup security checks             | ❌ Not present                         | ✅ `startup-security-checks` module                              |
+| Timing-safe secret comparison       | ❌ Uses `!==`                          | ✅ `safeEqualSecret` / `timingSafeEqual`                         |
+
+The fork's PR to upstream was **closed** by upstream maintainers (PR #35109, "fix(gateway): surgical proxy-aware origin validation").
 
 ---
 
@@ -570,78 +576,52 @@ This fork's PR was **closed** by upstream maintainers.
 
 ---
 
-## 8. Post-Merge Verification: 12 Days and Counting — No Response
+## 8. Post-Merge Verification
 
-As of **April 8, 2026 (21:23 UTC)** — 12 days after PR #55730 introduced the vulnerability — the upstream `openclaw/openclaw` repository has taken **no action** to address the CWE-290 finding.
+As of **2026-06-02** — ~9 weeks after PR #55730 introduced the vulnerability — the upstream `openclaw/openclaw` repository has taken **no action** to address the CWE-290 finding. Re-verification commands and outputs are recorded below.
 
-### 8.1 Verified Upstream State (2026-04-08)
+### 8.1 Verified Upstream State (2026-06-02)
 
-The vulnerable code remains **identical** to what was merged on March 27:
+The vulnerable code remains **identical** to what was merged on 2026-03-27. Direct inspection of `upstream/main` (`6c8e065e3b1`):
 
-```ts
-// upstream/main — STILL LIVE as of 2026-04-08 21:23 UTC
-// src/gateway/server/ws-connection/message-handler.ts:445
-const isControlUi = isOperatorUiClient(connectParams.client);
-//                        ↑ Still matches both "openclaw-control-ui" AND "openclaw-tui"
-//                        ↑ Still used to gate all 4 bypass paths
-//                        ↑ ZERO changes since merge
-```
+- `src/utils/message-channel.ts:47` — `isOperatorUiClient` still returns `true` for both `CONTROL_UI` and `TUI` (no fix).
+- `src/gateway/server/ws-connection/message-handler.ts:671` — `const isControlUi = isOperatorUiClient(connectParams.client);` unchanged.
+- `src/gateway/server/ws-connection/connect-policy.ts:144-147` — `evaluateMissingDeviceIdentity` still returns `{ kind: "allow" }` for `params.isControlUi && params.controlUiAuthPolicy.allowBypass && params.role === "operator"`.
+- `src/gateway/server/ws-connection/auth-messages.ts:18` — same vulnerable assignment in the auth-failure hint path.
+- `git log upstream/main --all -S 'isControlUi = isOperatorUiClient'` returns only the original `2b96569e2d6` (PR #55730 merge) and fork-side commits; no upstream-side replacement.
 
-### 8.2 Activity Since Merge
+### 8.2 Activity Since Merge (2026-03-27 → 2026-06-02)
 
-| Metric                                                   | Value  |
-| -------------------------------------------------------- | ------ |
-| Commits to `message-handler.ts` since March 27           | 6      |
-| Commits touching `isControlUi` / `isOperatorUiClient`    | **0**  |
-| Open PRs proposing a fix                                 | **0**  |
-| Issues filed about CWE-290                               | **0**  |
-| Maintainer responses to Aisle/Greptile/Codex findings    | **0**  |
-| Days the HIGH severity finding has been publicly visible | **12** |
+| Metric                                                     | Value        |
+| ---------------------------------------------------------- | ------------ |
+| Commits to `message-handler.ts` since 2026-03-27           | 6            |
+| Commits touching `isControlUi` / `isOperatorUiClient`      | **0**        |
+| Open PRs proposing a fix for CWE-290                       | **0**        |
+| Open issues filed about CWE-290                            | **0**        |
+| Human responses to Aisle/Greptile/Codex findings on #55730 | **0**        |
+| Time the HIGH severity finding has been publicly visible   | **~9 weeks** |
 
-The 6 commits that did touch `message-handler.ts` since the merge were about unrelated concerns:
+The 6 commits that did touch `message-handler.ts` between 2026-03-27 and 2026-06-02 were about unrelated concerns (lint config, refactors, paired-scope reconnect enforcement, etc.). `git log` filtered on the `isControlUi = isOperatorUiClient` symbol returns no upstream-side replacement.
 
-| Commit     | Author            | Description                                                      |
-| ---------- | ----------------- | ---------------------------------------------------------------- |
-| `b3ecabbb` | Peter Steinberger | Cosmetic refactor: `normalizeOptionalString` dedupe              |
-| `5880ec17` | (AI-assisted)     | Shared-token/password WS session invalidation on secret rotation |
-| `b081f889` | Maintainer        | Docker loopback Control UI pairing                               |
-| `28955a36` | Maintainer        | iOS exec approval notification flow                              |
-| `20b08f1a` | Maintainer        | Paired scope baseline enforcement on reconnect                   |
-| `f3c30491` | Maintainer        | Background alive beacon revert                                   |
+### 8.3 PR Search Results (2026-06-02)
 
-**None** of these address the CWE-290 vulnerability introduced by `isOperatorUiClient()`.
+`gh pr list --repo openclaw/openclaw --state all --search 'CWE-290 OR TUI spoofing OR isControlUi isOperatorUiClient'` returns the original PR #55730 and unrelated PRs that mention `isControlUi` in passing; **no PR proposes a fix for the vulnerable `isOperatorUiClient()` assignment**. `gh issue list` against the same terms returns no issue filed about CWE-290.
 
-### 8.3 Peter Steinberger's Inaction
+### 8.4 Observations
 
-Despite being the project lead and the person who publicly states "I don't use proxy but happy to review" — Peter Steinberger has not:
+The data is publicly observable:
 
-- Acknowledged the Aisle Security bot's HIGH severity finding on PR #55730
-- Requested a fix from the PR author (`@shakkernerd`)
-- Opened a follow-up issue or PR to address the vulnerability
-- Responded to the Greptile or Codex Review bot findings
-- Implemented any of the security improvements from the `markfietje/openclaw` fork (which was closed without merge)
+1. **Security bot findings on PR #55730 received zero human responses.** Three independent automated tools flagged the PR at merge time (Aisle, Greptile, Codex). The bot comments remain on the PR with no maintainer reply, and the underlying code is unchanged.
 
-Instead, on **April 7** — 11 days after the vulnerability was introduced — Steinberger pushed commit `b3ecabbb` directly to `main` without a PR. This commit was a **cosmetic string helper refactor** (`typeof x === "string" ? x.trim() : ""` → `normalizeOptionalString(x) ?? ""`). He chose to prioritize code style deduplication over fixing a HIGH severity authentication bypass.
+2. **The `maintainer` label was applied to PR #55730.** Whether that label affects required-reviewers in this repository is a configuration question; the label is visible on the PR and on every other PR in Appendix A.
 
-### 8.4 What This Tells Us
-
-The 12-day inaction period is not ambiguous. It demonstrates a clear pattern:
-
-1. **Security bot findings are treated as noise.** Three independent automated tools flagged the PR. The findings are publicly visible on the PR. No maintainer has acknowledged them.
-
-2. **The "maintainer" label is a review bypass.** PR #55730 was opened and merged in 4 minutes by the same person, with the `maintainer` label applied. The quality gates that external contributors face do not apply to internal team members.
-
-3. **Cosmetic refactors ship faster than security fixes.** In the 12 days since the vulnerability was introduced, Steinberger found time to push 5 commits renaming string helpers. He did not find time to address a HIGH severity authentication bypass.
-
-4. **External security contributions are rejected while internal vulnerabilities are ignored.** The `markfietje/openclaw` fork — which does not have this vulnerability and provides comprehensive gateway security — had its PR closed. Meanwhile, the upstream introduced a new vulnerability and left it unfixed for 12 days and counting.
+3. **The `markfietje/openclaw` fork's PR — which addresses CWE-290 and additional gateway hardening — was closed by upstream without merge.** The fork's mitigation is documented in Section 6.
 
 ---
 
-## 9. Actual Risk Assessment: Playing Devil's Advocate
+## 9. Risk Assessment
 
-A fair question: _how exploitable is this really?_ If Peter Steinberger runs OpenClaw on his MacBook, chats remotely via Telegram and WhatsApp, and the gateway binds to loopback — is this actually dangerous?
-
-Let's walk through this honestly.
+A fair question: _how exploitable is this really, given that the default bind mode on bare metal is loopback?_ Let's walk through the threat model.
 
 ### 9.1 The "I Only Use It Locally" Defense
 
@@ -652,26 +632,26 @@ Let's walk through this honestly.
 ```ts
 // src/gateway/net.ts — defaultGatewayBindMode()
 return isContainerEnvironment() ? "auto" : "loopback";
-//                                       ↑ MacBook default: loopback only
+//                                       ↑ bare-metal default: loopback only
 ```
 
-On a MacBook running the Mac app or CLI directly, the gateway binds to `127.0.0.1`. Remote attackers on the internet cannot connect to the WebSocket endpoint directly. Steinberger's Telegram and WhatsApp channels are outbound connections — they connect to Telegram/WhatsApp's APIs, not to the gateway's WebSocket. So far, so good.
+On a bare-metal host running the Mac/CLI directly, the gateway binds to `127.0.0.1`. Remote attackers on the internet cannot connect to the WebSocket endpoint directly. Connected messaging channels (Telegram, WhatsApp, Discord) are outbound — they connect to the channel's API, not to the gateway's WebSocket. So far, so good.
 
-**If the story ended here, the risk would indeed be low.** A local-only service behind loopback has a limited attack surface: you'd need local code execution on the machine, at which point you likely already have access to everything anyway.
+**If the story ended here, the risk would indeed be low.** A local-only service behind loopback has a limited attack surface: an attacker would need local code execution on the machine, at which point the loopback bind is no longer the relevant control.
 
 ### 9.2 The Problem: It Doesn't End There
 
-The "just localhost" defense breaks down in four real-world scenarios:
+The "just localhost" defense breaks down in five real-world scenarios:
 
 #### Scenario 1: Browser-Based CSRF via WebSocket (The Stealthy One)
 
-**This is the most realistic attack for Steinberger's exact setup.**
+**This is the most realistic attack for a default-config bare-metal user.**
 
 Modern browsers allow JavaScript on any website to open a WebSocket to `ws://localhost:18789`. There is no same-origin policy restriction on WebSocket connections to localhost — the browser will happily connect.
 
 The attack:
 
-1. Steinberger visits a malicious (or compromised) website in his browser — could be anything
+1. The user visits a malicious (or compromised) website in a browser tab — could be anything
 2. JavaScript on that page opens `new WebSocket("ws://localhost:18789/gateway")`
 3. The browser sends the upgrade request with `Origin: https://malicious-site.com`
 4. The WebSocket connection succeeds (loopback is reachable from the browser)
@@ -719,14 +699,14 @@ if (nextConfig.gateway?.controlUi?.allowInsecureAuth === undefined) {
 
 With `isControlUi = true` and `allowInsecureAuth = true`, the `evaluateMissingDeviceIdentity()` function returns `{ kind: "allow" }`. No device identity required. No pairing required.
 
-8. **The malicious website now has full operator access** to Steinberger's OpenClaw gateway. It can:
+8. **The malicious website now has full operator access** to the gateway. It can:
    - Read all conversation history and stored messages
-   - Send messages through connected Telegram, WhatsApp, Discord, Slack channels as Steinberger
+   - Send messages through connected Telegram, WhatsApp, Discord, Slack channels
    - Read and modify gateway configuration, including API keys
    - Install or modify plugins
    - Access file system tools the agent has configured
 
-**Steinberger would never see this happen.** The WebSocket connection is invisible — no browser tab, no notification. The malicious JS runs silently in a background tab.
+**The user does not see this happen.** The WebSocket connection is invisible — no browser tab, no notification. The malicious JS runs silently in a background tab.
 
 #### Scenario 2: Docker Deployments (The Common Self-Hoster)
 
@@ -770,29 +750,34 @@ OpenClaw has first-class Tailscale integration. When Tailscale is enabled, the d
 Tailnet device A (attacker) → Tailscale network → Gateway on Tailnet device B
 ```
 
-Any other device on the same Tailscale network can connect to the gateway's WebSocket endpoint and exploit the TUI spoofing vulnerability. Tailscale authenticates network access, but once you're on the tailnet, the gateway's application-level auth is what protects you — and that's exactly what's broken.
+Any other device on the same Tailscale network can connect to the gateway's WebSocket endpoint and exploit the TUI spoofing vulnerability. Tailscale authenticates network access, but once a device is on the tailnet, the gateway's application-level auth is what protects against CWE-290 — and that's exactly what's broken.
 
 #### Scenario 4: VPS / Cloud / Remote Server
 
-Many self-hosters run OpenClaw on a VPS (Hetzner, DigitalOcean, AWS Lightsail, etc.) or a home server. If the gateway is bound to `lan` or behind a reverse proxy (Caddy, Nginx), it's accessible from the internet. The vulnerability is exploitable by anyone who can reach the endpoint.
+Many self-hosters run OpenClaw on a VPS (Hetzner, DigitalOcean, AWS Lightsail, etc.) or a home server. If the gateway is bound to `lan` or behind a reverse proxy (Caddy, Nginx), it is accessible from the internet. The vulnerability is exploitable by anyone who can reach the endpoint.
 
-This is the exact scenario where Steinberger's dismissive "I don't use proxy" is most damaging — the users who DO use proxies are the ones most exposed to this vulnerability, and they're the ones whose security PRs are being closed.
+This is the scenario where reverse-proxy-aware gateway hardening matters most: users behind Caddy/Nginx are the ones most exposed to a client-identity-spoofing vulnerability, because their entire deployment relies on the gateway correctly authenticating the originating browser/process.
+
+#### Scenario 5: OpenShell / Remote Sandbox
+
+`extensions/openshell/src/config.ts` defines a `gatewayEndpoint` parameter that points at the OpenClaw gateway. An OpenShell sandbox that can reach the gateway's WebSocket endpoint (which it must, to run agent tool calls through the gateway) can execute the same CWE-290 attack from inside the sandbox. SSH/VPN protects the sandbox command channel; it does not protect the gateway's WebSocket authentication layer. See Appendix E.
 
 ### 9.3 The Honest Summary
 
 | Scenario                    | Network Position | Exploit Method                     | Risk                                                         |
 | --------------------------- | ---------------- | ---------------------------------- | ------------------------------------------------------------ |
-| **MacBook, loopback only**  | Local only       | Browser CSRF via malicious website | 🟠 **High** — stealthy, no user interaction after page visit |
+| **Bare-metal, loopback**    | Local only       | Browser CSRF via malicious website | 🟠 **High** — stealthy, no user interaction after page visit |
 | **Docker (default config)** | LAN / internet   | Direct WebSocket connection        | 🔴 **Critical** — remote, no prerequisites                   |
 | **Tailscale**               | Tailnet          | Any tailnet device                 | 🟠 **High** — any trusted device can attack                  |
 | **VPS / reverse proxy**     | Internet         | Direct WebSocket connection        | 🔴 **Critical** — anyone on the internet                     |
+| **OpenShell sandbox**       | Sandbox→Gateway  | Sandbox-initiated WebSocket        | 🟠 **High** — depends on sandbox network reachability        |
 | **Shared office / LAN**     | LAN              | Any device on same network         | 🟠 **High** — no authentication needed                       |
 
 ### 9.4 Why the "Localhost is Safe" Belief Is Wrong
 
 The localhost defense has a fundamental flaw: **browsers bridge the gap between the internet and localhost.**
 
-When Steinberger visits `https://random-website.com`, the JavaScript on that page can open a WebSocket to `ws://localhost:18789`. The browser does not block this. The connection goes through. And because the TUI spoofing bypasses the origin check, the malicious website's `Origin` header is never validated.
+When the user visits `https://random-website.com`, the JavaScript on that page can open a WebSocket to `ws://localhost:18789`. The browser does not block this. The connection goes through. And because the TUI spoofing bypasses the origin check, the malicious website's `Origin` header is never validated.
 
 This is not a theoretical attack. It's the same class of vulnerability as CSRF — except instead of forging a form submission, the attacker is taking over a persistent WebSocket connection with full bidirectional access to the gateway.
 
@@ -808,39 +793,32 @@ This is not a theoretical attack. It's the same class of vulnerability as CSRF �
 
 Every OpenClaw user who ran through the quickstart wizard has this configuration. Every one of them is vulnerable to a drive-by browser attack.
 
-### 9.5 Why Steinberger's Stance Makes This Worse
+### 9.5 Note on the "I Don't Use It" Reasoning
 
-Steinberger says "I don't use proxy" and dismisses proxy-related security PRs. But this isn't about proxies — it's about a fundamental authentication bypass that affects his exact use case:
+A common response to this kind of report is "I don't use the TUI / Control UI / reverse proxy, so this doesn't affect me." This reasoning is unsafe because:
 
-- ✅ He runs on a MacBook (loopback)
-- ✅ He uses the default quickstart config (`allowInsecureAuth: true`)
-- ✅ He has a browser open
-- ✅ His gateway accepts WebSocket connections
-- ✅ His maintainers introduced a client-id spoofing vulnerability
-- ✅ He ignored the automated security findings
-- ✅ He closed the PR that would have prevented this
-
-The vulnerability is exploitable against Steinberger's own setup, today, through any website he visits. The "I don't use proxy" defense doesn't apply — this attack doesn't need a proxy. It needs a browser tab.
+1. **The attack targets the default config.** Quickstart sets `allowInsecureAuth: true` and binds to `loopback` on bare metal, `0.0.0.0` inside containers. Any user who ran the wizard is in the affected set, regardless of which client surface they actively use.
+2. **Browser CSRF reaches localhost without the user's cooperation.** Scenario 1 works on any browser tab opened after the gateway is running. The user does not need to invoke the TUI or the Control UI for the attack to succeed.
+3. **The vulnerability is in the gateway, not the client.** `isOperatorUiClient()` is evaluated server-side. Whether the operator happens to use the spoofed client is irrelevant to whether the bypass exists.
+4. **"I don't use X" narrows the threat model to a single developer's workflow.** The advisory's threat model covers the documented deployment configurations: MacBook localhost, Docker with default `bind=lan`, Tailscale tailnet, VPS / cloud behind Caddy/Nginx, and shared office / LAN.
 
 ---
 
 ## 10. Timeline
 
-| Date                    | Event                                                                                                                                                              |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 2026-03-27 10:01        | Commit `2b96569e`: `isOperatorUiClient()` introduced for `isControlUi`                                                                                             |
-| 2026-03-27 10:09        | Commit `f1de00c1`: `isBrowserOperatorUiClient()` added for origin checks, but `isControlUi` still uses `isOperatorUiClient()`                                      |
-| 2026-03-27 10:28        | PR #55730 opened by `@shakkernerd`                                                                                                                                 |
-| 2026-03-27 10:29        | Aisle Security bot flags 🟠 HIGH CWE-290                                                                                                                           |
-| 2026-03-27 10:32        | **PR #55730 self-merged by `@shakkernerd`** — no human review                                                                                                      |
-| 2026-03-27 10:35        | Greptile bot flags backward-compat and `isOperatorUiClient` scope concerns                                                                                         |
-| 2026-03-27 10:36        | Aisle Security bot re-confirms 🟠 HIGH severity                                                                                                                    |
-| 2026-03-27 10:37        | Codex Review bot flags P2 password auth regression                                                                                                                 |
-| 2026-03-27 10:39        | No maintainer response to any finding                                                                                                                              |
-| 2026-03-27 → 2026-04-07 | **Silence.** No commits, PRs, or issues addressing the CWE-290 vulnerability. 6 unrelated commits touch `message-handler.ts` but none touch `isControlUi`.         |
-| 2026-04-07              | Peter Steinberger pushes `b3ecabbb` (cosmetic string helper refactor) directly to `main` — no PR. Prioritizes code style over HIGH severity security fix.          |
-| 2026-04-08 21:23        | **Verified: vulnerability still live on `upstream/main`.** Zero commits addressing CWE-290. Zero PRs. Zero issues. Zero maintainer response. 12 days and counting. |
-| 2026-04-08              | This advisory published and updated with post-merge verification.                                                                                                  |
+| Date                    | Event                                                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-03-27 10:01        | Commit `2b96569e`: `isOperatorUiClient()` introduced for `isControlUi`                                                                                               |
+| 2026-03-27 10:09        | Commit `f1de00c1`: `isBrowserOperatorUiClient()` added for origin checks, but `isControlUi` still uses `isOperatorUiClient()`                                        |
+| 2026-03-27 10:28        | PR #55730 opened                                                                                                                                                     |
+| 2026-03-27 10:29        | Aisle Security bot flags 🟠 HIGH CWE-290                                                                                                                             |
+| 2026-03-27 10:32        | **PR #55730 merged** — `merged_by` is the same account as the author, no recorded human review                                                                       |
+| 2026-03-27 10:35        | Greptile bot flags backward-compat and `isOperatorUiClient` scope concerns                                                                                           |
+| 2026-03-27 10:36        | Aisle Security bot re-confirms 🟠 HIGH severity                                                                                                                      |
+| 2026-03-27 10:37        | Codex Review bot flags P2 password auth regression                                                                                                                   |
+| 2026-03-27 10:39        | No human response to any of the four bot findings                                                                                                                    |
+| 2026-03-27 → 2026-06-02 | **No upstream commit, PR, or issue addresses the CWE-290 vulnerability.** Commits to `message-handler.ts` in this window are unrelated lint/refactor/lifecycle work. |
+| 2026-06-02              | Re-verification: `upstream/main` (`6c8e065e3b1`) still carries the vulnerable pattern. `gh pr list` and `gh issue list` return no fix PR or issue for CWE-290.       |
 
 ---
 
@@ -870,11 +848,9 @@ The author of this advisory is **Mark Fietje** (`@markfietje`), whose security h
 
 ---
 
-## Appendix C: "I Don't Use the Control UI Either" — Why This Makes It Worse
+## Appendix C: "I Don't Use the Control UI Either" — Why This Doesn't Reduce Risk
 
-Peter Steinberger has reportedly admitted that he does not use the browser-based Control UI either. His argument appears to be: _"I only use the TUI locally on my MacBook. I don't use proxies, I don't use the Control UI. Therefore these vulnerabilities don't affect me."_
-
-This is the most dangerous possible assumption, and it's wrong.
+A common variant of the dismissal is: _"I only use the TUI locally on my MacBook. I don't use proxies, I don't use the Control UI. Therefore these vulnerabilities don't affect me."_ This is unsafe.
 
 ### C.1 The TUI Is the Vulnerability, Not the Control UI
 
@@ -883,31 +859,22 @@ The CWE-290 vulnerability is not about spoofing the Control UI. It's about spoof
 ```ts
 // upstream — STILL VULNERABLE
 const isControlUi = isOperatorUiClient(connectParams.client);
-//                        ↑ matches "openclaw-tui" — Steinberger's ACTUAL client
+//                        ↑ matches "openclaw-tui" — a real client ID
 ```
 
-`isOperatorUiClient()` returns `true` for `"openclaw-tui"` — the exact client ID that Steinberger's TUI sends on every connection. The attack doesn't need to impersonate a client Steinberger never uses. It impersonates the client he uses every day.
+`isOperatorUiClient()` returns `true` for `"openclaw-tui"` — a documented, real client ID. The attack impersonates a client that actually ships and runs; it does not need the operator to also use a different client surface for the bypass to exist.
 
-### C.2 The Attack Targets Steinberger's Exact Setup
+### C.2 The "I Don't Use Control UI" Defense Makes the Exploit Easier
 
-Steinberger's setup, by his own admission:
-
-- ✅ Runs on a MacBook (loopback)
-- ✅ Uses the TUI as his primary interface
-- ✅ Does NOT use the Control UI
-- ✅ Does NOT use a reverse proxy
-
-Here's why the "I don't use Control UI" defense makes the exploit **easier**, not harder:
-
-**There is no legitimate Control UI session to conflict with.** When a malicious website spoofs `openclaw-tui`, the gateway sees:
+When a malicious website spoofs `openclaw-tui`, the gateway sees:
 
 1. `isOperatorUiClient()` → `true` (matches TUI)
 2. `isBrowserOperatorUiClient()` → `false` (not Control UI)
 3. Origin check is **skipped** (only triggers for browser Control UI or Webchat)
 4. `allowInsecureAuth: true` (set by default during quickstart) → no device identity required
-5. The attacker gets full operator access
+5. The attacker is granted full operator access
 
-If Steinberger were using the Control UI in a browser, at least there would be a legitimate Control UI session that could potentially conflict or alert. With no Control UI in use, the spoofed TUI operates in complete isolation — nothing to conflict with, nothing to alert on.
+If a legitimate Control UI session were active in a browser, at least there would be a paired session that could potentially conflict or alert. With no Control UI in use, the spoofed TUI operates in complete isolation — nothing to conflict with, nothing to alert on.
 
 ### C.3 The Default Config Opens the Door
 
@@ -938,30 +905,21 @@ const allowInsecureLocalOperatorUi = (() => {
 })();
 ```
 
-When `allowInsecureAuth: true` and the URL is localhost, the TUI connects with `deviceIdentity: null` — no device pairing, no cryptographic identity. This is the same path a spoofed TUI client takes. There is **no distinguishing signal** between Steinberger's real TUI and a malicious WebSocket claiming to be `"openclaw-tui"`.
+When `allowInsecureAuth: true` and the URL is localhost, the TUI connects with `deviceIdentity: null` — no device pairing, no cryptographic identity. This is the same path a spoofed TUI client takes. There is **no distinguishing signal** between a legitimate TUI and a malicious WebSocket claiming to be `"openclaw-tui"`.
 
 ### C.4 Why "I Don't Use X" Is a Security Anti-Pattern
 
-Steinberger's reasoning follows a pattern:
-
-| Steinberger says           | Security implication                      | Reality                                           |
-| -------------------------- | ----------------------------------------- | ------------------------------------------------- |
-| "I don't use proxy"        | Dismisses reverse proxy security          | The browser CSRF attack doesn't need a proxy      |
-| "I don't use Control UI"   | Dismisses origin check concerns           | The vulnerability targets TUI, not Control UI     |
-| "I only use it locally"    | Dismisses remote attack surface           | Browsers bridge the internet to localhost         |
-| "95% of PRs are worthless" | Dismisses external security contributions | His own maintainers introduce HIGH severity vulns |
-
-Each "I don't use X" argument narrows the threat model to Steinberger's personal workflow. But OpenClaw is an open-source project with 70,000+ forks and 350,000+ stars. The threat model is not one developer's MacBook — it's every deployment: Docker containers on VPS, Tailscale networks, home servers, shared offices, and yes, MacBooks with browsers open.
-
-The "I don't use X" reasoning is a security anti-pattern because it confuses **personal risk** with **product risk**. Even if Steinberger were correct about his own setup (he isn't — see the browser CSRF attack in Section 9.2), the vulnerability affects every user who:
+Each "I don't use X" argument narrows the threat model to a single personal workflow. But the documented deployment surface for OpenClaw is wider than one developer's MacBook: Docker containers on VPS, Tailscale networks, home servers, shared offices, and MacBooks with browsers open. The vulnerability affects every user who:
 
 - Ran the quickstart wizard (`allowInsecureAuth: true` by default)
-- Uses the TUI on localhost
-- Has a browser open while the gateway is running
+- Has the gateway running
+- Has a browser open
+
+Confusing **personal risk** (one developer's setup) with **product risk** (every deployment) is a security anti-pattern. Section 9.2 enumerates five concrete deployment scenarios and the exploitability of each.
 
 ### C.5 The Bottom Line
 
-Steinberger doesn't use the Control UI. He uses the TUI. The vulnerability is in how the TUI client ID is handled. His exact use case — MacBook, loopback, TUI, default quickstart config — is the most directly exploitable configuration. The attacker doesn't need to target a service he doesn't use. The attacker targets the service he uses every day.
+The vulnerability is in how the TUI client ID is handled. The default quickstart config — `allowInsecureAuth: true`, loopback bind on bare metal, `0.0.0.0` bind inside containers — is the most directly exploitable configuration. The attacker does not need to target a service the operator doesn't use.
 
 ---
 
@@ -1171,146 +1129,97 @@ The security tooling is **decorative** — it generates output that no one reads
 
 ### A.7 Security Surface: Upstream vs Fork Comparison
 
-The fork `markfietje/openclaw` includes **9 security files that do not exist in upstream**, covering the exact attack surfaces where the vulnerabilities above were found:
+The fork `markfietje/openclaw` adds a dedicated `packages/gateway-security-core/` package plus two gateway-layer overlays, covering the attack surfaces where the upstream is missing defenses. All file paths below are verified against fork HEAD `5f0eb89562c` on 2026-06-02 via `git diff --name-only upstream/main...origin/main`.
 
-| File                                     | Security Domain                                    | Present in Upstream |
-| ---------------------------------------- | -------------------------------------------------- | ------------------- |
-| `src/gateway/capabilities.ts`            | Capability-based access control (RBAC-like)        | ❌ No               |
-| `src/gateway/connection-rate-limit.ts`   | Connection-level rate limiting                     | ❌ No               |
-| `src/gateway/forwarded-headers.ts`       | Proxy header parsing with chain depth limits       | ❌ No               |
-| `src/gateway/ip-restriction-policy.ts`   | IP allowlist/blocklist with CIDR support           | ❌ No               |
-| `src/gateway/message-auth.ts`            | Message-level authentication                       | ❌ No               |
-| `src/gateway/server/verify-client.ts`    | WS client verification during upgrade              | ❌ No               |
-| `src/gateway/ws-endpoint.ts`             | Endpoint isolation with per-path security policies | ❌ No               |
-| `src/gateway/ws-protocol.ts`             | Frame/message rate limits and protocol enforcement | ❌ No               |
-| `src/gateway/security-hardening.test.ts` | Dedicated security hardening test coverage         | ❌ No               |
+**`packages/gateway-security-core/src/`** (new package, 23 files added):
 
-| Metric                              | Upstream                               | Fork                                                 |
-| ----------------------------------- | -------------------------------------- | ---------------------------------------------------- |
-| Proxy-related origin-check tests    | 0                                      | 28                                                   |
-| Timing-safe nonce comparison        | ❌ `!==` operator                      | ✅ `safeEqualSecret()`                               |
-| Endpoint isolation                  | ❌ None                                | ✅ `classifyWsEndpoint` / `isKnownWsEndpoint`        |
-| Per-frame rate limiting             | ❌ None                                | ✅ `ws-protocol.ts`                                  |
-| Message-level authorization         | ❌ None                                | ✅ `message-auth.ts`                                 |
-| IP restriction policy               | ❌ None                                | ✅ `ip-restriction-policy.ts`                        |
-| Client identity spoofing protection | ❌ `isOperatorUiClient()` (vulnerable) | ✅ Direct `GATEWAY_CLIENT_IDS.CONTROL_UI` comparison |
+| File                                                                                             | Security Domain                                | Present in Upstream |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------------- | ------------------- |
+| `capabilities.ts`                                                                                | Capability-based access control                | ❌ No               |
+| `connection-rate-limit.ts`                                                                       | Connection-level rate limiting                 | ❌ No               |
+| `ip-restriction-policy.ts`                                                                       | IP allowlist/blocklist with CIDR support       | ❌ No               |
+| `message-auth.ts`                                                                                | Per-method message authentication              | ❌ No               |
+| `ws-endpoint.ts`                                                                                 | Endpoint classification (`classifyWsEndpoint`) | ❌ No               |
+| `ws-protocol.ts`                                                                                 | Subprotocol / frame-level protocol enforcement | ❌ No               |
+| `auth-audit-log.ts`                                                                              | Auth audit log with HMAC chain                 | ❌ No               |
+| `startup-security-checks.ts`                                                                     | Pre-accept hardening checks                    | ❌ No               |
+| `tool-audit.ts` / `exec-deny-paths.ts` / `device-session-authority.ts` / `request-rate-limit.ts` | Tool/Exec/Device/Session hardening             | ❌ No               |
+| `net-helpers.ts` / `paths.ts` / `index.ts`                                                       | Internal helpers                               | ❌ No               |
 
-The fork's PR was **closed** by upstream maintainers.
+**`src/gateway/`** (new files in the gateway layer):
+
+| File                                        | Security Domain                                                                                | Present in Upstream                                       |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `forwarded-headers.ts`                      | RFC 7239 `Forwarded` parsing with chain depth                                                  | ❌ No                                                     |
+| `server/verify-client.ts`                   | Pre-handshake WS client verification (origin / proxy / subprotocol)                            | ❌ No                                                     |
+| `auth.proxy-headers.test.ts`                | 17 test cases for the proxy-header auth seam                                                   | ❌ No                                                     |
+| `server/verify-client.test.ts`              | 528 lines of pre-handshake verification tests                                                  | ❌ No                                                     |
+| `origin-check.test.ts`                      | 64 test cases for `checkBrowserOrigin` (extended to 966 lines with proxy + signed-token cases) | ❌ No (file exists upstream with 145 lines, 0 it() cases) |
+| `server/authenticated-connection-budget.ts` | Per-connection budget enforcement                                                              | ❌ No                                                     |
+
+`src/gateway/security-hardening.test.ts` is **not** a real file in either the fork or the upstream. Earlier revisions of this advisory listed it; that row has been removed.
+
+| Metric                              | Upstream                                        | Fork                                                                                                                 |
+| ----------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Proxy/origin/pre-handshake tests    | 0 it() cases in 145-line `origin-check.test.ts` | 64 in `origin-check.test.ts` + 17 in `auth.proxy-headers.test.ts` + 26 in `server/verify-client.test.ts` (107 total) |
+| Timing-safe nonce comparison        | ❌ `!==` operator                               | ✅ `safeEqualSecret()` / `timingSafeEqual`                                                                           |
+| Endpoint isolation                  | ❌ None                                         | ✅ `classifyWsEndpoint` / `isKnownWsEndpoint` (`packages/gateway-security-core/src/ws-endpoint.ts:45,65`)            |
+| Per-frame rate limiting             | ❌ None                                         | ✅ `ws-protocol.ts`                                                                                                  |
+| Message-level authorization         | ❌ None                                         | ✅ `message-auth.ts`                                                                                                 |
+| IP restriction policy               | ❌ None                                         | ✅ `ip-restriction-policy.ts`                                                                                        |
+| Client identity spoofing protection | ❌ `isOperatorUiClient()` (vulnerable)          | ✅ `isBrowserOperatorUiClient()` (strict) at `message-handler.ts:697`                                                |
+
+The fork's PR to upstream was **closed** by upstream maintainers (PR #35109, "fix(gateway): surgical proxy-aware origin validation").
 
 ---
 
-## Appendix B: Who Are These Maintainers — and Are Their Changes "Innocent"?
+## Appendix B: PR Author and Review Data
 
-A natural question: _are these just well-meaning contributors making honest mistakes, or is there a structural problem?_ The answer is unambiguous.
+The data in this appendix is taken from the live GitHub PR and org APIs. No conclusions about individuals' intent are drawn — only the recorded state of PRs, labels, reviewers, and merge authorship is documented.
 
-### B.1 Every Single PR Author Is a `maintainer`-Labelled Insider
+### B.1 PR Author and Merge Data
 
-Every PR in this advisory was tagged with the `maintainer` label. This is not a community-contributor problem. These are people with merge access who self-approve.
+| PR                                                        | Author        | Self-Merged   | Bot Findings Before Merge                                    | Human Responses |
+| --------------------------------------------------------- | ------------- | ------------- | ------------------------------------------------------------ | --------------- |
+| [#55730](https://github.com/openclaw/openclaw/pull/55730) | `shakkernerd` | Yes (~4 min)  | Aisle 🟠, Greptile P2, Codex P2                              | 0               |
+| [#63298](https://github.com/openclaw/openclaw/pull/63298) | `mbelinky`    | Yes (~8 min)  | Aisle 🟠×3, 🟡×1                                             | 0               |
+| [#63155](https://github.com/openclaw/openclaw/pull/63155) | `frankekn`    | Yes           | Codex: "no major issues" (4 iterations); Aisle 🟠 post-merge | 0               |
+| [#63199](https://github.com/openclaw/openclaw/pull/63199) | `obviyus`     | Yes (~1h 37m) | Aisle 🟠, 🟡                                                 | 0               |
+| [#63297](https://github.com/openclaw/openclaw/pull/63297) | `mbelinky`    | Yes (~2 min)  | Aisle 🟠, 🟡×3                                               | 0               |
+| [#54536](https://github.com/openclaw/openclaw/pull/54536) | `vincentkoc`  | Yes (~4 days) | Aisle 🟡                                                     | 0               |
 
-| PR                                                        | Author        | Real Name       | Role                                       | `maintainer` Label | Org Member | Self-Merged      |
-| --------------------------------------------------------- | ------------- | --------------- | ------------------------------------------ | ------------------ | ---------- | ---------------- |
-| [#55730](https://github.com/openclaw/openclaw/pull/55730) | `shakkernerd` | Shakker         | "Building @openclaw"                       | ✅ Yes             | ✅ Yes     | ✅ Yes (4 min)   |
-| [#63298](https://github.com/openclaw/openclaw/pull/63298) | `mbelinky`    | Mariano Belinky | "Sporadic tinkerer"                        | ✅ Yes             | ❌ Hidden  | ✅ Yes (~8 min)  |
-| [#63155](https://github.com/openclaw/openclaw/pull/63155) | `frankekn`    | Frank Yang      | "CTO @ Omnidrome · OpenClaw maintainer"    | ✅ Yes             | ❌ Hidden  | ✅ Yes           |
-| [#63199](https://github.com/openclaw/openclaw/pull/63199) | `obviyus`     | Ayaan Zaidi     | "Maintainer @ OpenClaw"                    | ✅ Yes             | ❌ Hidden  | ✅ Yes (~1h 37m) |
-| [#63297](https://github.com/openclaw/openclaw/pull/63297) | `mbelinky`    | Mariano Belinky | (same)                                     | ✅ Yes             | ❌ Hidden  | ✅ Yes (~2 min)  |
-| [#54536](https://github.com/openclaw/openclaw/pull/54536) | `vincentkoc`  | Vincent Koc     | "Maintainer 🦞 @openclaw · Ethical Hacker" | ✅ Yes             | ✅ Yes     | ✅ Yes (~4 days) |
+All six PRs have the `maintainer` label applied.
 
-**Peter Steinberger** (`@steipete`, "Clawdfather @OpenClaw") is the org owner. He sets the culture. He does not appear as PR author on these specific PRs, but he:
+### B.2 Review Process Observations
 
-- Pushes commits directly to `main` without PRs (commit `b3ecabbb` — cosmetic refactor, no PR)
-- Publicly states "I don't use proxy" when dismissing proxy support requests
-- Publicly states "95% of PRs are worthless" when discussing contribution quality
-- Closed the `markfietje/openclaw` security hardening PR
+1. **CODEOWNERS coverage.** The repository's `.github/CODEOWNERS` file lists `/src/gateway/*auth*.ts`, `/src/gateway/**/*auth*.ts`, `/src/gateway/*secret*.ts`, `/src/gateway/**/*secret*.ts`, `/src/gateway/security-path*.ts`, and `/docs/security/` as owned by `@openclaw/secops`. PR #55730 modifies `src/gateway/server/ws-connection/message-handler.ts` and PR #54536 modifies `src/gateway/auth.ts` — both inside the CODEOWNERS scope. The `requested_teams` field on these PRs is empty: `@openclaw/secops` was not requested as a reviewer on any of the six PRs in this appendix.
 
-### B.2 The `maintainer` Label Is a Review Bypass
+2. **No human review on any of the six PRs.** The only review comments on these PRs are from automated bots (`aisle-research-bot`, `greptile-apps[bot]`, `chatgpt-codex-connector[bot]`). The Codex bot on PR #63155 said "no major issues" across four iterations despite a post-merge Aisle HIGH finding; the same pattern repeats on the other PRs in this set.
 
-The `maintainer` label is applied to every one of these PRs. This label marks the PR as authored by an internal team member. The practical effect:
+3. **Self-merge rate.** All six PRs in this appendix have `merged_by` equal to `user.login` (the same account that opened the PR). No PR in this set was reviewed and merged by a different account.
 
-1. **No human review required.** Zero of the PRs in this advisory received a human review before merge. The only "reviews" are from automated bots (`greptile-apps[bot]`, `chatgpt-codex-connector[bot]`, `aisle-research-bot[bot]`).
+### B.3 Stated Intent vs. Security Outcome
 
-2. **No CODEOWNERS enforcement.** The repository has a `CODEOWNERS` file that requires `@openclaw/secops` review for security-sensitive files:
+| PR     | Stated Intent              | Security Outcome (verified post-merge)           |
+| ------ | -------------------------- | ------------------------------------------------ |
+| #55730 | TUI onboarding convenience | 🟠 HIGH: CWE-290 auth bypass by spoofing         |
+| #63298 | Dreaming diary UI          | 🟠 HIGH ×3: symlink read/write + info disclosure |
+| #63155 | Session reset fix          | 🟠 HIGH: CWE-285 model-override policy bypass    |
+| #63199 | Android pairing fix        | 🟠 HIGH: CWE-269 bootstrap-token auth bypass     |
+| #63297 | REM extraction hardening   | 🟠 HIGH: CWE-200 secret persistence              |
+| #54536 | Auth bypass fix            | 🟡 Medium: CWE-346 DNS-rebinding (residual)      |
 
-```
-# .github/CODEOWNERS
-/src/gateway/*auth*.ts @openclaw/secops
-/src/gateway/**/*auth*.ts @openclaw/secops
-/src/gateway/*secret*.ts @openclaw/secops
-/src/gateway/**/*secret*.ts @openclaw/secops
-/src/gateway/security-path*.ts @openclaw/secops
-/docs/security/ @openclaw/secops
-```
+Stated intent is taken from each PR's title and description; security outcome is taken from the bot comments and post-merge code inspection.
 
-PR #55730 touched `src/gateway/server/ws-connection/message-handler.ts` (which gates auth bypass paths). PR #54536 touched `src/gateway/auth.ts` directly. **Neither PR requested `@openclaw/secops` review.** The `requested_teams` field is empty on every PR in this advisory.
+### B.4 Public Org Membership vs. `maintainer`-Labelled PR Authors
 
-The CODEOWNERS file exists, but the `maintainer` label appears to override it. Security-critical auth files are being modified without the designated security reviewers being notified.
+The `openclaw` GitHub organization has 19 public members (per `gh api .../orgs/openclaw/members`): `alauppe, altaywtf, Asleep123, BunsDev, cpojer, darkamenosa, Evizero, grp06, gumadeiras, huntharo, hydro13, mukhtharcm, sebslight, shakkernerd, thewilloftheshadow, tyler6204, velvet-shark, vincentkoc, zimeg`.
 
-3. **Self-merge is the norm.** Every author merged their own PR:
+Of the PR authors in B.1, `shakkernerd` and `vincentkoc` are public org members. The other four (`mbelinky`, `frankekn`, `obviyus`, and the contributor referenced in Appendix E) are not in the public members list, yet their PRs carry the `maintainer` label and the merge was performed by the author account. Whether those accounts are private/hidden org members, external collaborators, or hold access by some other mechanism is a question only the org owners can answer definitively.
 
-| PR     | Author        | Merged By     | Same Person?   |
-| ------ | ------------- | ------------- | -------------- |
-| #55730 | `shakkernerd` | `shakkernerd` | ✅ Self-merged |
-| #63298 | `mbelinky`    | `mbelinky`    | ✅ Self-merged |
-| #63155 | `frankekn`    | `frankekn`    | ✅ Self-merged |
-| #63199 | `obviyus`     | `obviyus`     | ✅ Self-merged |
-| #63297 | `mbelinky`    | `mbelinky`    | ✅ Self-merged |
-| #54536 | `vincentkoc`  | `vincentkoc`  | ✅ Self-merged |
+### B.5 Aggregate Outcome
 
-**100% self-merge rate.** Not a single PR in this advisory was reviewed and merged by a different person.
-
-### B.3 Are the Changes "Innocent"?
-
-The PR titles sound innocuous: "improve local onboarding", "harden grounded REM extraction", "auto-resume pairing approval". The authors' stated intent was feature work, not security regression. But the outcome is the same regardless of intent:
-
-| PR     | Stated Intent              | Security Outcome                                 | Intent Malicious? | Outcome Negligent?                                                     |
-| ------ | -------------------------- | ------------------------------------------------ | ----------------- | ---------------------------------------------------------------------- |
-| #55730 | TUI onboarding convenience | 🟠 HIGH: CWE-290 auth bypass by spoofing         | No                | **Yes** — self-merged in 4 min, ignored bot findings                   |
-| #63298 | Dreaming diary UI          | 🟠 HIGH x3: symlink read/write + info disclosure | No                | **Yes** — self-merged in ~8 min, ignored bot findings                  |
-| #63155 | Session reset fix          | 🟠 HIGH: CWE-285 policy bypass                   | No                | **Yes** — merged before bot could flag, no human review                |
-| #63199 | Android pairing fix        | 🟠 HIGH: CWE-269 bootstrap token auth bypass     | No                | **Yes** — finding available 1h 37m before merge, ignored               |
-| #63297 | REM extraction hardening   | 🟠 HIGH: CWE-200 secret persistence              | No                | **Yes** — self-merged in ~2 min, ignored bot findings                  |
-| #54536 | Auth bypass fix            | 🟡 Medium: CWE-346 DNS rebinding (residual)      | No                | **Partially** — was itself a security fix, but introduced new weakness |
-
-The intent is not malicious. The **negligence is systemic**:
-
-1. **No one reads the security bot output.** The Aisle, Greptile, and Codex bots post findings on every PR. No human acknowledges or responds to them. The bots are decorative.
-
-2. **No one waits for review.** PRs are opened and merged in minutes. The security bots often post findings _after_ the merge because the merge window is so short.
-
-3. **No separation of duties.** The author is the reviewer is the merger. There is no second pair of eyes.
-
-4. **CODEOWNERS is ignored.** Files that require `@openclaw/secops` review are modified without requesting that team.
-
-5. **The `maintainer` label bypasses all gates.** External contributors face "meaningful PRs only" scrutiny. Internal maintainers face none.
-
-### B.4 The "Circle" — Who Has Merge Access
-
-Based on public org membership, the `openclaw` GitHub organization has **19 public members**:
-
-```
-alauppe, altaywtf, Asleep123, BunsDev, cpojer, darkamenosa, Evizero,
-grp06, gumadeiras, huntharo, hydro13, mukhtharcm, sebslight,
-shakkernerd, thewilloftheshadow, tyler6204, velvet-shark, vincentkoc, zimeg
-```
-
-Several PR authors (`mbelinky`, `frankekn`, `obviyus`, `eleqtrizit`) are **not public org members** but still have the `maintainer` label and merge access. This suggests either:
-
-- They are private/org-hidden members with elevated access
-- The `maintainer` label is applied broadly to a "circle" beyond the formal org roster
-- Steinberger grants merge access outside the org membership system
-
-`eleqtrizit` lists their employer as **NVIDIA**. `frankekn` lists their employer as **Omnidrome**. These are not OpenClaw employees — they are external contributors with internal privileges.
-
-### B.5 What This Means
-
-The security vulnerability pattern documented in this advisory is not the work of one careless individual. It is the predictable outcome of a **governance structure**:
-
-- **Peter Steinberger** sets the tone: security PRs from outsiders are closed, proxy support is dismissed, cosmetic refactors are prioritized over HIGH severity fixes.
-- **Maintainers** operate with no review friction: self-merge, no CODEOWNERS enforcement, no security bot response requirement.
-- **The `maintainer` label** functions as a review bypass, exempting insiders from the quality gates imposed on everyone else.
-- **Security tooling is decorative** — it generates findings that no process requires anyone to read or act on.
-
-The result: **22 bot-flagged security findings merged without remediation, 9 of them HIGH severity, across 11 PRs, with zero human responses.** This is not a series of innocent mistakes. It is a systemic governance failure.
+Across the six PRs in this appendix: 22 bot-flagged security findings merged without remediation (9 HIGH, 12 MEDIUM, 1 LOW), zero human responses to bot findings, six-of-six self-merged. This is a description of the recorded PR data, not a judgment of intent.
 
 ---
 
@@ -1350,55 +1259,49 @@ These PRs attempted to improve security or proxy support and were closed without
 
 **No PR from `markfietje` was found in the `openclaw/openclaw` repository.** The fork (`markfietje/openclaw`) exists at `https://github.com/markfietje/openclaw` with the comprehensive security hardening described in this advisory (commit `20d1702a3f`). If a PR was submitted, it has been deleted or was submitted via a different mechanism. The user reports it was closed by maintainers.
 
-### D.4 Notable: The One Proxy PR That DID Get Merged
+### D.4 The One Proxy PR That Merged in the Window
 
 | PR                                                        | Title                                                                 | Author   | Created          | Merged           | Turnaround         |
 | --------------------------------------------------------- | --------------------------------------------------------------------- | -------- | ---------------- | ---------------- | ------------------ |
 | [#62878](https://github.com/openclaw/openclaw/pull/62878) | `fix(slack): honor HTTPS_PROXY for Socket Mode WebSocket connections` | `mjamiv` | 2026-04-08 03:24 | 2026-04-08 04:38 | **~1 hour 14 min** |
 
-This is notable because **`@MJAMIV`** is the same user who publicly tweeted at Peter Steinberger:
+This PR's body explicitly states: _"This breaks Socket Mode in proxy-only environments (sandboxed containers, corporate networks, NVIDIA OpenShell)"_ and _"we've been running an equivalent monkey-patch across 4 OpenClaw agents on NVIDIA OpenShell sandboxes since March 2026, routing all Slack Socket Mode traffic through an HTTP CONNECT proxy at 10.200.0.1:3128."_
 
-> _"Ship a stable WebSocket layer. Four months of proxy workarounds for something that should just honor HTTPS_PROXY out of the box."_
-
-Steinberger's response: _"Got a PR? I don't use proxy but happy to review."_
-
-`@MJAMIV` then submitted a PR. It was merged in ~1 hour. But it only fixes proxy support for **Slack Socket Mode** — a single channel's WebSocket connection. It does nothing for the gateway's own WebSocket endpoint, the origin check system, the reverse proxy header handling, or any of the security hardening the fork provides.
+The merged PR fixes proxy support for **Slack Socket Mode** only — a single channel's outbound WebSocket connection. It does not modify the gateway's own WebSocket endpoint, the origin check system, the reverse proxy header handling, or any of the security hardening the fork provides.
 
 ### D.5 Timeline Summary
 
-| Date             | Event                                                                                                                        |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 2025-11-26       | PR #1 (`allowFrom wildcard handling`) opened and closed same day                                                             |
-| 2026-02-28       | PR #29271 (`Telegram HTTP_PROXY/HTTPS_PROXY`) opened by `gotnull`                                                            |
-| 2026-03-03       | PR #32373 (`token hardening modules`) opened by `Techris93` — **still open 36+ days later**                                  |
-| 2026-03-19       | PR #50180 (`SSRF URL allowlist deny-all`) and #50181 (`media trust bypass`) opened by `dims` — **still open 20+ days later** |
-| 2026-03-27       | PR #55730 (`TUI onboarding`) merged by `shakkernerd` — introduces CWE-290 (this advisory)                                    |
-| 2026-03-31       | PR #58034 (`DNS pinning for trusted env proxy`) opened — **still open**                                                      |
-| 2026-04-01       | PR #59156 (`symlink path traversal fix`) opened by `pgondhi987`, closed 2 days later — "branch looks dirty"                  |
-| 2026-04-06       | PR #61914 (`catastrophic regex backtracking`) opened and closed same minute                                                  |
-| 2026-04-08 03:24 | PR #62878 (`Slack HTTPS_PROXY`) opened by `mjamiv`                                                                           |
-| 2026-04-08 04:17 | PR #29271 (`Telegram HTTPS_PROXY`) auto-closed by stale-bot after **40 days** with no human review                           |
-| 2026-04-08 04:38 | PR #62878 (`Slack HTTPS_PROXY`) **merged** — ~1 hour turnaround                                                              |
-| 2026-04-08 08:10 | PR #63017 (`multi-GHSA security patches`) opened — **still open**                                                            |
-| 2026-04-08 17:40 | PR #63280 (`browser control auth token`) opened — **still open**                                                             |
-| 2026-04-08 21:33 | PR #63379 (`trusted proxy loopback`) opened — **still open**, most relevant reverse proxy PR                                 |
-| —                | **No PR exists** to fix the CWE-290 TUI spoofing vulnerability documented in this advisory                                   |
+| Date             | Event                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| 2025-11-26       | PR #1 (`allowFrom wildcard handling`) opened and closed same day                                            |
+| 2026-02-28       | PR #29271 (`Telegram HTTP_PROXY/HTTPS_PROXY`) opened by `gotnull`                                           |
+| 2026-03-03       | PR #32373 (`token hardening modules`) opened by `Techris93`                                                 |
+| 2026-03-19       | PR #50180 (`SSRF URL allowlist deny-all`) and #50181 (`media trust bypass`) opened by `dims`                |
+| 2026-03-27       | PR #55730 (`TUI onboarding`) merged — introduces CWE-290 (this advisory)                                    |
+| 2026-03-31       | PR #58034 (`DNS pinning for trusted env proxy`) opened                                                      |
+| 2026-04-01       | PR #59156 (`symlink path traversal fix`) opened by `pgondhi987`, closed 2 days later — "branch looks dirty" |
+| 2026-04-06       | PR #61914 (`catastrophic regex backtracking`) opened and closed same minute                                 |
+| 2026-04-08 03:24 | PR #62878 (`Slack HTTPS_PROXY`) opened by `mjamiv`                                                          |
+| 2026-04-08 04:17 | PR #29271 (`Telegram HTTPS_PROXY`) auto-closed by stale-bot after **40 days** with no human review          |
+| 2026-04-08 04:38 | PR #62878 (`Slack HTTPS_PROXY`) **merged** — ~1 hour turnaround                                             |
+| 2026-04-08 08:10 | PR #63017 (`multi-GHSA security patches`) opened                                                            |
+| 2026-04-08 17:40 | PR #63280 (`browser control auth token`) opened                                                             |
+| 2026-04-08 21:33 | PR #63379 (`trusted proxy loopback`) opened — most relevant reverse proxy PR                                |
+| 2026-06-02       | Re-verification: PR #55730 still live on `upstream/main`, no follow-up PR or issue addressing CWE-290       |
 
-### D.6 What This Shows
+### D.6 Observed PR Lifecycle Patterns
 
-1. **Proxy support PRs are stalemated.** The Telegram proxy PR (#29271) sat for 40 days with no human review before being auto-closed by stale-bot. The one proxy PR that merged (#62878 — Slack) is a narrow channel-specific fix, not gateway-wide proxy support.
+1. **Proxy support PRs have long merge latencies or are auto-closed.** PR #29271 (Telegram proxy) sat for 40 days with no human review before the stale bot auto-closed it. The only proxy PR that merged in the window, #62878, is a narrow channel-specific fix, not gateway-wide proxy support.
 
-2. **Security PRs from external contributors are ignored or rejected.** Path traversal fix (#59156) rejected for "dirty branch." Regex DoS fix (#61914) closed in under a minute. Nostr auth exposure (#62150) closed without explanation. Token hardening (#32373) still open after 36+ days.
+2. **Security PRs from external contributors are ignored or rejected in the recorded data.** PR #59156 (path traversal) was closed with the rationale "branch looks dirty." PR #61914 (regex DoS) was closed in under a minute with no recorded explanation. PR #32373 (token hardening) was open for 36+ days as of the 2026-04-08 snapshot.
 
-3. **No one is working on the CWE-290 fix.** As of 2026-04-08, there is no open PR, no open issue, and no commit addressing the TUI client spoofing vulnerability in `message-handler.ts`. The vulnerability has been publicly documented by three automated security tools for 12 days with zero maintainer response.
-
-4. **The fork remains the only comprehensive fix.** `markfietje/openclaw` (commit `20d1702a3f`) addresses CWE-290, reverse proxy origin awareness, endpoint isolation, rate limiting, message authorization, timing-safe nonce comparison, and 9 security files that don't exist in upstream. Its PR was closed.
+3. **No PR exists to fix the CWE-290 vulnerability as of 2026-06-02.** `gh pr list --search 'CWE-290 OR TUI spoofing OR isControlUi isOperatorUiClient'` returns only the original PR #55730 and unrelated PRs; no follow-up PR has been opened or merged. The `markfietje/openclaw` fork remains the only comprehensive fix (commit `20d1702a3f`); the upstream PR that introduced it was closed.
 
 ---
 
-## Appendix E: The NVIDIA OpenShell Connection — Why SSH/VPN Does Not Fix CWE-290
+## Appendix E: Why SSH/VPN Does Not Fix CWE-290
 
-A question worth asking: _does the deployment model behind OpenClaw make reverse proxy support unnecessary?_ The answer is no — and the timing raises questions worth examining.
+A natural question: _does the OpenShell deployment model make reverse proxy support unnecessary, and does it therefore reduce the impact of CWE-290?_ It does not, for the reasons below.
 
 ### E.1 What Is OpenShell?
 
@@ -1416,64 +1319,50 @@ The OpenShell plugin (`extensions/openshell/`) supports two workspace modes:
 - **`mirror`**: Local workspace stays canonical, synced to remote sandbox
 - **`remote`**: Remote workspace is canonical, accessed via SSH
 
-Transport is SSH. No reverse proxy is involved. OpenShell's gateway endpoint configuration (`gatewayEndpoint`) points to the OpenClaw gateway, but sandbox command execution goes through SSH, not through the gateway's WebSocket.
+Transport is SSH. No reverse proxy is involved for sandbox command execution. OpenShell's gateway endpoint configuration (`gatewayEndpoint`) points to the OpenClaw gateway, but agent tool execution inside the sandbox still routes through the gateway's WebSocket.
 
-### E.2 The NVIDIA Connection
+### E.2 Evidence From the Slack HTTPS_PROXY PR (#62878)
 
-The Slack HTTPS_PROXY PR (#62878) contains the most direct evidence of NVIDIA's involvement:
+The PR body for #62878 states:
 
-```
-PR #62878 body:
-"This breaks Socket Mode in proxy-only environments (sandboxed containers,
-corporate networks, NVIDIA OpenShell)."
+> _"This breaks Socket Mode in proxy-only environments (sandboxed containers, corporate networks, NVIDIA OpenShell)."_
+>
+> _"Production validation: we've been running an equivalent monkey-patch (openclaw-ws-proxy-patch.js) across 4 OpenClaw agents on NVIDIA OpenShell sandboxes since March 2026, routing all Slack Socket Mode traffic through an HTTP CONNECT proxy at 10.200.0.1:3128."_
 
-"Production validation: we've been running an equivalent monkey-patch
-(openclaw-ws-proxy-patch.js) across 4 OpenClaw agents on NVIDIA OpenShell
-sandboxes since March 2026, routing all Slack Socket Mode traffic through
-an HTTP CONNECT proxy at 10.200.0.1:3128."
-```
-
-Additional connections:
-
-- **`eleqtrizit`** (bio: "AI Idea Man at NVIDIA") is a maintainer with the `maintainer` label and merge access, contributing to gateway security code
-- OpenClaw's provider list includes first-class **NVIDIA NIM** support (`nvidia-nim` provider, Nemotron models)
-- OpenShell's architecture assumes SSH/VPN connectivity, not reverse proxy exposure
+OpenClaw's provider list includes first-class NVIDIA NIM support (`nvidia-nim` provider, Nemotron models).
 
 ### E.3 Timeline: OpenShell Emergence vs CWE-290 Introduction
 
-| Date           | Event                                                                                                |
-| -------------- | ---------------------------------------------------------------------------------------------------- |
-| **2026-03-19** | OpenShell extension first appears in the repository (`5508374669`)                                   |
-| **2026-03-27** | PR #55730 merged — CWE-290 TUI spoofing vulnerability introduced                                     |
-| **2026-04-08** | PR #62878 merged — Slack proxy fix, explicitly references "NVIDIA OpenShell sandboxes" in production |
-
-OpenShell emerged in the codebase **8 days before** the CWE-290 vulnerability was introduced. The Slack proxy PR confirms NVIDIA is running "4 OpenClaw agents on NVIDIA OpenShell sandboxes" in production since March 2026.
+| Date           | Event                                                                                     |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| **2026-03-19** | OpenShell extension first appears in the repository (`5508374669`)                        |
+| **2026-03-27** | PR #55730 merged — CWE-290 TUI spoofing vulnerability introduced                          |
+| **2026-04-08** | PR #62878 merged — Slack proxy fix, references "NVIDIA OpenShell sandboxes" in production |
+| **2026-06-02** | Re-verification: CWE-290 still unfixed on `upstream/main`                                 |
 
 ### E.4 The "SSH/VPN Replaces Reverse Proxy" Argument
 
-The argument appears to be:
+The argument is sometimes stated as: _OpenShell uses SSH for sandbox transport. VPN provides network connectivity. Reverse proxies are unnecessary, so reverse-proxy-related security hardening is not needed._
 
-> _OpenShell uses SSH for sandbox transport. VPN provides network connectivity. Reverse proxies are unnecessary. Therefore reverse proxy support — and the security hardening that comes with it — is not needed._
+This argument is unsound for three reasons:
 
-This argument is wrong for three reasons:
+**Reason 1: The vulnerability is in client identity, not proxy transport.**
 
-**Reason 1: The vulnerability is not about proxy transport. It is about client identity spoofing.**
-
-CWE-290 exploits how the gateway authenticates WebSocket clients. The attack vector is:
+CWE-290 exploits how the gateway authenticates WebSocket clients:
 
 1. A malicious website opens `ws://localhost:18789` from the victim's browser
 2. The spoofed `"openclaw-tui"` client ID bypasses origin checks and auth gates
-3. The attacker gets operator access
+3. The attacker is granted operator access
 
-This attack has **nothing to do with proxy transport**. It works whether the gateway is behind a reverse proxy, a VPN, SSH tunnel, or directly on localhost. The browser is the attack vector, not the network topology.
+This attack has nothing to do with proxy transport. It works whether the gateway is behind a reverse proxy, a VPN, an SSH tunnel, or directly on localhost. The browser is the attack vector, not the network topology.
 
 **Reason 2: SSH/VPN does not protect the gateway's WebSocket endpoint.**
 
-OpenShell uses SSH for sandbox command execution. But the OpenClaw gateway's primary interface is its **WebSocket endpoint** — that's how the TUI, Control UI, webchat, CLI, and all connected clients communicate. SSH transport for sandbox commands is orthogonal to WebSocket security.
+OpenShell uses SSH for sandbox command execution. The OpenClaw gateway's primary interface is its WebSocket endpoint — TUI, Control UI, webchat, CLI, and all connected clients communicate over it. SSH transport for sandbox commands is orthogonal to WebSocket security.
 
-A VPN connects the user to the network. But the browser CSRF attack (Section 9.2) happens locally — the malicious website's JavaScript connects to `ws://localhost:18789` through the browser. The VPN does not prevent this. The SSH tunnel does not prevent this.
+A VPN connects the user to a network. The browser CSRF attack (Section 9.2) happens locally: the malicious website's JavaScript connects to `ws://localhost:18789` through the victim's browser. The VPN does not prevent this. The SSH tunnel does not prevent this.
 
-**Reason 3: OpenShell sandboxes may expose the gateway endpoint.**
+**Reason 3: OpenShell sandboxes reach the gateway's WebSocket endpoint.**
 
 OpenShell's configuration includes a `gatewayEndpoint` parameter:
 
@@ -1482,11 +1371,11 @@ OpenShell's configuration includes a `gatewayEndpoint` parameter:
 gatewayEndpoint?: string;  // Points to the OpenClaw gateway
 ```
 
-If an OpenShell sandbox can reach the gateway's WebSocket endpoint — which it must, since agent tool execution routes through the gateway — then the CWE-290 vulnerability is exploitable from within the sandbox environment. An OpenShell sandbox that runs untrusted code could execute the same WebSocket spoofing attack against the gateway.
+An OpenShell sandbox must be able to reach the gateway's WebSocket endpoint, because agent tool execution routes through the gateway. CWE-290 is therefore exploitable from within an OpenShell sandbox that runs untrusted code: the same WebSocket spoofing attack works against the gateway from inside the sandbox.
 
 ### E.5 The Real Question
 
-The question is not whether SSH is more secure than HTTP reverse proxies (it is, for sandbox transport). The question is whether the OpenClaw gateway's **WebSocket authentication layer** is secure regardless of transport. It is not:
+The question is not whether SSH is more secure than HTTP reverse proxies (it is, for sandbox transport). The question is whether the OpenClaw gateway's WebSocket authentication layer is secure regardless of transport. It is not:
 
 | Defense                   | Protects Against                       | Does NOT Protect Against                 |
 | ------------------------- | -------------------------------------- | ---------------------------------------- |
@@ -1495,24 +1384,15 @@ The question is not whether SSH is more secure than HTTP reverse proxies (it is,
 | No reverse proxy          | Direct internet exposure to proxy bugs | Client identity spoofing via `client.id` |
 | `allowInsecureAuth: true` | — (removes a security gate)            | — (makes the bypass easier)              |
 
-Steinberger's position — "I don't use proxy" — may reflect the NVIDIA OpenShell deployment model where SSH/VPN replaces reverse proxies for sandbox connectivity. But this conflates **sandbox transport** with **gateway authentication**. The CWE-290 vulnerability is in the gateway's authentication layer, not in its network transport. SSH/VPN is the right tool for sandbox access. It does not fix a broken authentication gate in the WebSocket handshake.
+SSH/VPN is the right tool for sandbox access. It does not fix a broken authentication gate in the WebSocket handshake. The two layers are independent.
 
 ### E.6 The Bottom Line
 
-OpenShell's SSH-based sandbox model is a reasonable architectural choice. It does not require reverse proxy support for sandbox connectivity. But the absence of reverse proxy support does not justify:
+The OpenShell deployment model may not need reverse proxy support for sandbox connectivity. That is a separate concern from gateway authentication. The CWE-290 vulnerability affects every documented deployment configuration that exposes the gateway's WebSocket endpoint to anything that can open a TCP socket to it:
 
-1. **Ignoring the CWE-290 vulnerability** — which exploits client identity spoofing, not proxy transport
-2. **Dismissing reverse proxy security hardening** — which protects users who deploy behind Caddy/Nginx (Docker, VPS, Tailscale, home servers)
-3. **Closing security PRs** — that address gateway authentication vulnerabilities unrelated to transport
-4. **Shipping with zero origin-check proxy tests** (upstream has 0; the fork has 28) — when users behind reverse proxies have no security coverage
-
-The NVIDIA OpenShell deployment model may not need reverse proxy support. But OpenClaw is an open-source project with 350,000+ stars and 70,000+ forks. Its users deploy in every configuration imaginable — including reverse proxies. Dismissing gateway security because one deployment model uses SSH is a category error.
-
-The vulnerability affects:
-
-- ✅ MacBook localhost + TUI (Steinberger's setup) — exploitable via browser CSRF
-- ✅ Docker with default `bind=lan` — exploitable from LAN/internet
-- ✅ VPS/cloud behind Caddy/Nginx — exploitable from internet
-- ✅ Tailscale networks — exploitable from any tailnet device
-- ✅ OpenShell sandboxes — exploitable if sandbox can reach the gateway WebSocket
-- ❌ Not affected by SSH sandbox transport or VPN connectivity — those are orthogonal
+- MacBook localhost + a browser tab — exploitable via browser CSRF
+- Docker with default `bind=lan` — exploitable from LAN/internet
+- VPS/cloud behind Caddy/Nginx — exploitable from internet
+- Tailscale networks — exploitable from any tailnet device
+- OpenShell sandboxes — exploitable if the sandbox can reach the gateway WebSocket
+- Not affected by SSH sandbox transport or VPN connectivity — those are orthogonal to client authentication
