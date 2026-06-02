@@ -11,6 +11,7 @@ import {
   type ExecAsk,
   type ExecSecurity,
   type SystemRunApprovalPlan,
+  commandMatchesExecDenyPath,
   commandRequiresSecurityAuditSuppressionApproval,
   evaluateShellAllowlist,
   hasDurableExecApproval,
@@ -63,6 +64,8 @@ type NodeApprovalAnalysis = {
   nodeAsk?: ExecAsk;
   inlineEvalHit: InterpreterInlineEvalHit | null;
   requiresSecurityAuditSuppressionApproval: boolean;
+  requiresDenyPathApproval: boolean;
+  denyPathPattern?: string;
   autoReviewArgv?: string[];
 };
 
@@ -471,6 +474,15 @@ export async function analyzeNodeApprovalRequirement(params: {
         segments: entry.allowlistEval.segments,
       }),
     ) && !(params.hostSecurity === "full" && params.hostAsk === "off");
+  let denyPathPattern: string | undefined;
+  for (const entry of policyCommandEvals) {
+    const match = commandMatchesExecDenyPath(entry.command);
+    if (match.matched && match.pattern !== undefined) {
+      denyPathPattern = match.pattern;
+      break;
+    }
+  }
+  const requiresDenyPathApproval = denyPathPattern !== undefined && params.hostSecurity !== "full";
   if (
     (params.hostAsk === "always" ||
       params.hostSecurity === "allowlist" ||
@@ -547,6 +559,8 @@ export async function analyzeNodeApprovalRequirement(params: {
     nodeAsk: params.prepared.execPolicy?.ask,
     inlineEvalHit,
     requiresSecurityAuditSuppressionApproval,
+    requiresDenyPathApproval,
+    ...(denyPathPattern !== undefined ? { denyPathPattern } : {}),
     autoReviewArgv:
       autoReviewBindingEval.segments.length === 1 &&
       (autoReviewBindingEval.segments[0]?.raw === undefined ||

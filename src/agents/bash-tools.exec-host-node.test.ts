@@ -60,6 +60,7 @@ const callGatewayToolMock = vi.hoisted(() => vi.fn());
 const listNodesMock = vi.hoisted(() => vi.fn());
 const parsePreparedSystemRunPayloadMock = vi.hoisted(() => vi.fn());
 const commandRequiresSecurityAuditSuppressionApprovalMock = vi.hoisted(() => vi.fn(() => false));
+const commandMatchesExecDenyPathMock = vi.hoisted(() => vi.fn(() => ({ matched: false })));
 const evaluateShellAllowlistMock = vi.hoisted(() =>
   vi.fn(
     (): MockAllowlistResult => ({
@@ -138,6 +139,7 @@ vi.mock("../infra/exec-approvals.js", () => ({
   evaluateShellAllowlist: evaluateShellAllowlistMock,
   commandRequiresSecurityAuditSuppressionApproval:
     commandRequiresSecurityAuditSuppressionApprovalMock,
+  commandMatchesExecDenyPath: commandMatchesExecDenyPathMock,
   hasDurableExecApproval: hasDurableExecApprovalMock,
   requiresExecApproval: requiresExecApprovalMock,
   resolveExecApprovalAllowedDecisions: vi.fn(() => ["allow-once", "allow-always", "deny"]),
