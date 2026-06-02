@@ -4,6 +4,7 @@ import { formatDocsLink } from "../../packages/terminal-core/src/links.js";
 import { theme } from "../../packages/terminal-core/src/theme.js";
 import { parseStrictPositiveInteger } from "../infra/parse-finite-number.js";
 import { defaultRuntime } from "../runtime.js";
+import { resolveGatewayAuthOptions } from "./gateway-secret-options.js";
 import { parseTimeoutMs } from "./parse-timeout.js";
 
 /** Attach the `tui` command plus its `terminal`/`chat` aliases to the root CLI. */
@@ -16,7 +17,9 @@ export function registerTuiCli(program: Command) {
     .option("--local", "Run against the local embedded agent runtime", false)
     .option("--url <url>", "Gateway WebSocket URL (defaults to gateway.remote.url when configured)")
     .option("--token <token>", "Gateway token (if required)")
+    .option("--token-file <file>", "Read the Gateway token from a file")
     .option("--password <password>", "Gateway password (if required)")
+    .option("--password-file <file>", "Read the Gateway password from a file")
     .option("--tls-fingerprint <sha256>", "Expected Gateway TLS certificate fingerprint")
     .option("--session <key>", 'Session key (default: "main", or "global" when scope is global)')
     .option("--deliver", "Deliver assistant replies", false)
@@ -36,11 +39,25 @@ export function registerTuiCli(program: Command) {
         const invokedAsLocalAlias =
           invokedSubcommand === "terminal" || invokedSubcommand === "chat";
         const isLocal = Boolean(opts.local) || invokedAsLocalAlias;
-        if (isLocal && (opts.url || opts.token || opts.password || opts.tlsFingerprint)) {
+        if (
+          isLocal &&
+          (opts.url ||
+            opts.token ||
+            opts.tokenFile ||
+            opts.password ||
+            opts.passwordFile ||
+            opts.tlsFingerprint)
+        ) {
           throw new Error(
-            "--local cannot be combined with --url, --token, --password, or --tls-fingerprint",
+            "--local cannot be combined with --url, --token, --token-file, --password, --password-file, or --tls-fingerprint",
           );
         }
+        const { gatewayToken, gatewayPassword } = resolveGatewayAuthOptions({
+          token: opts.token,
+          tokenFile: opts.tokenFile,
+          password: opts.password,
+          passwordFile: opts.passwordFile,
+        });
         const timeoutMs = parseTimeoutMs(opts.timeoutMs);
         if (opts.timeoutMs !== undefined && timeoutMs === undefined) {
           defaultRuntime.error(
@@ -55,8 +72,8 @@ export function registerTuiCli(program: Command) {
         await runTui({
           local: isLocal,
           url: opts.url as string | undefined,
-          token: opts.token as string | undefined,
-          password: opts.password as string | undefined,
+          token: gatewayToken,
+          password: gatewayPassword,
           tlsFingerprint: opts.tlsFingerprint as string | undefined,
           session: opts.session as string | undefined,
           deliver: Boolean(opts.deliver),
