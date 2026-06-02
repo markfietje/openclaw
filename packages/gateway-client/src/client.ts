@@ -297,6 +297,17 @@ function isSecureWebSocketUrl(rawUrl: string, options?: { allowPrivateWs?: boole
   }
 }
 
+function buildGatewayClientHeaders(url: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  try {
+    const parsed = new URL(url);
+    headers["origin"] = `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    // Keep malformed URLs on the existing error path.
+  }
+  return headers;
+}
+
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (err: unknown) => void;
@@ -633,9 +644,13 @@ export class GatewayClient {
     const wsOptions: FingerprintCheckingClientOptions = {
       maxPayload: 25 * 1024 * 1024,
       protocols: [GATEWAY_WS_SUBPROTOCOL],
+      headers: buildGatewayClientHeaders(url),
     };
-    if (url.startsWith("wss://") && this.opts.tlsFingerprint) {
-      wsOptions.rejectUnauthorized = false;
+    if (url.startsWith("wss://")) {
+      wsOptions.minVersion = "TLSv1.3";
+      if (this.opts.tlsFingerprint) {
+        wsOptions.rejectUnauthorized = false;
+      }
       wsOptions.checkServerIdentity = (_hostValue: string, cert: CertMeta) => {
         const fingerprintValue =
           typeof cert === "object" && cert && "fingerprint256" in cert
