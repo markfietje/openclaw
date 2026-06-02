@@ -284,9 +284,7 @@
       "@openclaw/gateway-security-core/auth-audit-log": [
         "../dist/plugin-sdk/packages/gateway-security-core/src/auth-audit-log.d.ts"
       ],
-      "@openclaw/gateway-security-core/capabilities": [
-        "../dist/plugin-sdk/packages/gateway-security-core/src/capabilities.d.ts"
-      ],
+
       "@openclaw/gateway-security-core/connection-rate-limit": [
         "../dist/plugin-sdk/packages/gateway-security-core/src/connection-rate-limit.d.ts"
       ],

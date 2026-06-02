@@ -469,16 +469,7 @@ export const sharedVitestConfig = {
           "auth-audit-log.ts",
         ),
       },
-      {
-        find: "@openclaw/gateway-security-core/capabilities",
-        replacement: path.join(
-          repoRoot,
-          "packages",
-          "gateway-security-core",
-          "src",
-          "capabilities.ts",
-        ),
-      },
+
       {
         find: "@openclaw/gateway-security-core/connection-rate-limit",
         replacement: path.join(

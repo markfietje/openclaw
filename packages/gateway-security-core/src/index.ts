@@ -1,5 +1,4 @@
 export * from "./auth-audit-log.js";
-export * from "./capabilities.js";
 export * from "./connection-rate-limit.js";
 export * from "./device-session-authority.js";
 export * from "./exec-deny-paths.js";

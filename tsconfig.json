@@ -87,9 +87,7 @@
       "@openclaw/gateway-security-core/auth-audit-log": [
         "./packages/gateway-security-core/src/auth-audit-log.ts"
       ],
-      "@openclaw/gateway-security-core/capabilities": [
-        "./packages/gateway-security-core/src/capabilities.ts"
-      ],
+
       "@openclaw/gateway-security-core/connection-rate-limit": [
         "./packages/gateway-security-core/src/connection-rate-limit.ts"
       ],
