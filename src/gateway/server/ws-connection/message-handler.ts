@@ -385,6 +385,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           frame,
           connectParams,
           configSnapshot,
+
           trustedProxies,
           allowRealIpFallback,
           peerLabel,

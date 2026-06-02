@@ -1,5 +1,6 @@
 // WebSocket connect-policy tests cover Control UI pairing, trusted proxy auth, and device identity policy.
 import { describe, expect, test } from "vitest";
+import { isBrowserOperatorUiClient } from "../../../utils/message-channel.js";
 import {
   evaluateMissingDeviceIdentity,
   isTrustedProxyControlUiOperatorAuth,
@@ -432,5 +433,222 @@ describe("ws connect policy", () => {
       },
       true,
     );
+  });
+
+  // CWE-290 contract: a TUI client must not be able to use any path gated
+  // by isControlUi, even when the operator has configured the
+  // dangerouslyDisableDeviceAuth break-glass, allowInsecureAuth for
+  // localhost, trusted-proxy auth, tailscale, or authMode=none. Only the
+  // browser Control UI may take those bypasses. message-handler.ts:698
+  // must use isBrowserOperatorUiClient so the boolean is strict.
+  describe("TUI client cannot trigger Control-UI bypass (CWE-290)", () => {
+    const tuiClient = { id: "openclaw-tui", mode: "ui" as const };
+    const controlUiClient = { id: "openclaw-control-ui", mode: "ui" as const };
+
+    const tuiIsControlUi = isBrowserOperatorUiClient(tuiClient);
+    const controlUiIsControlUi = isBrowserOperatorUiClient(controlUiClient);
+
+    test("isBrowserOperatorUiClient distinguishes TUI from CONTROL_UI", () => {
+      expect(tuiIsControlUi).toBe(false);
+      expect(controlUiIsControlUi).toBe(true);
+    });
+
+    test("dangerouslyDisableDeviceAuth break-glass: TUI is rejected, CONTROL_UI allowed", () => {
+      const bypass = resolveControlUiAuthPolicy({
+        isControlUi: tuiIsControlUi,
+        controlUiConfig: { dangerouslyDisableDeviceAuth: true },
+        deviceRaw: deviceRaw("dev-1"),
+      });
+      expect(bypass.allowBypass).toBe(false);
+      expect(bypass.device?.id).toBe("dev-1");
+
+      const controlUiBypass = resolveControlUiAuthPolicy({
+        isControlUi: controlUiIsControlUi,
+        controlUiConfig: { dangerouslyDisableDeviceAuth: true },
+        deviceRaw: deviceRaw("dev-2"),
+      });
+      expect(controlUiBypass.allowBypass).toBe(true);
+      expect(controlUiBypass.device).toBeNull();
+
+      // TUI: sharedAuthOk=false, hasSharedAuth=false, isLocalClient=true.
+      // The bypass (path 3) does not fire (isControlUi=false); the
+      // roleCanSkipDeviceIdentity fallthrough (path 6) does not fire
+      // (sharedAuthOk=false). The only path is reject-device-required.
+      expect(
+        evaluateMissingDeviceIdentity({
+          hasDeviceIdentity: false,
+          role: "operator",
+          isControlUi: tuiIsControlUi,
+          controlUiAuthPolicy: bypass,
+          sharedAuthOk: false,
+          authOk: false,
+          hasSharedAuth: false,
+          isLocalClient: true,
+        }),
+      ).toEqual({ kind: "reject-device-required" });
+
+      // CONTROL_UI: bypass fires at path 3.
+      expect(
+        evaluateMissingDeviceIdentity({
+          hasDeviceIdentity: false,
+          role: "operator",
+          isControlUi: controlUiIsControlUi,
+          controlUiAuthPolicy: controlUiBypass,
+          sharedAuthOk: false,
+          authOk: false,
+          hasSharedAuth: false,
+          isLocalClient: true,
+        }),
+      ).toEqual({ kind: "allow" });
+    });
+
+    test("allowInsecureAuth is a no-op for TUI: same result with or without the flag", () => {
+      // allowInsecureAuth grants browser Control UI a path around the
+      // reject-control-ui-insecure-auth reject when on localhost. It is a
+      // Control-UI-specific shortcut: with isControlUi=false the flag
+      // must not influence the decision. TUI's result must match across
+      // (allowInsecureAuth true vs. undefined) for any other fixed input.
+      const tuiOff = resolveControlUiAuthPolicy({
+        isControlUi: tuiIsControlUi,
+        controlUiConfig: {},
+        deviceRaw: null,
+      });
+      const tuiOn = resolveControlUiAuthPolicy({
+        isControlUi: tuiIsControlUi,
+        controlUiConfig: { allowInsecureAuth: true },
+        deviceRaw: null,
+      });
+
+      // TUI with shared auth, on localhost — allow via shared-auth
+      // fallthrough. Both configs must produce the same kind.
+      for (const policy of [tuiOff, tuiOn]) {
+        expect(
+          evaluateMissingDeviceIdentity({
+            hasDeviceIdentity: false,
+            role: "operator",
+            isControlUi: tuiIsControlUi,
+            controlUiAuthPolicy: policy,
+            sharedAuthOk: true,
+            authOk: true,
+            hasSharedAuth: true,
+            isLocalClient: true,
+          }).kind,
+        ).toBe("allow");
+      }
+
+      // TUI without shared auth, on localhost — reject-device-required.
+      // Both configs must produce the same kind.
+      for (const policy of [tuiOff, tuiOn]) {
+        expect(
+          evaluateMissingDeviceIdentity({
+            hasDeviceIdentity: false,
+            role: "operator",
+            isControlUi: tuiIsControlUi,
+            controlUiAuthPolicy: policy,
+            sharedAuthOk: false,
+            authOk: false,
+            hasSharedAuth: false,
+            isLocalClient: true,
+          }).kind,
+        ).toBe("reject-device-required");
+      }
+    });
+
+    test("trusted-proxy auth bypass: TUI is rejected, CONTROL_UI allowed", () => {
+      expect(
+        isTrustedProxyControlUiOperatorAuth({
+          isControlUi: tuiIsControlUi,
+          role: "operator",
+          authMode: "trusted-proxy",
+          authOk: true,
+          authMethod: "trusted-proxy",
+        }),
+      ).toBe(false);
+
+      expect(
+        isTrustedProxyControlUiOperatorAuth({
+          isControlUi: controlUiIsControlUi,
+          role: "operator",
+          authMode: "trusted-proxy",
+          authOk: true,
+          authMethod: "trusted-proxy",
+        }),
+      ).toBe(true);
+
+      const controlUiPolicy = resolveControlUiAuthPolicy({
+        isControlUi: controlUiIsControlUi,
+        controlUiConfig: {},
+        deviceRaw: null,
+      });
+      expect(
+        evaluateMissingDeviceIdentity({
+          hasDeviceIdentity: false,
+          role: "operator",
+          isControlUi: controlUiIsControlUi,
+          controlUiAuthPolicy: controlUiPolicy,
+          trustedProxyAuthOk: true,
+          sharedAuthOk: false,
+          authOk: false,
+          hasSharedAuth: false,
+          isLocalClient: false,
+        }).kind,
+      ).toBe("allow");
+
+      const tuiPolicy = resolveControlUiAuthPolicy({
+        isControlUi: tuiIsControlUi,
+        controlUiConfig: {},
+        deviceRaw: null,
+      });
+      expect(
+        evaluateMissingDeviceIdentity({
+          hasDeviceIdentity: false,
+          role: "operator",
+          isControlUi: tuiIsControlUi,
+          controlUiAuthPolicy: tuiPolicy,
+          trustedProxyAuthOk: true,
+          sharedAuthOk: false,
+          authOk: false,
+          hasSharedAuth: false,
+          isLocalClient: false,
+        }).kind,
+      ).toBe("reject-device-required");
+    });
+
+    test("authMode=none pairing skip: TUI must pair, CONTROL_UI skips", () => {
+      const tuiPolicy = resolveControlUiAuthPolicy({
+        isControlUi: tuiIsControlUi,
+        controlUiConfig: {},
+        deviceRaw: null,
+      });
+      const controlUiPolicy = resolveControlUiAuthPolicy({
+        isControlUi: controlUiIsControlUi,
+        controlUiConfig: {},
+        deviceRaw: null,
+      });
+
+      expect(shouldSkipControlUiPairing(tuiPolicy, "operator", false, "none")).toBe(false);
+      expect(shouldSkipControlUiPairing(controlUiPolicy, "operator", false, "none")).toBe(true);
+    });
+
+    test("tailscale+operator+device pairing skip: TUI must pair, CONTROL_UI skips", () => {
+      const device = deviceRaw("dev-1");
+      const tuiPolicy = resolveControlUiAuthPolicy({
+        isControlUi: tuiIsControlUi,
+        controlUiConfig: {},
+        deviceRaw: device,
+      });
+      const controlUiPolicy = resolveControlUiAuthPolicy({
+        isControlUi: controlUiIsControlUi,
+        controlUiConfig: {},
+        deviceRaw: device,
+      });
+
+      expect(shouldSkipControlUiPairing(tuiPolicy, "operator", false, "token", "tailscale")).toBe(
+        false,
+      );
+      expect(
+        shouldSkipControlUiPairing(controlUiPolicy, "operator", false, "token", "tailscale"),
+      ).toBe(true);
+    });
   });
 });

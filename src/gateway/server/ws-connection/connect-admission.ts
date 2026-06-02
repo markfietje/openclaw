@@ -19,7 +19,7 @@ import {
   GATEWAY_STARTUP_PENDING_CLOSE_CAUSE,
   GATEWAY_STARTUP_RETRY_AFTER_MS,
 } from "../../../../packages/gateway-protocol/src/startup-unavailable.js";
-import { isBrowserOperatorUiClient, isOperatorUiClient } from "../../../utils/message-channel.js";
+import { isBrowserOperatorUiClient } from "../../../utils/message-channel.js";
 import { checkBrowserOrigin } from "../../origin-check.js";
 import { parseGatewayRole } from "../../role-policy.js";
 import { formatForLog } from "../../ws-log.js";
@@ -143,7 +143,7 @@ export async function admitGatewayConnect(context: GatewayConnectPhaseContext) {
   connectParams.role = role;
   connectParams.scopes = scopes;
 
-  const isControlUi = isOperatorUiClient(connectParams.client);
+  const isControlUi = isBrowserOperatorUiClient(connectParams.client);
   const isBrowserOperatorUi = isBrowserOperatorUiClient(connectParams.client);
   const isWebchat = isWebchatConnect(connectParams);
   const isNativeAppUi =
