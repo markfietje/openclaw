@@ -68,4 +68,9 @@ export class DeviceSessionAuthorityTracker {
     const generationKey = key(deviceId, role);
     this.generations.set(generationKey, (this.generations.get(generationKey) ?? 0) + 1);
   }
+
+  /** Clear all tracked generations. Call on gateway shutdown. */
+  dispose(): void {
+    this.generations.clear();
+  }
 }
