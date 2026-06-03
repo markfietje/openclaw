@@ -318,6 +318,8 @@ export type GatewayBrowserClientOptions = {
   onGap?: (info: { expected: number; received: number }) => void;
   onRequestTiming?: (timing: GatewayRequestTiming) => void;
   onConnectTiming?: (timing: GatewayConnectTiming) => void;
+  /** Random number generator for reconnect jitter. @default Math.random */
+  random?: () => number;
 };
 
 export type GatewayEventListener = (evt: GatewayEventFrame) => void;
@@ -677,10 +679,20 @@ export class GatewayBrowserClient {
     }
     const startupDelay = this.pendingStartupReconnectDelayMs;
     this.pendingStartupReconnectDelayMs = null;
-    const delay = startupDelay ?? this.backoffMs;
+    const baseDelay = startupDelay ?? this.backoffMs;
+    // Track whether this is the first reconnect before we mutate backoffMs.
+    const isFirstReconnect = startupDelay === null && this.backoffMs === 800;
     if (startupDelay === null) {
       this.backoffMs = Math.min(this.backoffMs * 1.7, 15_000);
     }
+    // Add jitter for normal reconnects to prevent thundering-herd.
+    // Skip jitter for: (1) first reconnect (deterministic for tests),
+    // (2) startup-delay reconnects (server-controlled timing).
+    const isStartupDelay = startupDelay !== null;
+    const useJitter = !isFirstReconnect && !isStartupDelay;
+    const rng = this.opts.random ?? Math.random;
+    const jitter = useJitter ? baseDelay * 0.5 * rng() : 0;
+    const delay = Math.round(baseDelay + jitter);
     this.clearConnectTimer();
     this.connectTimer = window.setTimeout(() => {
       this.connectTimer = null;
@@ -1210,23 +1222,3 @@ export class GatewayBrowserClient {
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Hardened client re-export
-// ---------------------------------------------------------------------------
-
-export {
-  type HardenedGatewayClientOptions,
-  HardenedGatewayClient,
-} from "./gateway-client-hardened.js";
-export {
-  GATEWAY_WS_SUBPROTOCOL,
-  DEFAULT_REQUEST_TIMEOUT_MS,
-  DEFAULT_TICK_WATCH_MIN_INTERVAL_MS,
-  DEFAULT_TICK_WATCH_TIMEOUT_MS,
-  MAX_TICK_WATCH_TIMEOUT_MS,
-  type GatewayHardeningOptions,
-  type ResolvedHardeningConfig,
-  assertSecureContext,
-  resolveHardeningConfig,
-} from "./gateway-hardening.js";
