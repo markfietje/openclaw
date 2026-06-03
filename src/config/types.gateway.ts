@@ -534,56 +534,24 @@ export type GatewayToolsConfig = {
   allow?: string[];
 };
 
-export type GatewaySecurityConfig = {
-  /** Whether to redact known secret values from outbound gateway messages. */
-  enableOutboundRedaction?: boolean;
-  /** Per-method rate limits (method name → requests per minute). */
-  methodRateLimits?: Record<string, number>;
-  /** Connection rate limit (connections per minute per IP). */
-  connectionRateLimitPerMinute?: number;
-  /** Browser origin fallback rate limit (per IP, per minute). */
-  browserRateLimitPerMinute?: number;
-  /** IP allow/deny list (CIDRs). */
-  ipRestriction?: {
-    allow?: string[];
-    deny?: string[];
-  };
-  /** Enforce strict header validation on incoming WebSocket upgrades. */
-  strictHeaderValidation?: boolean;
-  /** Reject X-Forwarded-* headers from untrusted proxy IPs. */
-  rejectUntrustedProxyHeaders?: boolean;
-  /** Allow Origin: matching the Host: header as a fallback for browser clients. */
-  dangerouslyAllowHostHeaderOriginFallback?: boolean;
-  /** Whether the loopback client gets implicit privilege (paired by default). */
-  disableLocalhostPrivilege?: boolean;
-  /** Auto-disable localhost privilege when proxy headers are present. */
-  autoDisableLocalhostBehindProxy?: boolean;
-  /** Whether to validate the Host: header against the allowlist. */
-  validateHostHeader?: boolean;
-  /** Whether to require forwarded-proto to match the connection protocol. */
-  strictProtoValidation?: boolean;
-  /** IP allowlist (CIDRs). */
-  ipAllowlist?: string[];
-  /** IP blocklist (CIDRs). */
-  ipBlocklist?: string[];
-  /** Whether to require the WebSocket subprotocol header on upgrade. */
-  requireSubprotocol?: boolean;
-  /** Auth audit log: append-only HMAC-signed record of accepted/rejected connect attempts. */
-  authAudit?: {
-    /** Enable auth audit logging (env override: OPENCLAW_AUTH_AUDIT=1). */
-    enabled?: boolean;
-  };
-  /** Tool audit log: append-only HMAC-signed record of every tools/invoke surface tool call. */
-  toolAudit?: {
-    /** Enable tool audit logging. */
-    enabled?: boolean;
-  };
-  /** Per-message auth context for defense-in-depth capability gating (secrets, config-protected, node-role methods). */
-  messageAuth?: {
-    /** Enable extra capability checks for secrets.* and config.set_protected methods beyond the standard operator scope check. */
-    enabled?: boolean;
-  };
-};
+// Security config type is owned by @openclaw/gateway-security-core.
+// The package defines the canonical type; this re-export makes it available
+// through the central config types barrel. The package type includes all
+// defense-layer fields (transport, pre-handshake, auth, authorization, operational)
+// so IDE autocomplete and TypeScript checking cover the full security surface.
+import type {
+  GatewaySecurityConfig,
+  GatewayAuditFlagConfig,
+} from "@openclaw/gateway-security-core/security-config";
+
+export type {
+  GatewaySecurityConfig,
+  GatewayAuditFlagConfig,
+} from "@openclaw/gateway-security-core/security-config";
+
+// Re-export sub-config types that are consumed by runtime wiring.
+export type { ConnectionRateLimitConfig as GatewayConnectionRateLimitConfig } from "@openclaw/gateway-security-core/connection-rate-limit";
+export type { WsKeepaliveConfig as GatewayKeepaliveConfig } from "@openclaw/gateway-security-core/ws-keepalive";
 
 export type GatewayConfig = {
   /** Single multiplexed port for Gateway WS + HTTP (default: 18789). */
