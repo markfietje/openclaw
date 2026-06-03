@@ -174,6 +174,8 @@ export type GatewayBrowserClientOptions = {
   onGap?: (info: { expected: number; received: number }) => void;
   onRequestTiming?: (timing: GatewayProtocolRequestTiming) => void;
   onConnectTiming?: (timing: GatewayConnectTiming) => void;
+  /** Random number generator for reconnect jitter. @default Math.random */
+  random?: () => number;
 };
 
 export type GatewayEventListener = (evt: GatewayEventFrame) => void;
@@ -339,6 +341,7 @@ export class GatewayBrowserClient {
   constructor(private opts: GatewayBrowserClientOptions) {
     this.client = new GatewayProtocolClient<ConnectPlan>({
       createSocket: (handlers) => this.createSocket(handlers),
+      random: this.opts.random,
       createRequestId: generateUUID,
       createRequestError: (error) =>
         new GatewayRequestError({
@@ -639,23 +642,3 @@ export class GatewayBrowserClient {
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Hardened client re-export
-// ---------------------------------------------------------------------------
-
-export {
-  type HardenedGatewayClientOptions,
-  HardenedGatewayClient,
-} from "./gateway-client-hardened.js";
-export {
-  GATEWAY_WS_SUBPROTOCOL,
-  DEFAULT_REQUEST_TIMEOUT_MS,
-  DEFAULT_TICK_WATCH_MIN_INTERVAL_MS,
-  DEFAULT_TICK_WATCH_TIMEOUT_MS,
-  MAX_TICK_WATCH_TIMEOUT_MS,
-  type GatewayHardeningOptions,
-  type ResolvedHardeningConfig,
-  assertSecureContext,
-  resolveHardeningConfig,
-} from "./gateway-hardening.js";

@@ -116,6 +116,8 @@ type GatewayProtocolClientOptions<TPlan> = {
   reconnect: { initialMs: number; multiplier: number; maxMs: number };
   requestTimeoutMs?: number;
   nowMs?: () => number;
+  /** Random number generator for reconnect jitter. @default Math.random */
+  random?: () => number;
   rethrowSocketFactoryError?: (error: Error) => boolean;
 };
 export class GatewayProtocolRequestError extends Error {
@@ -670,8 +672,17 @@ export class GatewayProtocolClient<TPlan> {
     if (!retry) {
       return;
     }
+    // Add up to 50% jitter to the reconnect backoff to prevent thundering-herd
+    // reconnect storms after an outage. Skip the first reconnect (deterministic
+    // for tests) and Retry-After overrides (server-controlled timing).
+    const rng = this.opts.random ?? Math.random;
+    const isFirstReconnect = this.reconnectSupervisor.attempts === 1;
+    const useJitter = !isFirstReconnect && overrideMs === undefined;
+    const delayMs = useJitter
+      ? Math.round(retry.delayMs + retry.delayMs * 0.5 * rng())
+      : retry.delayMs;
     // Ignore cancelled sleeps only; reconnect start failures stay observable.
-    void sleepWithAbort(retry.delayMs, retry.signal).then(
+    void sleepWithAbort(delayMs, retry.signal).then(
       () => this.connect(),
       () => {},
     );
