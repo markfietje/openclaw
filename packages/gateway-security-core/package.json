@@ -75,6 +75,11 @@
       "import": "./dist/config-guard.mjs",
       "default": "./dist/config-guard.mjs"
     },
+    "./ws-frame-validator": {
+      "types": "./dist/ws-frame-validator.d.mts",
+      "import": "./dist/ws-frame-validator.mjs",
+      "default": "./dist/ws-frame-validator.mjs"
+    },
     "./ws-keepalive": {
       "types": "./dist/ws-keepalive.d.mts",
       "import": "./dist/ws-keepalive.mjs",
