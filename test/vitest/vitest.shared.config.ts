@@ -516,6 +516,16 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: "@openclaw/gateway-security-core/security-config",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "security-config.ts",
+        ),
+      },
+      {
         find: "@openclaw/gateway-security-core",
         replacement: path.join(repoRoot, "packages", "gateway-security-core", "src", "index.ts"),
       },

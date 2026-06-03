@@ -477,10 +477,25 @@ const CommitmentsSchema = z
   .strict()
   .optional();
 
+const CidrOrIpSchema = z.string().superRefine((val, ctx) => {
+  const trimmed = val.trim();
+  if (trimmed.length === 0) {
+    ctx.addIssue({ code: "custom", message: "CIDR/IP entry must not be empty" });
+    return;
+  }
+  // IPv4: digits.dots, optional /prefix
+  const ipv4Re = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
+  // IPv6: hex colons, optional /prefix
+  const ipv6Re = /^[0-9a-fA-F:]+(\/\d{1,3})?$/;
+  if (!ipv4Re.test(trimmed) && !ipv6Re.test(trimmed)) {
+    ctx.addIssue({ code: "custom", message: `Invalid CIDR or IP address: "${trimmed}"` });
+  }
+});
+
 const GatewayIpRestrictionSchema = z
   .object({
-    allow: z.array(z.string()).optional(),
-    deny: z.array(z.string()).optional(),
+    allow: z.array(CidrOrIpSchema).optional(),
+    deny: z.array(CidrOrIpSchema).optional(),
   })
   .strict();
 
@@ -492,47 +507,62 @@ const GatewayAuditFlagSchema = z
 
 const GatewayConnectionRateLimitSchema = z
   .object({
-    maxAttempts: z.number().int().positive().optional(),
-    windowMs: z.number().int().positive().optional(),
-    lockoutMs: z.number().int().positive().optional(),
+    maxAttempts: z.number().int().min(1).max(10_000).optional(),
+    windowMs: z.number().int().min(1_000).max(600_000).optional(),
+    lockoutMs: z.number().int().min(1_000).max(3_600_000).optional(),
     exemptLoopback: z.boolean().optional(),
+    pruneIntervalMs: z.number().int().min(0).max(600_000).optional(),
     ipv6SubnetMask: z.number().int().min(0).max(128).optional(),
   })
   .strict();
 
+// Field order matches the defense-layer structure in
+// @openclaw/gateway-security-core/security-config.ts (GatewaySecurityConfig).
+// Keep this schema in sync with the package type — same field names, same types.
 const GatewaySecurityConfigSchema = z
   .object({
-    enableOutboundRedaction: z.boolean().optional(),
-    methodRateLimits: z.record(z.string(), z.number()).optional(),
-    connectionRateLimitPerMinute: z.number().int().positive().optional(),
-    browserRateLimitPerMinute: z.number().int().positive().optional(),
+    // ─── Layer 0: Transport ────
+    tlsMinVersion: z.enum(["TLSv1.2", "TLSv1.3"]).default("TLSv1.3"),
+
+    // ─── Layer 1: Pre-Handshake (verifyClient pipeline) ────
+    strictHeaderValidation: z.boolean().default(true),
+    rejectUntrustedProxyHeaders: z.boolean().default(true),
+    autoDisableLocalhostBehindProxy: z.boolean().default(true),
+    disableLocalhostPrivilege: z.boolean().default(true),
+    validateHostHeader: z.boolean().default(false),
+    strictProtoValidation: z.boolean().default(true),
+    enforceOriginCheckForAllClients: z.boolean().default(false),
+    ipAllowlist: z.array(CidrOrIpSchema).optional(),
+    ipBlocklist: z.array(CidrOrIpSchema).optional(),
     ipRestriction: GatewayIpRestrictionSchema.optional(),
-    strictHeaderValidation: z.boolean().optional(),
-    rejectUntrustedProxyHeaders: z.boolean().optional(),
-    dangerouslyAllowHostHeaderOriginFallback: z.boolean().optional(),
-    disableLocalhostPrivilege: z.boolean().optional(),
-    autoDisableLocalhostBehindProxy: z.boolean().optional(),
-    validateHostHeader: z.boolean().optional(),
-    strictProtoValidation: z.boolean().optional(),
-    ipAllowlist: z.array(z.string()).optional(),
-    ipBlocklist: z.array(z.string()).optional(),
-    requireSubprotocol: z.boolean().optional(),
+    requireSubprotocol: z.boolean().default(true),
+    maxWebSocketConnections: z.number().int().min(0).max(10_000).optional(),
+    connectionRateLimit: GatewayConnectionRateLimitSchema.optional(),
+    maxPayloadBytes: z.number().int().min(65_536).max(104_857_600).optional(),
+
+    // ─── Layer 2: Authentication ────
+    enableHandshakeTokens: z.boolean().default(true),
+
+    // ─── Layer 3: Authorization ────
+    enableMessageAuthorization: z.boolean().default(true),
+    dangerouslyAllowUnmappedMethods: z.boolean().default(false),
+    dangerouslyAllowLegacyEndpointFallback: z.boolean().default(false),
+    dangerouslyAllowHostHeaderOriginFallback: z.boolean().default(false),
+
+    // ─── Layer 4: Operational ────
+    enablePingPong: z.boolean().default(true),
+    pingIntervalMs: z.number().int().min(1_000).max(300_000).optional(),
+    pongTimeoutMs: z.number().int().min(1_000).max(120_000).optional(),
+    enableRateLimiting: z.boolean().default(true),
+
+    // ─── Observability ────
+    enableOutboundRedaction: z.boolean().default(true),
+    methodRateLimits: z.record(z.string(), z.number()).optional(),
+    connectionRateLimitPerMinute: z.number().int().min(1).max(100_000).optional(),
+    browserRateLimitPerMinute: z.number().int().min(1).max(100_000).optional(),
     authAudit: GatewayAuditFlagSchema.optional(),
     toolAudit: GatewayAuditFlagSchema.optional(),
     messageAuth: GatewayAuditFlagSchema.optional(),
-    dangerouslyAllowLegacyEndpointFallback: z.boolean().optional(),
-    dangerouslyAllowUnmappedMethods: z.boolean().optional(),
-    enableHandshakeTokens: z.boolean().optional(),
-    enableMessageAuthorization: z.boolean().optional(),
-    enablePingPong: z.boolean().optional(),
-    enableRateLimiting: z.boolean().optional(),
-    maxPayloadBytes: z.number().int().positive().optional(),
-    maxWebSocketConnections: z.number().int().positive().optional(),
-    connectionRateLimit: GatewayConnectionRateLimitSchema.optional(),
-    tlsMinVersion: z.enum(["TLSv1.2", "TLSv1.3"]).optional(),
-    enforceOriginCheckForAllClients: z.boolean().optional(),
-    pingIntervalMs: z.number().int().positive().optional(),
-    pongTimeoutMs: z.number().int().positive().optional(),
   })
   .strict();
 
