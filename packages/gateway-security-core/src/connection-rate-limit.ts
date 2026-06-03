@@ -105,31 +105,68 @@ export function createConnectionRateLimiter(
     return exemptLoopback && isLoopbackAddress(ip);
   }
 
-  function normalizeIp(ip: string | undefined): string {
+  // Expand :: compression to a full 8-block IPv6 address so masking
+  // operates on a predictable number of blocks.
+  function expandIPv6(address: string): string {
+    if (!address.includes("::")) {
+      return address;
+    }
+    const halves = address.split("::");
+    const left = halves[0] ? halves[0].split(":") : [];
+    const right = halves[1] ? halves[1].split(":") : [];
+    const missing = 8 - left.length - right.length;
+    const expanded = [...left, ...Array(missing).fill("0"), ...right];
+    return expanded.map((p) => p.padStart(4, "0")).join(":");
+  }
+
+  // Apply a bitwise subnet mask to an IPv6 address.
+  // For example /56 keeps 3 full 16-bit blocks and masks the 4th to
+  // the first 8 bits (e.g. "abcd" → "ab00").
+  function applyIpv6SubnetMask(address: string, maskBits: number): string {
+    const expanded = expandIPv6(address);
+    const parts = expanded.split(":");
+    const fullBlocks = Math.floor(maskBits / 16);
+    const remainingBits = maskBits % 16;
+
+    const result: string[] = [];
+
+    // Copy full blocks unchanged
+    for (let i = 0; i < fullBlocks && i < parts.length; i++) {
+      result.push(parts[i]!);
+    }
+
+    // Apply bitmask to the partial block
+    if (remainingBits > 0 && fullBlocks < parts.length) {
+      const blockValue = parseInt(parts[fullBlocks]!, 16);
+      const mask = 0xffff << (16 - remainingBits);
+      result.push((blockValue & mask).toString(16).padStart(4, "0"));
+    }
+
+    // Fill remaining blocks with 0
+    while (result.length < 8) {
+      result.push("0");
+    }
+
+    return result.join(":");
+  }
+
+  function normalizeIp(ip: string | undefined, skipMask?: boolean): string {
     const resolved = resolveClientIp({ remoteAddr: ip }) ?? "unknown";
     const normalized = normalizeIpAddress(resolved);
     if (!normalized) {
       return "unknown";
     }
 
-    // Apply IPv6 subnet masking per OWASP best practices
-    if (ipv6SubnetMask > 0 && normalized.includes(":")) {
-      const parts = normalized.split(":");
-      const fullBlocks = Math.floor(ipv6SubnetMask / 16);
-      const remainingBits = ipv6SubnetMask % 16;
-
-      if (fullBlocks >= parts.length) {
-        return normalized;
-      }
-
-      const maskedParts = parts.slice(0, fullBlocks);
-      if (remainingBits > 0 && fullBlocks < parts.length) {
-        maskedParts.push("0".repeat(remainingBits > 0 ? (16 - remainingBits) / 4 : 0));
-        while (maskedParts.length < parts.length) {
-          maskedParts.push("0");
-        }
-      }
-      return maskedParts.join(":").replace(/:+/g, ":").replace(/:$/, "");
+    // Apply IPv6 subnet masking per OWASP best practices.
+    // Loopback addresses are never masked — they are exempt from rate
+    // limiting and must remain identifiable for the isExempt() check.
+    if (
+      !skipMask &&
+      ipv6SubnetMask > 0 &&
+      normalized.includes(":") &&
+      !isLoopbackAddress(normalized)
+    ) {
+      return applyIpv6SubnetMask(normalized, ipv6SubnetMask);
     }
 
     return normalized;
