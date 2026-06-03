@@ -26,6 +26,7 @@ export default defineConfig({
     "src/ws-endpoint.ts",
     "src/ws-protocol.ts",
     "src/config-guard.ts",
+    "src/ws-frame-validator.ts",
     "src/ws-keepalive.ts",
     "src/security-config.ts",
   ],
