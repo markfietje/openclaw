@@ -599,7 +599,7 @@ export class GatewayClient {
     const wsOptions: FingerprintCheckingClientOptions = {
       maxPayload: 25 * 1024 * 1024,
       ...(this.opts.origin ? { origin: this.opts.origin } : {}),
-      protocols: [GATEWAY_WS_SUBPROTOCOL],
+      protocol: GATEWAY_WS_SUBPROTOCOL,
       headers: buildGatewayClientHeaders(url),
     };
     if (url.startsWith("wss://")) {
@@ -1518,10 +1518,13 @@ export class GatewayClient {
     this.clearReconnectTimer();
     const startupDelay = this.pendingStartupReconnectDelayMs;
     this.pendingStartupReconnectDelayMs = null;
-    const delay = startupDelay ?? this.backoffMs;
+    const baseDelay = startupDelay ?? this.backoffMs;
     if (startupDelay === null) {
       this.backoffMs = Math.min(this.backoffMs * 2, 30_000);
     }
+    // Add jitter to prevent thundering-herd reconnection storms.
+    const jitter = baseDelay * 0.5 * Math.random();
+    const delay = Math.round(baseDelay + jitter);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.start();
