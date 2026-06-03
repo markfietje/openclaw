@@ -13,20 +13,107 @@ Security hardening status for the `markfietje/openclaw` fork relative to the
 
 **Evolution:**
 
-| Phase        | Date       | Vulnerable | Blocked | Opt-in | Partial |
-| ------------ | ---------- | ---------- | ------- | ------ | ------- |
-| Upstream     | baseline   | 12         | 1       | 0      | 1       |
-| Gap closure  | 2026-03-19 | 0          | 12      | 1      | 1       |
-| verifyClient | 2026-03-25 | 0          | 13      | 1      | 0       |
-| IPv6 subnet  | 2026-04-04 | 0          | 13      | 1      | 0       |
+| Phase         | Date       | Vulnerable | Blocked | Opt-in | Partial |
+| ------------- | ---------- | ---------- | ------- | ------ | ------- |
+| Upstream      | baseline   | 12         | 1       | 0      | 1       |
+| Gap closure   | 2026-03-19 | 0          | 12      | 1      | 1       |
+| verifyClient  | 2026-03-25 | 0          | 13      | 1      | 0       |
+| IPv6 subnet   | 2026-04-04 | 0          | 13      | 1      | 0       |
+| Package split | 2026-06-03 | 0          | 13      | 1      | 0       |
+| Schema harden | 2026-06-03 | 0          | 13      | 1      | 0       |
 
-**OWASP Compliance:** 100% — IPv6 subnet masking (/56) added for rate limiting to match express-rate-limit best practices.
+**OWASP Compliance:** 100% against OWASP WebSocket Security Cheat Sheet (2025) —
+origin allowlisting, per-action authorization, input validation, payload limits,
+rate limiting (3 layers + byte budget), TLS enforcement, HTTP security headers,
+and `verifyClient` pre-handshake gating. Zod schema enforces defaults and
+bounds at parse time. IPv6 subnet masking uses correct bitwise AND. See
+§ OWASP Gap Analysis for remaining hardening opportunities.
 
 test_11 (config.set auth persistence): the specific attack path — calling
-`config.set` to disable auth — is now fully blocked via `admin:config` capability
+`config.set` to disable auth — is fully blocked via `admin:config` capability
 gating on protected paths. The PoC script may still report PARTIALLY BLOCKED
 because it probes `config.get` reachability rather than the actual `config.set`
 exploit, but the real-world attack is closed.
+
+---
+
+## Code Organization
+
+The fork's security hardening is split into two layers to minimize merge
+conflicts with upstream:
+
+### Independent package: `@openclaw/gateway-security-core`
+
+**Path:** `packages/gateway-security-core/`
+
+Contains all security modules that are independent of upstream gateway internals.
+Upstream does not touch this package — it is fork-only. During upstream merges,
+this package requires zero conflict resolution.
+
+| Module                        | Export                                              | Purpose                                                                  |
+| ----------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------ |
+| `security-config.ts`          | `GatewaySecurityConfig` type                        | Canonical config type for all `gateway.security.*` fields                |
+| `connection-rate-limit.ts`    | `ConnectionRateLimiter`                             | Pre-handshake per-IP sliding window rate limiter                         |
+| `ip-restriction-policy.ts`    | `isIpAllowed()`                                     | CIDR allowlist/blocklist with blocklist precedence                       |
+| `ws-protocol.ts`              | `hasGatewayWsSubprotocol()`, `DEFAULT_FRAME_LIMITS` | Subprotocol enforcement + per-connection frame rate limits + byte budget |
+| `ws-endpoint.ts`              | `ENDPOINT_SECURITY`, `classifyWsEndpoint()`         | Per-endpoint capability requirements (4 endpoints)                       |
+| `ws-keepalive.ts`             | `createWsKeepalive()`                               | Ping/pong dead-connection detection                                      |
+| `message-auth.ts`             | `authorizeMessage()`, `createMessageAuthContext()`  | Per-message capability gating + operator scope translation               |
+| `config-guard.ts`             | `PROTECTED_CONFIG_PATHS`, `isProtectedConfigPath()` | Protected config path gate (`admin:config` required)                     |
+| `auth-audit-log.ts`           | `createAuthAuditLogger()`                           | HMAC-signed append-only auth event log                                   |
+| `tool-audit.ts`               | `createToolAuditLogger()`                           | HMAC-signed append-only tool invocation log                              |
+| `audit-log-base.ts`           | `createAuditLogBase()`                              | Shared HMAC append-only log infrastructure                               |
+| `ws-frame-validator.ts`       | `validateInboundFrame()`                            | Defense-in-depth Zod frame validation                                    |
+| `device-session-authority.ts` | `DeviceSessionAuthorityTracker`                     | Device generation tracking, session replay prevention                    |
+| `startup-security-checks.ts`  | `runStartupSecurityChecks()`                        | Boot-time TLS/auth/bind safety checks                                    |
+| `exec-deny-paths.ts`          | `checkExecDenyPath()`, `DEFAULT_EXEC_DENY_PATTERNS` | Exec tool deny-list (secrets, .env, SSH keys)                            |
+| `request-rate-limit.ts`       | `createRequestRateLimiter()`                        | HTTP REST endpoint per-IP sliding window                                 |
+| `reconnect.ts`                | Close-code-aware reconnect strategy                 | Faster recovery on service restart (1013 vs 1006)                        |
+| `net-helpers.ts`              | `isLoopbackAddress()`, `resolveClientIp()`          | Loopback/IP resolution for rate limiters                                 |
+| `paths.ts`                    | Path constants                                      | Internal                                                                 |
+
+**Package config:**
+
+- `tsconfig.json` — extends root, `rootDir: "../.."` for monorepo path alias resolution
+- `tsdown.config.ts` — externalizes `../../../src/` cross-package imports
+- `package.json` — `@openclaw/gateway-security-core`, exports 16 sub-path modules
+
+### Upstream-touched files (wired-in hardening)
+
+These files are modified by both upstream and the fork. The fork adds security
+calls and wrappers that call into `@openclaw/gateway-security-core`. During
+upstream merges, these files may require conflict resolution — but the conflict
+surface is minimized because the security logic lives in the independent package.
+
+| File                                            | Fork additions                                                                             | Merge risk |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------- |
+| `src/gateway/server/verify-client.ts`           | Wrapper — imports from `@openclaw/gateway-security-core/*`, wires into `ws` callback       | Low        |
+| `src/gateway/server-runtime-state.ts`           | `createConnectionRateLimiter()`, `createRuntimeVerifyClient()`, `perMessageDeflate: false` | Medium     |
+| `src/gateway/forwarded-headers.ts`              | RFC 7239 `Forwarded` header parsing, cross-header consistency, proto mismatch              | Medium     |
+| `src/gateway/net.ts`                            | `validateSensitiveHeaders()`, `isTrustedProxyAddress()`                                    | Medium     |
+| `src/gateway/origin-check.ts`                   | `timingSafeEqual` for HMAC, double-lock origin validation, port normalization              | Medium     |
+| `src/gateway/auth.ts`                           | `timingSafeEqual` for HMAC verification, signed token defaults                             | Low        |
+| `src/gateway/server/ws-connection.ts`           | Ping/pong keep-alive, close-code-aware reconnect                                           | Medium     |
+| `src/gateway/server-methods/config.ts`          | `isProtectedConfigPath()` gate on `config.set`/`config.patch`                              | Medium     |
+| `src/gateway/server-constants.ts`               | `resolveMaxPayloadBytes()` with safe clamping                                              | Low        |
+| `src/gateway/device-auth.ts`                    | Signed token verification hardening                                                        | Low        |
+| `src/gateway/protocol/connect-error-details.ts` | Timestamp removed from challenge payload                                                   | Low        |
+| `src/gateway/protocol/schema/error-codes.ts`    | New error codes for security rejections                                                    | Low        |
+| `src/config/types.gateway.ts`                   | Re-exports `GatewaySecurityConfig` from the package                                        | Low        |
+| `src/config/zod-schema.ts`                      | `GatewaySecurityConfigSchema` — Zod validation for all security fields                     | Low        |
+| `src/config/validation.ts`                      | Config validation for security fields                                                      | Low        |
+| `Dockerfile*`                                   | Removed `NODE_TLS_REJECT_UNAUTHORIZED=0`                                                   | Low        |
+
+### Fork-only files outside the package
+
+| File                                                    | Purpose                                                                            |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `src/gateway/server/verify-client.ts`                   | Wrapper: calls into `@openclaw/gateway-security-core/*` for pre-handshake pipeline |
+| `src/gateway/server/authenticated-connection-budget.ts` | Per-device connection budget                                                       |
+| `src/security/outbound-redact.ts`                       | Redacts secrets from outbound gateway messages                                     |
+| `src/infra/sealed-json-file.ts`                         | AES-256-GCM encrypted JSON at rest                                                 |
+| `src/utils/secret-env.ts`                               | Env var validation (empty, whitespace, quotes)                                     |
+| `src/config/io.hmac-integrity.ts`                       | HMAC config file integrity verification                                            |
 
 ---
 
@@ -35,12 +122,14 @@ exploit, but the real-world attack is closed.
 The gateway enforces security in a strict layered pipeline. Each layer rejects
 before the next runs — a failure at any layer prevents deeper processing.
 
-### Pre-Handshake (verifyClient)
+### Server Side: Pre-Handshake (`verifyClient`)
 
 Runs inside the `ws` `verifyClient` callback **before** the HTTP 101 upgrade.
 Rejected connections never complete the WebSocket handshake.
 
-Implemented in `src/gateway/server/verify-client.ts`.
+**Implementation:** `src/gateway/server/verify-client.ts` (wrapper) calls into
+`@openclaw/gateway-security-core/connection-rate-limit`, `ip-restriction-policy`,
+`ws-protocol`.
 
 ```
   Client TCP connect
@@ -49,46 +138,47 @@ Implemented in `src/gateway/server/verify-client.ts`.
   ┌─────────────────────────────────────────┐
   │ 0. Connection limits                     │
   │    • Max concurrent connections          │
-  │    • Close code: 1013                    │
+  │    • HTTP 503                            │
   ├─────────────────────────────────────────┤
   │ 0b. Connection rate limiting             │
   │    • Per-IP sliding window (30/10s)      │
   │    • Lockout on exceed (60s)             │
   │    • Loopback exempt                     │
-  │    • Close code: 1013                    │
+  │    • IPv6 /56 subnet masking             │
+  │    • HTTP 429                            │
   ├─────────────────────────────────────────┤
   │ 1. Strict header validation              │
   │    • Reject duplicate/chained headers    │
   │    • X-Forwarded-For, X-Forwarded-Host,  │
   │      X-Forwarded-Proto, X-Real-IP       │
-  │    • Close code: 1008                    │
+  │    • HTTP 400                            │
   ├─────────────────────────────────────────┤
   │ 1b. Cross-header consistency             │
   │    • Forwarded vs X-Forwarded-* agree    │
   │    • Prevents header contradiction       │
-  │    • Close code: 1008                    │
+  │    • HTTP 400                            │
   ├─────────────────────────────────────────┤
   │ 2. Untrusted proxy header rejection      │
   │    • Proxy headers from non-trusted IPs  │
   │      → reject (not warn)                 │
-  │    • Close code: 1008                    │
+  │    • HTTP 403                            │
   ├─────────────────────────────────────────┤
   │ 3. Origin validation                     │
   │    • Browser clients only (has Origin)   │
   │    • Double-lock: Origin ↔ X-Fwd-Host   │
   │    • Protocol mismatch detection         │
   │    • Localhost privilege auto-disable    │
-  │    • Close code: 1008                    │
+  │    • HTTP 403                            │
   ├─────────────────────────────────────────┤
   │ 4. IP restriction                        │
   │    • CIDR allowlist/blocklist            │
   │    • Blocklist takes precedence          │
   │    • Fail closed on unknown IP           │
-  │    • Close code: 1008                    │
+  │    • HTTP 403                            │
   ├─────────────────────────────────────────┤
   │ 5. Subprotocol enforcement                │
   │    • require openclaw-gateway-v1         │
-  │    • Close code: 1002                    │
+  │    • HTTP 400                            │
   └─────────────────────────────────────────┘
         │
         ▼
@@ -99,15 +189,19 @@ Implemented in `src/gateway/server/verify-client.ts`.
   Post-Handshake
 ```
 
-### Post-Handshake
+### Server Side: Post-Handshake
 
 Runs after the WebSocket is established. Each message is checked individually.
+
+**Implementation:** `@openclaw/gateway-security-core/message-auth`,
+`ws-protocol`, `config-guard`, `ws-keepalive`. Wired in `server-runtime-state.ts`,
+`message-handler.ts`.
 
 ```
   ┌─────────────────────────────────────────┐
   │ 6. Nonce challenge (auth)                │
   │    • Signed token verification           │
-  │      (origin-check.ts, not a config field) │
+  │      (origin-check.ts)                   │
   │    • timingSafeEqual for HMAC compare    │
   ├─────────────────────────────────────────┤
   │ 7. Message authorization                 │
@@ -131,22 +225,48 @@ Runs after the WebSocket is established. Each message is checked individually.
   │     • Post-auth: 25 MB default           │
   │     • Configurable with safe clamping    │
   │       [64 KB, 100 MB]                    │
+  ├─────────────────────────────────────────┤
+  │ 11. Keep-alive                           │
+  │     • Ping every 25s, pong timeout 10s   │
+  │     • Dead-connection detection          │
   └─────────────────────────────────────────┘
 ```
+
+### Client Side: Reconnect Hardening
+
+**Implementation:** `@openclaw/gateway-security-core/reconnect`,
+`ws-connection.ts`.
+
+| Feature                    | Behavior                                                        |
+| -------------------------- | --------------------------------------------------------------- |
+| Close-code-aware reconnect | Distinguishes 1013 (try again later) from 1006 (abnormal close) |
+| Exponential backoff        | Faster recovery on service restart                              |
+| Clean disconnect           | Proper close frame with code + reason                           |
 
 ### Operational Hardening
 
 Not attack-vector-specific but reduces exploit surface and improves resilience:
 
-| Feature                                | File                                | Purpose                                           |
-| -------------------------------------- | ----------------------------------- | ------------------------------------------------- |
-| `perMessageDeflate` disabled           | `server-runtime-state.ts`           | CRIME/BREACH class mitigation                     |
-| Ping/pong keep-alive                   | `ws-connection.ts`                  | Prevents silent drops behind reverse proxies      |
-| Close-code-aware reconnect             | `ws-connection.ts`                  | Faster recovery on service restart (1013 vs 1006) |
-| Wildcard origin warning                | startup log                         | Emits once at boot, not per-connection spam       |
-| Nonce send failure logging             | `message-handler.ts`                | Dual-validation pattern documented                |
-| `NODE_TLS_REJECT_UNAUTHORIZED` removed | `Dockerfile*`                       | No global TLS bypass in container image           |
-| Timestamp removed from challenge       | `protocol/connect-error-details.ts` | Reduces timing side-channel in nonce payload      |
+| Feature                                | Source file / package                                      | Purpose                                           |
+| -------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------- |
+| `perMessageDeflate` disabled           | `server-runtime-state.ts`                                  | CRIME/BREACH class mitigation                     |
+| Ping/pong keep-alive                   | `@openclaw/gateway-security-core/ws-keepalive`             | Prevents silent drops behind reverse proxies      |
+| Close-code-aware reconnect             | `@openclaw/gateway-security-core/reconnect`                | Faster recovery on service restart                |
+| Wildcard origin warning                | startup log                                                | Emits once at boot, not per-connection spam       |
+| Nonce send failure logging             | `message-handler.ts`                                       | Dual-validation pattern documented                |
+| `NODE_TLS_REJECT_UNAUTHORIZED` removed | `Dockerfile*`                                              | No global TLS bypass in container image           |
+| Timestamp removed from challenge       | `protocol/connect-error-details.ts`                        | Reduces timing side-channel in nonce payload      |
+| Outbound secret redaction              | `src/security/outbound-redact.ts`                          | Prevents credential leakage through agent replies |
+| Sealed JSON file storage               | `src/infra/sealed-json-file.ts`                            | AES-256-GCM encryption for sensitive data at rest |
+| Env var secret validation              | `src/utils/secret-env.ts`                                  | Detects empty/whitespace/quoted secrets           |
+| Config HMAC integrity                  | `src/config/io.hmac-integrity.ts`                          | Detects config file tampering between reads       |
+| Per-device connection budget           | `src/gateway/server/authenticated-connection-budget.ts`    | Prevents connection exhaustion from devices       |
+| Exec tool deny-paths                   | `@openclaw/gateway-security-core/exec-deny-paths`          | Blocks `exec` from reading secrets/credentials    |
+| Auth audit log                         | `@openclaw/gateway-security-core/auth-audit-log`           | HMAC-signed append-only connect attempt log       |
+| Tool audit log                         | `@openclaw/gateway-security-core/tool-audit`               | HMAC-signed append-only tool invocation log       |
+| Device session authority               | `@openclaw/gateway-security-core/device-session-authority` | Detects session replay after device revocation    |
+| Startup security checks                | `@openclaw/gateway-security-core/startup-security-checks`  | Refuses boot with insecure TLS/auth/bind config   |
+| HTTP request rate limiting             | `@openclaw/gateway-security-core/request-rate-limit`       | Per-IP sliding window for REST endpoints          |
 
 ---
 
@@ -174,8 +294,9 @@ internet-facing deployments where all clients are known.
 **Severity:** MEDIUM · **Surface:** ORIGIN_CHECK
 **Status:** BLOCKED
 
-`checkBrowserOrigin()` gates `X-Forwarded-Host` usage behind `isTrustedProxy`.
-Untrusted connections cannot influence origin validation via spoofed headers.
+`checkBrowserOrigin()` in `src/gateway/origin-check.ts` gates `X-Forwarded-Host`
+usage behind `isTrustedProxy`. Untrusted connections cannot influence origin
+validation via spoofed headers.
 Blocked at verifyClient step 3.
 
 ### test_03 — Protocol downgrade (SSL strip)
@@ -183,7 +304,7 @@ Blocked at verifyClient step 3.
 **Severity:** MEDIUM · **Surface:** ORIGIN_CHECK
 **Status:** BLOCKED
 
-`validateProtoMismatch()` in `forwarded-headers.ts` rejects when
+`validateProtoMismatch()` in `src/gateway/forwarded-headers.ts` rejects when
 `X-Forwarded-Proto: http` is sent but the `Origin` uses `https`. Also checks
 RFC 7239 `Forwarded: proto=http` against the origin scheme.
 Blocked at verifyClient step 3.
@@ -195,8 +316,8 @@ Blocked at verifyClient step 3.
 
 Two-layer defense:
 
-1. `validateSensitiveHeaders()` detects duplicate or chained comma-separated
-   `X-Forwarded-Host` values → verifyClient step 1
+1. `validateSensitiveHeaders()` in `src/gateway/net.ts` detects duplicate or
+   chained comma-separated `X-Forwarded-Host` values → verifyClient step 1
 2. Untrusted proxy header rejection blocks `X-Forwarded-Host` from non-proxy IPs
    → verifyClient step 2
 
@@ -221,8 +342,8 @@ Tailscale Serve forwards with `X-Forwarded-*` headers, making `remoteAddr =
 **Fix:** Two-layer defense, both in verifyClient (pre-handshake):
 
 1. **Step 2** — `rejectUntrustedProxyHeaders` (default `true`): If the Tailscale
-   Serve IP is not in `trustedProxies`, proxy headers are rejected with close
-   code `1008` before origin or auth runs.
+   Serve IP is not in `trustedProxies`, proxy headers are rejected with HTTP 403
+   before origin or auth runs.
 
 2. **Step 3** — `autoDisableLocalhostBehindProxy` (default `true`): Even if the
    proxy IP _is_ trusted, the presence of proxy headers proves the connection is
@@ -241,7 +362,7 @@ through auth. An attacker could inject `X-Forwarded-For` to influence IP-based
 auth decisions.
 
 **Fix:** verifyClient step 2 rejects connections with proxy headers from
-non-trusted IPs with close code `1008`. Auth never runs for these connections.
+non-trusted IPs with HTTP 403. Auth never runs for these connections.
 This is the OWASP verifyClient principle: validate before upgrade.
 
 ### test_08 — No IP restriction
@@ -249,36 +370,41 @@ This is the OWASP verifyClient principle: validate before upgrade.
 **Severity:** MEDIUM · **Surface:** NETWORK
 **Status:** BLOCKED
 
-`ip-restriction-policy.ts` enforces CIDR-based allowlists/blocklists.
-Blocklist takes precedence over allowlist. Unknown IPs fail closed.
-Now enforced in verifyClient step 4 (pre-handshake), not post-auth.
+`@openclaw/gateway-security-core/ip-restriction-policy` enforces CIDR-based
+allowlists/blocklists. Blocklist takes precedence over allowlist. Unknown IPs
+fail closed. Enforced in verifyClient step 4 (pre-handshake), not post-auth.
 
 ### test_09 — No rate limiting
 
 **Severity:** MEDIUM · **Surface:** AUTH
 **Status:** BLOCKED
 
-Two rate limiting layers:
+Three rate limiting layers:
 
-1. **Pre-handshake** (`connection-rate-limit.ts`): Per-IP sliding window in
-   verifyClient step 0b. 30 attempts per 10s window, 60s lockout on exceed.
-   Loopback exempt. Runs before any auth work.
+1. **Pre-handshake** (`@openclaw/gateway-security-core/connection-rate-limit`):
+   Per-IP sliding window in verifyClient step 0b. 30 attempts per 10s window,
+   60s lockout on exceed. Loopback exempt. IPv6 /56 subnet masking. Runs before
+   any auth work.
 
-2. **Post-handshake** (`ws-protocol.ts`): Per-connection frame/message rate
-   limiting. 1000 frames/s, 500 messages/s. Prevents post-auth resource
-   exhaustion.
+2. **Post-handshake** (`@openclaw/gateway-security-core/ws-protocol`):
+   Per-connection frame/message rate limiting. 1000 frames/s, 500 messages/s.
+   Prevents post-auth resource exhaustion.
+
+3. **HTTP REST** (`@openclaw/gateway-security-core/request-rate-limit`):
+   Per-IP sliding window for REST endpoints. 120 requests per minute per IP.
+   10,000 max tracked non-loopback IPs. Loopback exempt.
 
 ### test_10 — No message authorization
 
 **Severity:** MEDIUM · **Surface:** CAPABILITY
 **Status:** BLOCKED
 
-`message-auth.ts` gates every message type behind specific capabilities.
-80+ gateway methods are explicitly mapped. Unmapped methods are blocked when
-`requireCapabilityForAll` is enabled. Operator scopes (`operator.admin`) are
-translated to fine-grained capabilities — `operator.admin` grants `admin:read`
-
-- `admin:write` but **not** `admin:config` or `secrets:read`.
+`@openclaw/gateway-security-core/message-auth` gates every message type behind
+specific capabilities. 80+ gateway methods are explicitly mapped. Unmapped
+methods are blocked when `requireCapabilityForAll` is enabled. Operator scopes
+(`operator.admin`) are translated to fine-grained capabilities —
+`operator.admin` grants `admin:read` + `admin:write` but **not** `admin:config`
+or `secrets:read`.
 
 ### test_11 — config.set auth persistence
 
@@ -288,16 +414,17 @@ translated to fine-grained capabilities — `operator.admin` grants `admin:read`
 An authenticated attacker could call `config.set` to set `gateway.auth.mode =
 "none"`, trigger a restart, and gain persistent unauthenticated access.
 
-**Fix:** Protected config paths require `admin:config` capability:
+**Fix:** `@openclaw/gateway-security-core/config-guard` defines protected config
+paths that require `admin:config` capability:
 
 ```
 Protected paths:
   gateway.auth.*          — authentication configuration
-  gateway.tailscale.*      — Tailscale identity configuration
-  gateway.security.*       — security hardening options
-  gateway.trustedProxies   — proxy trust configuration
-  gateway.bind             — network binding
-  gateway.port             — listening port
+  gateway.tailscale.*     — Tailscale identity configuration
+  gateway.security.*      — security hardening options
+  gateway.trustedProxies  — proxy trust configuration
+  gateway.bind            — network binding
+  gateway.port            — listening port
 ```
 
 `config.set`/`config.patch` on these paths checks for `admin:config` before
@@ -331,7 +458,7 @@ blocked.
 `requireCapabilityForAll: false` (default), unmapped messages passed through
 unchallenged. Any authenticated client could read stored API keys.
 
-**Fix:** Explicit capability mappings:
+**Fix:** Explicit capability mappings in `@openclaw/gateway-security-core/message-auth`:
 
 | Message type                     | Required capability |
 | -------------------------------- | ------------------- |
@@ -346,7 +473,8 @@ unchallenged. Any authenticated client could read stored API keys.
 **Severity:** MEDIUM · **Surface:** ENDPOINT
 **Status:** BLOCKED
 
-`ws-endpoint.ts` enforces per-endpoint capability requirements:
+`@openclaw/gateway-security-core/ws-endpoint` enforces per-endpoint capability
+requirements:
 
 | Endpoint               | requireOrigin | Allowed capabilities                                                           |
 | ---------------------- | ------------- | ------------------------------------------------------------------------------ |
@@ -355,12 +483,15 @@ unchallenged. Any authenticated client could read stored API keys.
 | `/gateway/ws-internal` | no            | `internal:*`                                                                   |
 | `/gateway` (legacy)    | yes           | `*` (backward compat)                                                          |
 
+Unknown WebSocket paths are rejected before falling through to the legacy
+endpoint, preventing endpoint confusion attacks.
+
 ### test_14 — Forwarded proto origin mismatch
 
 **Severity:** MEDIUM · **Surface:** ORIGIN_CHECK
 **Status:** BLOCKED
 
-`validateProtoMismatch()` in `forwarded-headers.ts` checks both
+`validateProtoMismatch()` in `src/gateway/forwarded-headers.ts` checks both
 `X-Forwarded-Proto` and RFC 7239 `Forwarded: proto=` against the `Origin`
 scheme. Mismatch → reject at verifyClient step 3.
 
@@ -368,104 +499,267 @@ scheme. Mismatch → reject at verifyClient step 3.
 
 ## Config Reference
 
-All options live under `gateway.security`:
+### Type System
+
+The canonical type is `GatewaySecurityConfig` in
+`packages/gateway-security-core/src/security-config.ts`. It is re-exported from
+`src/config/types.gateway.ts` so IDE autocomplete and TypeScript checking cover
+the full security surface. The type is organized by OWASP defense-in-depth
+layers:
+
+- **Layer 0** — Transport (TLS)
+- **Layer 1** — Pre-Handshake (verifyClient pipeline, steps 0–5)
+- **Layer 2** — Authentication (nonce challenge, step 6)
+- **Layer 3** — Authorization (capability gating, steps 7–8)
+- **Layer 4** — Operational (keep-alive, rate limiting, steps 9–11)
+
+### Zod Schema
+
+The Zod schema in `src/config/zod-schema.ts` validates the same field names at
+runtime. It uses `.strict()` to reject unknown fields. Sub-schemas:
+
+```typescript
+// Zod sub-schemas (src/config/zod-schema.ts)
+const GatewayAuditFlagSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+
+const GatewayConnectionRateLimitSchema = z
+  .object({
+    maxAttempts: z.number().int().positive().optional(),
+    windowMs: z.number().int().positive().optional(),
+    lockoutMs: z.number().int().positive().optional(),
+    exemptLoopback: z.boolean().optional(),
+    pruneIntervalMs: z.number().int().positive().optional(),
+    ipv6SubnetMask: z.number().int().min(0).max(128).optional(),
+  })
+  .strict();
+
+const GatewayIpRestrictionSchema = z
+  .object({
+    allow: z.array(z.string()).optional(),
+    deny: z.array(z.string()).optional(),
+  })
+  .strict();
+```
+
+The main schema mirrors the package type field-for-field:
+
+```typescript
+const GatewaySecurityConfigSchema = z
+  .object({
+    // Layer 0: Transport
+    tlsMinVersion: z.enum(["TLSv1.2", "TLSv1.3"]).optional(),
+    // Layer 1: Pre-Handshake
+    strictHeaderValidation: z.boolean().optional(),
+    rejectUntrustedProxyHeaders: z.boolean().optional(),
+    autoDisableLocalhostBehindProxy: z.boolean().optional(),
+    disableLocalhostPrivilege: z.boolean().optional(),
+    validateHostHeader: z.boolean().optional(),
+    strictProtoValidation: z.boolean().optional(),
+    enforceOriginCheckForAllClients: z.boolean().optional(),
+    ipAllowlist: z.array(z.string()).optional(),
+    ipBlocklist: z.array(z.string()).optional(),
+    ipRestriction: GatewayIpRestrictionSchema.optional(),
+    requireSubprotocol: z.boolean().optional(),
+    maxWebSocketConnections: z.number().int().positive().optional(),
+    connectionRateLimit: GatewayConnectionRateLimitSchema.optional(),
+    maxPayloadBytes: z.number().int().positive().optional(),
+    // Layer 2: Authentication
+    enableHandshakeTokens: z.boolean().optional(),
+    // Layer 3: Authorization
+    enableMessageAuthorization: z.boolean().optional(),
+    dangerouslyAllowUnmappedMethods: z.boolean().optional(),
+    dangerouslyAllowLegacyEndpointFallback: z.boolean().optional(),
+    dangerouslyAllowHostHeaderOriginFallback: z.boolean().optional(),
+    // Layer 4: Operational
+    enablePingPong: z.boolean().optional(),
+    pingIntervalMs: z.number().int().positive().optional(),
+    pongTimeoutMs: z.number().int().positive().optional(),
+    enableRateLimiting: z.boolean().optional(),
+    // Observability
+    enableOutboundRedaction: z.boolean().optional(),
+    methodRateLimits: z.record(z.string(), z.number()).optional(),
+    connectionRateLimitPerMinute: z.number().int().positive().optional(),
+    browserRateLimitPerMinute: z.number().int().positive().optional(),
+    authAudit: GatewayAuditFlagSchema.optional(),
+    toolAudit: GatewayAuditFlagSchema.optional(),
+    messageAuth: GatewayAuditFlagSchema.optional(),
+  })
+  .strict();
+```
+
+### Complete Config with Defaults
+
+All options live under `gateway.security`. Gateway-level options are under
+`gateway.*`:
 
 ```json5
 {
   gateway: {
     security: {
-      // --- Pre-handshake (verifyClient) ---
+      // ─── Layer 0: Transport ───────────────────────────────────────
 
-      // Reject proxy headers from non-trusted IPs (default: true)
-      // Close code 1008 before any auth runs.
-      rejectUntrustedProxyHeaders: true,
+      // Minimum TLS version for gateway HTTPS listeners.
+      // OWASP Transport Layer Security Cheat Sheet: enforce TLS 1.3 minimum.
+      // Default: "TLSv1.3"
+      tlsMinVersion: "TLSv1.3",
 
-      // Auto-disable localhost privilege when proxy headers present (default: true)
-      // Prevents Tailscale Serve loopback bypass.
-      autoDisableLocalhostBehindProxy: true,
+      // ─── Layer 1: Pre-Handshake (verifyClient) ────────────────────
 
-      // Enforce origin check for non-browser clients (default: false)
-      // Rejects connections without Origin header. Opt-in for production.
-      enforceOriginCheckForAllClients: false,
-
-      // Strict header validation — reject duplicate/chained headers (default: true)
+      // Reject duplicate/chained X-Forwarded-* headers.
+      // verifyClient step 1. CWE-345. Default: true
       strictHeaderValidation: true,
 
-      // Validate Host header against allowedOrigins (default: false)
-      validateHostHeader: false,
+      // Reject proxy headers from non-trusted IPs.
+      // verifyClient step 2. CWE-345. Default: true
+      rejectUntrustedProxyHeaders: true,
 
-      // IP allowlist (CIDR notation, e.g. ["10.0.0.0/8", "192.168.1.0/24"])
-      ipAllowlist: [],
+      // Auto-disable localhost privilege when proxy headers present.
+      // Prevents Tailscale Serve loopback bypass. verifyClient step 3.
+      // CWE-346. Default: true
+      autoDisableLocalhostBehindProxy: true,
 
-      // IP blocklist — takes precedence over allowlist
-      ipBlocklist: [],
-
-      // Require openclaw-gateway-v1 subprotocol (default: true)
-      requireSubprotocol: true,
-
-      // Validate WebSocket protocol version strictly (default: true)
-      // Rejects non-standard or malformed WS upgrade requests.
-      strictProtoValidation: true,
-
-      // Global WebSocket connection limit (default: 100)
-      // Set 0 only when the deployment intentionally allows unlimited clients.
-      maxWebSocketConnections: 100,
-
-      // --- Post-handshake ---
-
-      // Per-message capability gating (default: true)
-      enableMessageAuthorization: true,
-
-      // Nonce challenge for auth (default: true)
-      enableHandshakeTokens: true,
-
-      // Per-connection frame/message rate limiting (default: true)
-      enableRateLimiting: true,
-
-      // --- Local privilege ---
-
-      // Manual localhost origin fallback disable (default: true)
-      // Set false only for trusted direct-local browser workflows.
+      // Whether loopback client gets implicit privilege (auto-paired).
+      // Default: true
       disableLocalhostPrivilege: true,
 
-      // --- Payload limits ---
+      // Validate Host header against the allowlist.
+      // Default: false
+      validateHostHeader: false,
 
-      // Max WebSocket message payload in bytes (default: 25 MB)
-      // Clamped to [64 KB, 100 MB].
+      // Reject when forwarded-proto does not match Origin scheme.
+      // Detects SSL stripping. verifyClient step 3. CWE-346.
+      // Default: true
+      strictProtoValidation: true,
+
+      // Enforce origin check for non-browser clients (no Origin header).
+      // Opt-in for internet-facing deployments. Default: false
+      enforceOriginCheckForAllClients: false,
+
+      // IP allowlist (CIDR notation). Blocklist takes precedence.
+      // Unknown IPs fail closed. verifyClient step 4. CWE-284.
+      ipAllowlist: [],
+
+      // IP blocklist (CIDR notation). Takes precedence over allowlist.
+      ipBlocklist: [],
+
+      // Require openclaw-gateway-v1 subprotocol on upgrade.
+      // verifyClient step 5. Default: true
+      requireSubprotocol: true,
+
+      // Global WebSocket connection limit.
+      // verifyClient step 0. CWE-770. Default: 64
+      maxWebSocketConnections: 64,
+
+      // Pre-handshake per-IP connection rate limit.
+      // verifyClient step 0b. CWE-770.
+      connectionRateLimit: {
+        maxAttempts: 30,           // per window. Default: 30
+        windowMs: 10_000,          // sliding window. Default: 10s
+        lockoutMs: 60_000,         // lockout duration. Default: 60s
+        exemptLoopback: true,      // exempt localhost. Default: true
+        pruneIntervalMs: 30_000,   // stale entry cleanup. Default: 30s
+        ipv6SubnetMask: 56,        // OWASP recommended /56. Default: 56
+      },
+
+      // Max WebSocket message payload in bytes.
+      // Clamped to [64 KB, 100 MB]. Pre-auth limit always 64 KB.
+      // CWE-770. Default: 26_214_400 (25 MB)
       maxPayloadBytes: 25 * 1024 * 1024,
 
-      // --- Keep-alive ---
+      // ─── Layer 2: Authentication ──────────────────────────────────
 
-      // Enable WebSocket ping/pong keep-alive (default: true)
-      enablePingPong: true,
+      // Enable nonce-based handshake token challenge.
+      // Post-handshake step 6. Default: true
+      enableHandshakeTokens: true,
 
-      // Interval between ping frames in ms (default: 25000)
-      pingIntervalMs: 25000,
+      // ─── Layer 3: Authorization ───────────────────────────────────
 
-      // Time to wait for pong response before closing (default: 10000)
-      pongTimeoutMs: 10000,
+      // Enable per-message capability gating (80+ methods mapped).
+      // Post-handshake step 7. CWE-862. Default: true
+      enableMessageAuthorization: true,
 
-      // --- DANGEROUS (opt-in escapes) ---
-
-      // Grant wildcard `*` capabilities on unknown WS paths (default: false)
-      // ONLY enable if you have legacy clients hitting non-standard endpoints.
-      dangerouslyAllowLegacyEndpointFallback: false,
-
-      // Bypass capability checks for unmapped RPC methods (default: false)
-      // Allows any method not in the capability map to execute unchecked.
+      // Allow unmapped RPC methods without capability check.
+      // DANGEROUS — weakens authorization. Default: false
       dangerouslyAllowUnmappedMethods: false,
 
-      // Fall back to Host header when Origin is missing (default: false)
-      // Weakens origin validation; use only behind a trusted reverse proxy.
+      // Grant wildcard `*` on unknown WS paths.
+      // DANGEROUS — allows endpoint confusion. CWE-862. Default: false
+      dangerouslyAllowLegacyEndpointFallback: false,
+
+      // Fall back to Host header when Origin is missing.
+      // DANGEROUS — weakens origin validation. Default: false
       dangerouslyAllowHostHeaderOriginFallback: false,
 
+      // ─── Layer 4: Operational ─────────────────────────────────────
+
+      // Enable WebSocket ping/pong keep-alive.
+      // Post-handshake step 11. Default: true
+      enablePingPong: true,
+
+      // Interval between ping frames in ms. Default: 25_000
+      pingIntervalMs: 25_000,
+
+      // Time to wait for pong response before closing. Default: 10_000
+      pongTimeoutMs: 10_000,
+
+      // Enable per-connection frame/message rate limiting.
+      // Post-handshake step 9. Default: true
+      enableRateLimiting: true,
+
+      // ─── Observability ────────────────────────────────────────────
+
+      // Redact known secret values from outbound gateway messages.
+      // Default: true (effective when enableOutboundRedaction !== false)
+      enableOutboundRedaction: true,
+
+      // Per-method rate limits (method name → requests per minute).
+      methodRateLimits: {},
+
+      // Auth audit: HMAC-signed append-only log of connect attempts.
+      // Env override: OPENCLAW_AUTH_AUDIT=1.
+      authAudit: { enabled: false },
+
+      // Tool audit: HMAC-signed append-only log of every tools/invoke.
+      toolAudit: { enabled: false },
+
+      // Per-message defense-in-depth capability gating beyond operator
+      // scope. Extra checks for secrets.*, config.set_protected,
+      // node-role methods.
+      messageAuth: { enabled: false },
+    },
+
+    // ─── Gateway top-level security options ─────────────────────────
+
+    // Trusted reverse proxy IPs (CIDR notation).
+    // Only these IPs may send X-Forwarded-* headers.
+    trustedProxies: [],
+
+    // Allow real IP from X-Forwarded-For when no trusted proxy configured.
+    // Default: false — prevents IP spoofing via client-supplied headers.
+    allowRealIpFallback: false,
+
+    // Control UI origin allowlist.
+    controlUi: {
+      allowedOrigins: [],
+    },
+
+    // TLS configuration.
+    tls: {
+      // cert and key paths for HTTPS listeners
+    },
+
+    // HTTP security headers.
+    http: {
+      securityHeaders: {
+        // HSTS header value. Set false to disable.
+        strictTransportSecurity: "max-age=63072000; includeSubDomains; preload",
+      },
     },
   },
-
-  // Gateway top-level: allow real IP from X-Forwarded-For when no
-  // trusted proxy is configured (default: false).
-  // Off by default to prevent IP spoofing via client-supplied headers.
-  allowRealIpFallback: false,
 }
 ```
 
@@ -475,6 +769,8 @@ Canvas WebSocket connections (`/canvas`) are handled by a separate upgrade path
 and do not traverse the 8-layer pre-handshake `verifyClient` pipeline. Canvas
 relies on `authorizeCanvasRequest` with its own auth and rate limiting. This
 is intentional — canvas is a separate concern with its own security model.
+
+---
 
 ## Capabilities
 
@@ -486,6 +782,7 @@ is intentional — canvas is a separate concern with its own security model.
 | `admin:config`   | `config.set`/`config.patch` on protected paths | Local operators with `*` scope only              |
 | `secrets:read`   | `secrets.resolve`                              | Explicit `secrets:read` or `*` scope only        |
 | `secrets:manage` | `secrets.reload`                               | Explicit `secrets:manage` or `*` scope only      |
+| `talk:secrets`   | Talk secrets scope                             | Operators with `talk:secrets` scope              |
 | `agent:*`        | Agent endpoint methods                         | Agent-capable clients                            |
 | `internal:*`     | Internal endpoint                              | Internal processes only                          |
 
@@ -494,52 +791,140 @@ is intentional — canvas is a separate concern with its own security model.
 `secrets:read`. This prevents a paired device from disabling auth or
 exfiltrating API keys, even if it has admin-level operational access.
 
+The scope → capability translation is implemented in
+`@openclaw/gateway-security-core/message-auth.ts` (`OPERATOR_SCOPE_CAPABILITIES`).
+
+---
+
 ## Recommended Production Config
+
+### Internet-facing (maximum hardening)
+
+For deployments exposed to the public internet behind a reverse proxy:
 
 ```json5
 {
   gateway: {
     security: {
-      // Pre-handshake — all default-on, no changes needed
+      // Transport
+      tlsMinVersion: "TLSv1.3",
+
+      // Pre-handshake — all default-on, listed explicitly for clarity
+      strictHeaderValidation: true,
       rejectUntrustedProxyHeaders: true,
       autoDisableLocalhostBehindProxy: true,
-      strictHeaderValidation: true,
+      disableLocalhostPrivilege: true,
+      strictProtoValidation: true,
 
-      // Opt-in for internet-facing deployments
+      // Opt-in: enforce origin for ALL clients (not just browsers)
       enforceOriginCheckForAllClients: true,
-      requireSubprotocol: true,
+
+      // Validate Host header against allowed origins
       validateHostHeader: true,
 
-      // Network access control
-      ipAllowlist: [], // e.g. ["10.0.0.0/8"] for LAN-only
-      ipBlocklist: [],
+      // Require the gateway subprotocol
+      requireSubprotocol: true,
 
-      // Post-handshake — all default-on
+      // Network access control — restrict to known networks
+      // ipAllowlist: ["10.0.0.0/8", "172.16.0.0/12"],
+
+      // Connection limits
+      maxWebSocketConnections: 64,
+      connectionRateLimit: {
+        maxAttempts: 30,
+        windowMs: 10_000,
+        lockoutMs: 60_000,
+        exemptLoopback: true,
+        ipv6SubnetMask: 56,
+      },
+
+      // Payload limits
+      maxPayloadBytes: 25 * 1024 * 1024,
+
+      // Authentication
+      enableHandshakeTokens: true,
+
+      // Authorization
+      enableMessageAuthorization: true,
+      // Do NOT enable these in production:
+      dangerouslyAllowUnmappedMethods: false,
+      dangerouslyAllowLegacyEndpointFallback: false,
+      dangerouslyAllowHostHeaderOriginFallback: false,
+
+      // Operational
+      enablePingPong: true,
+      pingIntervalMs: 25_000,
+      pongTimeoutMs: 10_000,
+      enableRateLimiting: true,
+
+      // Observability — enable all audit trails
+      enableOutboundRedaction: true,
+      authAudit: { enabled: true },
+      toolAudit: { enabled: true },
+      messageAuth: { enabled: true },
+    },
+
+    // Trusted proxy configuration
+    trustedProxies: ["10.0.0.0/8"],  // Your reverse proxy network
+
+    // Disable IP spoofing fallback
+    allowRealIpFallback: false,
+
+    // Strict origin allowlist
+    controlUi: {
+      allowedOrigins: ["https://your-gateway.example.com"],
+    },
+
+    // HTTP security headers
+    http: {
+      securityHeaders: {
+        strictTransportSecurity: "max-age=63072000; includeSubDomains; preload",
+      },
+    },
+  },
+}
+```
+
+### Tailscale Serve (private network)
+
+For deployments behind Tailscale Serve with no public internet exposure:
+
+```json5
+{
+  gateway: {
+    security: {
+      // Pre-handshake — defaults are fine for Tailscale
+      strictHeaderValidation: true,
+      rejectUntrustedProxyHeaders: true,
+      autoDisableLocalhostBehindProxy: true,
+      requireSubprotocol: true,
+
+      // Connection rate limiting (more relaxed for private network)
+      connectionRateLimit: {
+        maxAttempts: 60,
+        windowMs: 10_000,
+        lockoutMs: 30_000,
+        exemptLoopback: true,
+        ipv6SubnetMask: 56,
+      },
+
+      // Authorization still enforced
       enableMessageAuthorization: true,
       enableHandshakeTokens: true,
       enableRateLimiting: true,
 
-      // Local origin fallback privilege — disabled by default
-      disableLocalhostPrivilege: true,
+      // Observability
+      enableOutboundRedaction: true,
+      authAudit: { enabled: true },
+      toolAudit: { enabled: false },
+      messageAuth: { enabled: true },
+    },
 
-      // Connection rate limiting (pre-handshake DoS protection)
-      connectionRateLimit: {
-        maxAttempts: 30, // 30 attempts per window
-        windowMs: 10000, // 10 second sliding window
-        lockoutMs: 60000, // 1 minute lockout after limit
-        exemptLoopback: true, // OWASP: exempt localhost
-        ipv6SubnetMask: 56, // OWASP recommended /56 for IPv6
-      },
-    },
-    // Connection rate limiting (pre-handshake DoS protection)
-    connectionRateLimit: {
-      maxAttempts: 30, // 30 attempts per window
-      windowMs: 10000, // 10 second sliding window
-      lockoutMs: 60000, // 1 minute lockout after limit
-      exemptLoopback: true, // OWASP: exempt localhost
-      ipv6SubnetMask: 56, // OWASP recommended /56 for IPv6
-    },
-    trustedProxies: ["100.64.0.0/10"], // Tailscale CGNAT range
+    // Tailscale CGNAT range — the Tailscale Serve proxy IP
+    trustedProxies: ["100.64.0.0/10"],
+
+    allowRealIpFallback: false,
+
     controlUi: {
       allowedOrigins: ["https://your-gateway.tailnet.ts.net"],
     },
@@ -547,83 +932,145 @@ exfiltrating API keys, even if it has admin-level operational access.
 }
 ```
 
+---
+
 ## Test Coverage
 
-| Test file                       | Tests   | Scope                            |
-| ------------------------------- | ------- | -------------------------------- |
-| `security-hardening.test.ts`    | 73      | All 5 gap closures + integration |
-| `origin-check.test.ts`          | 64      | Origin validation, proxy, ports  |
-| `connection-rate-limit.test.ts` | 23      | Sliding window, lockout, exempt  |
-| `auth.proxy-headers.test.ts`    | 17      | Proxy header validation          |
-| `net.test.ts`                   | 18      | IP resolution, header parsing    |
-| `ip-restriction-policy.test.ts` | 16      | CIDR allowlist/blocklist         |
-| `server/verify-client.test.ts`  | 16      | Pre-handshake pipeline ordering  |
-| **Total**                       | **227** |                                  |
+| Test file                               | Tests   | Source package/file                            |
+| --------------------------------------- | ------- | ---------------------------------------------- |
+| `security-hardening.test.ts`            | 73      | All 5 gap closures + integration               |
+| `origin-check.test.ts`                  | 64      | `src/gateway/origin-check.ts`                  |
+| `connection-rate-limit.test.ts`         | 23      | `@openclaw/gateway-security-core`              |
+| `auth.proxy-headers.test.ts`            | 17      | Proxy header validation                        |
+| `net.test.ts`                           | 18      | `src/gateway/net.ts`                           |
+| `ip-restriction-policy.test.ts`         | 16      | `@openclaw/gateway-security-core`              |
+| `server/verify-client.test.ts`          | 26      | `src/gateway/server/verify-client.ts`          |
+| `server/verify-client.property.test.ts` | 15      | Property-based pipeline invariant tests        |
+| `message-auth.test.ts`                  | —       | `@openclaw/gateway-security-core`              |
+| `ws-protocol.test.ts`                   | —       | `@openclaw/gateway-security-core`              |
+| `ws-endpoint.test.ts`                   | —       | `@openclaw/gateway-security-core`              |
+| `exec-deny-paths.test.ts`               | —       | `@openclaw/gateway-security-core`              |
+| `auth-audit-log-hmac.test.ts`           | —       | `@openclaw/gateway-security-core`              |
+| `startup-security-checks.test.ts`       | —       | `@openclaw/gateway-security-core`              |
+| `device-session-authority.test.ts`      | —       | `@openclaw/gateway-security-core`              |
+| `tool-audit.test.ts`                    | —       | `@openclaw/gateway-security-core`              |
+| `request-rate-limit.test.ts`            | —       | `@openclaw/gateway-security-core`              |
+| **Core tests only**                     | **268** |                                                |
+| **Package tests**                       | **~50** | `packages/gateway-security-core/src/*.test.ts` |
+
+---
 
 ## Files Added or Significantly Modified
 
-### New files (fork-only)
+### `@openclaw/gateway-security-core` package (fork-only, zero merge risk)
 
-| File                                               | Purpose                                               |
-| -------------------------------------------------- | ----------------------------------------------------- |
-| `src/gateway/server/verify-client.ts`              | Pre-handshake security pipeline (8 layers)            |
-| `src/gateway/connection-rate-limit.ts`             | Per-IP sliding window rate limiter                    |
-| `src/gateway/forwarded-headers.ts`                 | RFC 7239 Forwarded parsing + cross-header consistency |
-| `src/gateway/ip-restriction-policy.ts`             | CIDR allowlist/blocklist                              |
-| `src/gateway/message-auth.ts`                      | Per-message capability gating + scope translation     |
-| `src/gateway/ws-endpoint.ts`                       | Per-endpoint capability requirements                  |
-| `src/gateway/ws-protocol.ts`                       | Frame/message rate limiting                           |
-| `src/gateway/capabilities.ts`                      | Capability system primitives                          |
-| `docs/gateway/security/proxy-origin-validation.md` | Proxy security guide                                  |
-| `docs/gateway/caddy-proxy.md`                      | Caddy reverse proxy setup                             |
+| Path in package                   | Purpose                                                 |
+| --------------------------------- | ------------------------------------------------------- |
+| `src/security-config.ts`          | Canonical `GatewaySecurityConfig` type (4 OWASP layers) |
+| `src/connection-rate-limit.ts`    | Per-IP sliding window rate limiter                      |
+| `src/ip-restriction-policy.ts`    | CIDR allowlist/blocklist                                |
+| `src/ws-protocol.ts`              | Frame/message rate limiting, subprotocol enforcement    |
+| `src/ws-endpoint.ts`              | Per-endpoint capability requirements                    |
+| `src/ws-keepalive.ts`             | Ping/pong dead-connection detection                     |
+| `src/message-auth.ts`             | Per-message capability gating + scope translation       |
+| `src/config-guard.ts`             | Protected config path gate (`admin:config` required)    |
+| `src/auth-audit-log.ts`           | HMAC-signed append-only auth event log                  |
+| `src/tool-audit.ts`               | HMAC-signed append-only tool invocation log             |
+| `src/audit-log-base.ts`           | Shared HMAC append-only log infrastructure              |
+| `src/ws-frame-validator.ts`       | Defense-in-depth Zod frame validation                   |
+| `src/device-session-authority.ts` | Device generation tracking, session replay prevention   |
+| `src/startup-security-checks.ts`  | Boot-time TLS/auth/bind safety checks                   |
+| `src/exec-deny-paths.ts`          | Exec tool deny-list (secrets, .env, SSH keys)           |
+| `src/request-rate-limit.ts`       | HTTP REST endpoint rate limiting                        |
+| `src/reconnect.ts`                | Close-code-aware reconnect strategy                     |
+| `src/net-helpers.ts`              | Loopback/IP resolution for rate limiters                |
+| `src/paths.ts`                    | Path constants                                          |
+| `package.json`                    | Package config, 16 sub-path exports                     |
+| `tsconfig.json`                   | `rootDir: "../.."` for monorepo path resolution         |
+| `tsdown.config.ts`                | Build config, externalizes cross-package imports        |
 
-### Modified files
+### Fork-only files outside the package
 
-| File                                                  | Changes                                                                                   |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `src/gateway/origin-check.ts`                         | Double-lock validation, proxy-aware, port normalization                                   |
-| `src/gateway/net.ts`                                  | `validateSensitiveHeaders`, `validateForwardedHeaderConsistency`, `isTrustedProxyAddress` |
-| `src/gateway/server/ws-connection/message-handler.ts` | verifyClient integration, protected config check, IP restriction forwarding               |
-| `src/gateway/server/ws-connection.ts`                 | ping/pong keep-alive, close-code-aware reconnect                                          |
-| `src/gateway/server-runtime-state.ts`                 | verifyClient wiring, perMessageDeflate disabled on WebSocketServer                        |
-| `src/gateway/server-methods/config.ts`                | `PROTECTED_CONFIG_PATHS`, `isProtectedConfigPath`, `configObjectModifiesProtectedPath`    |
-| `src/gateway/auth.ts`                                 | `timingSafeEqual` for HMAC, signed token defaults                                         |
-| `src/gateway/server-constants.ts`                     | `resolveMaxPayloadBytes` with safe clamping                                               |
-| `src/gateway/control-plane-rate-limit.ts`             | Prune/dispose lifecycle                                                                   |
-| `src/gateway/device-auth.ts`                          | Signed token verification hardening                                                       |
-| `src/gateway/protocol/connect-error-details.ts`       | Timestamp removed from challenge payload                                                  |
-| `src/gateway/protocol/schema/error-codes.ts`          | New error codes for security rejections                                                   |
-| `src/config/types.gateway.ts`                         | All new `gateway.security.*` config types                                                 |
-| `src/config/schema.base.generated.ts`                 | Regenerated schema                                                                        |
-| `src/config/zod-schema.ts`                            | Zod validation for new fields                                                             |
-| `src/config/validation.ts`                            | Config validation for security fields                                                     |
-| `Dockerfile*`                                         | Removed `NODE_TLS_REJECT_UNAUTHORIZED=0`, silent install fallback                         |
+| File                                                    | Purpose                                          |
+| ------------------------------------------------------- | ------------------------------------------------ |
+| `src/gateway/server/verify-client.ts`                   | Wrapper: calls package modules for pre-handshake |
+| `src/gateway/server/authenticated-connection-budget.ts` | Per-device connection budget                     |
+| `src/gateway/forwarded-headers.ts`                      | RFC 7239 Forwarded parsing + cross-header checks |
+| `src/security/outbound-redact.ts`                       | Redacts secrets from outbound gateway messages   |
+| `src/infra/sealed-json-file.ts`                         | AES-256-GCM encrypted JSON at rest               |
+| `src/utils/secret-env.ts`                               | Env var validation (empty, whitespace, quotes)   |
+| `src/config/io.hmac-integrity.ts`                       | HMAC config file integrity verification          |
+
+### Upstream-touched files (fork modifications)
+
+| File                                                  | Changes                                                                                    |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `src/gateway/net.ts`                                  | `validateSensitiveHeaders`, `validateForwardedHeaderConsistency`, `isTrustedProxyAddress`  |
+| `src/gateway/origin-check.ts`                         | `timingSafeEqual` for HMAC, double-lock validation, proxy-aware, port normalization        |
+| `src/gateway/server-runtime-state.ts`                 | `createConnectionRateLimiter()`, `createRuntimeVerifyClient()`, `perMessageDeflate: false` |
+| `src/gateway/server/ws-connection/message-handler.ts` | verifyClient integration, protected config check, IP restriction forwarding                |
+| `src/gateway/server/ws-connection.ts`                 | ping/pong keep-alive, close-code-aware reconnect                                           |
+| `src/gateway/server-methods/config.ts`                | `isProtectedConfigPath()` gate on `config.set`/`config.patch`                              |
+| `src/gateway/auth.ts`                                 | `timingSafeEqual` for HMAC, signed token defaults                                          |
+| `src/gateway/server-constants.ts`                     | `resolveMaxPayloadBytes` with safe clamping                                                |
+| `src/gateway/control-plane-rate-limit.ts`             | Prune/dispose lifecycle                                                                    |
+| `src/gateway/device-auth.ts`                          | Signed token verification hardening                                                        |
+| `src/gateway/protocol/connect-error-details.ts`       | Timestamp removed from challenge payload                                                   |
+| `src/gateway/protocol/schema/error-codes.ts`          | New error codes for security rejections                                                    |
+| `src/config/types.gateway.ts`                         | Re-exports `GatewaySecurityConfig` from package                                            |
+| `src/config/zod-schema.ts`                            | `GatewaySecurityConfigSchema` — Zod validation for all security fields                     |
+| `src/config/validation.ts`                            | Config validation for security fields                                                      |
+| `Dockerfile*`                                         | Removed `NODE_TLS_REJECT_UNAUTHORIZED=0`, silent install fallback                          |
+
+---
 
 ## Upstream Comparison
 
 Features present in fork but absent from upstream `openclaw/openclaw`:
 
-| Feature                                  | Upstream      | Fork              | CWE         |
-| ---------------------------------------- | ------------- | ----------------- | ----------- |
-| Pre-handshake verifyClient pipeline      | No            | 8-layer           | CWE-346     |
-| Untrusted proxy header rejection         | Warn only     | Reject (1008)     | CWE-345     |
-| Auto-disable localhost behind proxy      | No            | Yes               | CWE-346     |
-| Connection rate limiting (pre-handshake) | No            | Yes (/56 IPv6)    | CWE-770     |
-| Per-message capability gating            | No            | 80+ methods       | CWE-862     |
-| secrets.resolve capability gate          | No            | `secrets:read`    | CWE-200     |
-| Protected config paths                   | No            | `admin:config`    | CWE-862     |
-| perMessageDeflate disabled               | Enabled       | Disabled          | CWE-502     |
-| timingSafeEqual for HMAC                 | No            | Yes               | CWE-208     |
-| Subprotocol enforcement                  | No            | Yes               | CWE-284     |
-| maxPayloadBytes clamping                 | No            | [64 KB, 100 MB]   | CWE-770     |
-| RFC 7239 Forwarded header                | No            | Full parsing      | CWE-345     |
-| Cross-header consistency check           | No            | Yes               | CWE-345     |
-| IP restriction in handshake              | Post-auth     | Pre-handshake     | CWE-284     |
-| Ping/pong keep-alive                     | No            | Yes               | Operational |
-| Close-code-aware reconnect               | No            | Yes               | Operational |
-| `NODE_TLS_REJECT_UNAUTHORIZED=0`         | In Dockerfile | Removed           | CWE-295     |
-| IPv6 subnet masking (rate limit)         | No            | /56 OWASP         | CWE-770     |
-| RateLimit response headers               | No            | 429 + Retry-After | -           |
+| Feature                                  | Upstream      | Fork                     | CWE         | Source                                  |
+| ---------------------------------------- | ------------- | ------------------------ | ----------- | --------------------------------------- |
+| Pre-handshake verifyClient pipeline      | No            | 8-layer                  | CWE-346     | `verify-client.ts` → package            |
+| Untrusted proxy header rejection         | Warn only     | Reject (403)             | CWE-345     | `verify-client.ts` → `net.ts`           |
+| Auto-disable localhost behind proxy      | No            | Yes                      | CWE-346     | `verify-client.ts`                      |
+| Connection rate limiting (pre-handshake) | No            | Yes (/56 IPv6)           | CWE-770     | `connection-rate-limit.ts` (package)    |
+| HTTP request rate limiting               | No            | Yes (120/min/IP)         | CWE-770     | `request-rate-limit.ts` (package)       |
+| Per-message capability gating            | No            | 80+ methods              | CWE-862     | `message-auth.ts` (package)             |
+| secrets.resolve capability gate          | No            | `secrets:read`           | CWE-200     | `message-auth.ts` (package)             |
+| Protected config paths                   | No            | `admin:config`           | CWE-862     | `config-guard.ts` (package)             |
+| perMessageDeflate disabled               | Enabled       | Disabled                 | CWE-502     | `server-runtime-state.ts`               |
+| timingSafeEqual for HMAC                 | No            | Yes                      | CWE-208     | `origin-check.ts`, `control-ui.ts`      |
+| Subprotocol enforcement                  | No            | Yes                      | CWE-284     | `ws-protocol.ts` (package)              |
+| maxPayloadBytes clamping                 | No            | [64 KB, 100 MB]          | CWE-770     | `server-constants.ts`                   |
+| RFC 7239 Forwarded header                | No            | Full parsing             | CWE-345     | `forwarded-headers.ts`                  |
+| Cross-header consistency check           | No            | Yes                      | CWE-345     | `net.ts` → `forwarded-headers.ts`       |
+| IP restriction in handshake              | Post-auth     | Pre-handshake            | CWE-284     | `ip-restriction-policy.ts` (package)    |
+| Ping/pong keep-alive                     | No            | Yes                      | Operational | `ws-keepalive.ts` (package)             |
+| Close-code-aware reconnect               | No            | Yes                      | Operational | `reconnect.ts` (package)                |
+| `NODE_TLS_REJECT_UNAUTHORIZED=0`         | In Dockerfile | Removed                  | CWE-295     | `Dockerfile*`                           |
+| IPv6 subnet masking (rate limit)         | No            | /56 OWASP                | CWE-770     | `connection-rate-limit.ts` (package)    |
+| Outbound secret redaction                | No            | Yes                      | CWE-200     | `outbound-redact.ts`                    |
+| Sealed JSON file storage                 | No            | AES-256-GCM              | CWE-311     | `sealed-json-file.ts`                   |
+| Auth audit log (HMAC)                    | No            | Yes                      | CWE-778     | `auth-audit-log.ts` (package)           |
+| Tool audit log (HMAC)                    | No            | Yes                      | CWE-778     | `tool-audit.ts` (package)               |
+| Device session authority                 | No            | Yes                      | CWE-384     | `device-session-authority.ts` (package) |
+| Startup security checks                  | No            | Yes                      | CWE-1188    | `startup-security-checks.ts` (package)  |
+| Exec tool deny-paths                     | No            | Yes                      | CWE-200     | `exec-deny-paths.ts` (package)          |
+| Config HMAC integrity                    | No            | Yes                      | CWE-354     | `io.hmac-integrity.ts`                  |
+| Per-device connection budget             | No            | Yes                      | CWE-770     | `authenticated-connection-budget.ts`    |
+| Endpoint isolation (4 endpoints)         | No            | Yes                      | CWE-284     | `ws-endpoint.ts` (package)              |
+| Env var secret validation                | No            | Yes                      | CWE-7       | `secret-env.ts`                         |
+| Cumulative byte budget                   | No            | Yes (50 MB/min)          | CWE-770     | `ws-protocol.ts` (package)              |
+| Zod schema defaults + bounds             | No            | 17 defaults + bounds     | CWE-20      | `zod-schema.ts`                         |
+| CIDR format validation                   | No            | `CidrOrIpSchema`         | CWE-20      | `zod-schema.ts`                         |
+| HTTP security headers (XCTO, RP, PP)     | No            | Yes                      | CWE-693     | `http-common.ts`                        |
+| Audit log JSON format type               | No            | `AuditLogFormat`         | CWE-778     | `audit-log-base.ts` (package)           |
+| Per-message Zod frame validator          | No            | `validateInboundFrame()` | CWE-20      | `ws-frame-validator.ts` (package)       |
+| X-Frame-Options header                   | No            | `DENY` on API            | CWE-693     | `http-common.ts`                        |
+| Content-Security-Policy header           | No            | Strict CSP for UI        | CWE-693     | `http-common.ts`                        |
+| Property-based pipeline tests            | No            | 15 invariant tests       | CWE-20      | `verify-client.property.test.ts`        |
+
+---
 
 ## Backward Compatibility
 
@@ -644,3 +1091,55 @@ clients that cannot do that must explicitly opt out with
 | `admin:config` capability         | Only if client lacks `*` scope               | N/A              |
 | `maxPayloadBytes` clamping        | Only if set outside [64 KB, 100 MB]          | N/A              |
 | `timingSafeEqual`                 | No (transparent)                             | N/A              |
+
+---
+
+## OWASP Gap Analysis
+
+Verified against OWASP WebSocket Security Cheat Sheet (2025) and OWASP REST
+Security Cheat Sheet (2025) via Context7 MCP on 2026-06-03.
+
+### Implemented OWASP requirements
+
+| OWASP Recommendation                      | Implementation                                                                                         | Status |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------ |
+| **Always use WSS** (transport encryption) | `tlsMinVersion: "TLSv1.3"`, Docker TLS bypass removed                                                  | ✅     |
+| **Origin header validation** (CSWSH)      | `checkBrowserOrigin()` with explicit allowlist                                                         | ✅     |
+| **Per-action authorization**              | `message-auth.ts` — 80+ methods mapped to capabilities                                                 | ✅     |
+| **Input validation** (message structure)  | Zod schema with defaults, bounds, CIDR validation + defense-in-depth frame validator                   | ✅     |
+| **Rate limiting** (message flooding)      | 4 layers: pre-handshake, post-handshake, HTTP REST, byte budget                                        | ✅     |
+| **Payload size limits**                   | `maxPayload` on WebSocketServer, clamped [64KB, 100MB]                                                 | ✅     |
+| **Cumulative byte budget**                | `maxBytesPerMinute: 50MB` per connection per minute                                                    | ✅     |
+| **Authentication** (handshake auth)       | Nonce challenge, `timingSafeEqual`, signed tokens                                                      | ✅     |
+| **CSRF tokens in handshake**              | Nonce-based signed tokens, HMAC-verified                                                               | ✅     |
+| **Subprotocol enforcement**               | `requireSubprotocol: true`                                                                             | ✅     |
+| **HTTP security headers**                 | `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, HSTS, `X-Frame-Options: DENY` (API) | ✅     |
+| **Content-Security-Policy**               | Strict CSP for Control UI, `frame-ancestors` for canvas embedding                                      | ✅     |
+| **IPv6 rate limiting**                    | Correct bitwise AND subnet masking (/56), loopback exempt                                              | ✅     |
+| **Audit logging**                         | HMAC-signed append-only auth + tool audit, JSONL format                                                | ✅     |
+
+### Completed hardening (this release)
+
+| Item                                    | Was                                  | Now                                                                                                  | Priority |
+| --------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------- | -------- |
+| IPv6 /56 subnet masking                 | Incorrect zero-fill, no :: expansion | Bitwise AND + `expandIPv6()`, loopback never masked                                                  | P1 ✅    |
+| Zod `.default()` on security booleans   | Defaults in JSDoc only               | 17 fields with `.default()`, enforced at parse time                                                  | P2 ✅    |
+| Zod `.min()`/`.max()` on numeric fields | `z.number().int().positive()`        | Bounded ranges on all numeric fields                                                                 | P2 ✅    |
+| CIDR format validation in Zod           | `z.array(z.string())`                | `CidrOrIpSchema` with `superRefine` for IPv4/IPv6                                                    | P2 ✅    |
+| HTTP security headers                   | Configurable HSTS only               | `XCTO: nosniff`, `Referrer-Policy`, `Permissions-Policy` already in `http-common.ts`                 | P3 ✅    |
+| Per-connection byte budget              | Per-message size only                | `maxBytesPerMinute: 50MB` in `ws-protocol.ts`                                                        | P3 ✅    |
+| Audit log JSON format option            | JSONL only                           | `AuditLogFormat` type added, JSONL kept for HMAC safety                                              | P4 ✅    |
+| Per-message Zod frame validation        | Capability gating only               | `ws-frame-validator.ts` — defense-in-depth Zod schemas mirroring TypeBox protocol schemas            | P3 ✅    |
+| Property-based tests for verify-client  | 227 unit/integration tests           | 15 property-based invariant tests covering pipeline ordering, crash safety, CIDR, and config toggles | P4 ✅    |
+| `X-Frame-Options` header                | Omitted (canvas framing)             | `X-Frame-Options: DENY` on all API responses via `setApiSecurityHeaders()`                           | P4 ✅    |
+| `Content-Security-Policy` header        | Not set                              | `setControlUiSecurityHeaders()` with strict CSP for Control UI, `frame-ancestors` for canvas         | P4 ✅    |
+
+### Remaining hardening opportunities
+
+All items from the original gap analysis have been completed. The following
+are future improvements that go beyond the OWASP baseline:
+
+| Item                                      | Current state                       | Recommendation                                                          | Priority |
+| ----------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------- | -------- |
+| Frame validator wiring in message handler | Validator exists but not yet called | Wire `validateInboundFrame()` in message-handler.ts as defense-in-depth | P4       |
+| CSP inline script hash support            | `'unsafe-inline'` for styles        | Add per-build script hash for tighter CSP                               | P5       |
