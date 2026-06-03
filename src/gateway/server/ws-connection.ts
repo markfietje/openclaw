@@ -5,7 +5,11 @@ import type { DeviceSessionAuthorityTracker } from "@openclaw/gateway-security-c
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { RawData, WebSocket, WebSocketServer } from "ws";
 import { WORKER_PROTOCOL_MAX_PAYLOAD_BYTES } from "../../../packages/gateway-protocol/src/index.js";
-import { GATEWAY_STARTUP_PENDING_CLOSE_CAUSE } from "../../../packages/gateway-protocol/src/startup-unavailable.js";
+import {
+  GATEWAY_STARTUP_CLOSE_CODE,
+  GATEWAY_STARTUP_PENDING_CLOSE_CAUSE,
+} from "../../../packages/gateway-protocol/src/startup-unavailable.js";
+import { createWsKeepalive } from "../../../packages/gateway-security-core/src/ws-keepalive.js";
 import { getRuntimeConfig } from "../../config/io.js";
 import { upsertPresence } from "../../infra/system-presence.js";
 import { logRejectedLargePayload } from "../../logging/diagnostic-payload.js";
@@ -172,6 +176,8 @@ export type GatewayWsSharedHandlerParams = {
   gatewayMethods: string[];
   events: string[];
   refreshHealthSnapshot: GatewayRequestContext["refreshHealthSnapshot"];
+  /** Optional keepalive config overrides; defaults come from @openclaw/gateway-security-core/ws-keepalive. */
+  keepaliveConfig?: import("@openclaw/gateway-security-core/ws-keepalive").WsKeepaliveConfig;
 };
 
 export type AttachGatewayWsConnectionHandlerParams = GatewayWsSharedHandlerParams & {
@@ -358,6 +364,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     let pingTimer: ReturnType<typeof setInterval> | undefined;
     let cleanupWorkerConnection: (() => void) | undefined;
     let awaitingPong = false;
+    let keepaliveStop: (() => void) | undefined;
     const handshakeTimeoutMs = resolvePreauthHandshakeTimeoutMs({
       configuredTimeoutMs: params.preauthHandshakeTimeoutMs,
     });
@@ -390,6 +397,10 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
         clearInterval(pingTimer);
       }
       cleanupWorkerConnection?.();
+      if (keepaliveStop) {
+        keepaliveStop();
+        keepaliveStop = undefined;
+      }
       releasePreauthBudget();
       if (client) {
         clients.delete(client);
@@ -429,8 +440,9 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
     };
 
+    const securityConfig = getRuntimeConfig().gateway?.security;
     const connectNonce = randomUUID();
-    if (connectionKind === "gateway") {
+    if (securityConfig?.enableHandshakeTokens !== false) {
       send({
         type: "event",
         event: "connect.challenge",
@@ -458,10 +470,6 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       } else {
         close();
       }
-    });
-
-    socket.on("pong", () => {
-      awaitingPong = false;
     });
 
     const isNoisySwiftPmHelperClose = (userAgent: string | undefined, remote: string | undefined) =>
@@ -721,7 +729,30 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
           }
           return accepted;
         }
-        return setClient(next);
+        releasePreauthBudget();
+        client = next;
+        clients.add(next);
+        const keepalive = createWsKeepalive(
+          {
+            pingIntervalMs: params.keepaliveConfig?.pingIntervalMs ?? 25_000,
+            pongTimeoutMs: params.keepaliveConfig?.pongTimeoutMs ?? 10_000,
+          },
+          {
+            ping: () => {
+              try {
+                socket.ping();
+              } catch {
+                // Socket may already be closing.
+              }
+            },
+            close: () => close(1008, "pong timeout"),
+            warn: (msg) => logWsControl.warn(msg),
+          },
+        );
+        socket.on("pong", () => keepalive.onPong());
+        keepalive.start();
+        keepaliveStop = () => keepalive.stop();
+        return true;
       },
       setHandshakeState: (next) => {
         handshakeState = next;

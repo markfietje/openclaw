@@ -1312,6 +1312,10 @@ export async function startGatewayServer(
       isTerminalEnabled: terminalLaunchPolicy.isEnabled,
       authAuditLogger,
       toolAuditLogger,
+      // Fork security: wire gateway.security config fields to runtime state.
+      connectionRateLimitConfig: cfgAtStart.gateway?.security?.connectionRateLimit,
+      maxPayloadBytes: cfgAtStart.gateway?.security?.maxPayloadBytes,
+      maxWebSocketConnections: cfgAtStart.gateway?.security?.maxWebSocketConnections,
       gatewayTls,
       getResolvedAuth,
       hooksConfig: () => runtimeState?.hooksConfig ?? initialHooksConfig,
@@ -2089,6 +2093,14 @@ export async function startGatewayServer(
         ]),
       );
     const pluginSurfaceScheme = gatewayTls.enabled ? "https" : "http";
+    // Fork security: extract keepalive config from gateway.security for ws-connection wiring.
+    const securityKeepaliveConfig =
+      cfgAtStart.gateway?.security?.enablePingPong !== false
+        ? {
+            pingIntervalMs: cfgAtStart.gateway?.security?.pingIntervalMs,
+            pongTimeoutMs: cfgAtStart.gateway?.security?.pongTimeoutMs,
+          }
+        : undefined;
     await startupTrace.measure("gateway.ws-attach", () =>
       attachGatewayWsHandlers({
         wss,
@@ -2118,6 +2130,7 @@ export async function startGatewayServer(
         ...(workerEnvironmentService ? { workerConnectionService: workerEnvironmentService } : {}),
         broadcast,
         context: gatewayRequestContext,
+        keepaliveConfig: securityKeepaliveConfig,
       }),
     );
     await startupTrace.measure("http.listen", () => startListening());
