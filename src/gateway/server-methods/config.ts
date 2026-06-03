@@ -21,6 +21,10 @@ import {
   validateConfigSetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import {
+  assertNoProtectedPaths,
+  isProtectedConfigPath,
+} from "../../../packages/gateway-security-core/src/config-guard.js";
+import {
   createConfigIO,
   parseConfigJson5,
   readConfigFileSnapshot,
@@ -745,6 +749,12 @@ export const configHandlers: GatewayRequestHandlers = {
     if (!(await ensureResolvableSecretRefsOrRespond({ config: parsed.config, respond }))) {
       return;
     }
+    const changedPaths = diffConfigPaths(snapshot.config, parsed.config);
+    const protectedError = assertNoProtectedPaths(changedPaths);
+    if (protectedError) {
+      respond(false, undefined, errorShape(ErrorCodes.FORBIDDEN, protectedError));
+      return;
+    }
     const writeResult = await commitGatewayConfigWrite({
       snapshot,
       writeOptions,
@@ -891,6 +901,11 @@ export const configHandlers: GatewayRequestHandlers = {
       return;
     }
     const changedPaths = diffConfigPaths(snapshot.config, validated.config);
+    const protectedError = assertNoProtectedPaths(changedPaths);
+    if (protectedError) {
+      respond(false, undefined, errorShape(ErrorCodes.FORBIDDEN, protectedError));
+      return;
+    }
 
     // No-op: if the validated config is identical to the current config,
     // skip the file write and SIGUSR1 restart entirely. This avoids a full
