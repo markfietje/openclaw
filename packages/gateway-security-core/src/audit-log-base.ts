@@ -132,10 +132,10 @@ export function createAuditLogBase<T extends AuditLogEntry>(
   const hmacToken = params.config?.token ?? crypto.randomBytes(32).toString("hex");
 
   // JSONL is required for HMAC-signed append-only logs — a JSON array cannot be
-  // appended to without parsing and rewriting the entire file. `format` is
-  // reserved for future structured output modes (e.g., a separate rotated JSON
-  // index file) and is read off the config without a local binding for now.
-  void params.config?.format;
+  // appended to without parsing and rewriting the entire file. Reserved for future
+  // structured output modes (e.g., a separate rotated JSON index file).
+  const _format: AuditLogFormat = params.config?.format ?? "jsonl";
+  void _format;
 
   const activeFile = path.join(logDir, `${params.baseFilename}.${EXT}`);
 
@@ -146,7 +146,7 @@ export function createAuditLogBase<T extends AuditLogEntry>(
   function log(entry: Omit<T, "ts">): void {
     if (pendingDepth >= MAX_PENDING_DEPTH) {
       // Drop entry to avoid unbounded promise chain growth on I/O failures.
-      // Warn once per second to alert operators without flooding logs.
+      // Warn to alert operators without flooding logs.
       console.warn(
         `[audit-log] dropped entry (pending depth ${pendingDepth} >= ${MAX_PENDING_DEPTH}); ` +
           "I/O may be blocked or disk full. Check disk space and audit log directory.",
