@@ -80,11 +80,6 @@
       "import": "./dist/ws-keepalive.mjs",
       "default": "./dist/ws-keepalive.mjs"
     },
-    "./reconnect": {
-      "types": "./dist/reconnect.d.mts",
-      "import": "./dist/reconnect.mjs",
-      "default": "./dist/reconnect.mjs"
-    },
     "./security-config": {
       "types": "./dist/security-config.d.mts",
       "import": "./dist/security-config.mjs",

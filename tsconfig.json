@@ -125,6 +125,9 @@
       "@openclaw/gateway-security-core/ws-keepalive": [
         "./packages/gateway-security-core/src/ws-keepalive.ts"
       ],
+      "@openclaw/gateway-security-core/ws-frame-validator": [
+        "./packages/gateway-security-core/src/ws-frame-validator.ts"
+      ],
       "@openclaw/media-generation-core": ["./packages/media-generation-core/src/index.ts"],
       "@openclaw/media-generation-core/capability-model-ref": [
         "./packages/media-generation-core/src/capability-model-ref.ts"

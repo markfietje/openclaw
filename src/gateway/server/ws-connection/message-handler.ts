@@ -10,6 +10,13 @@ import {
   resolveMessageAuthorizationDecision,
   type MessageAuthorizationContext,
 } from "@openclaw/gateway-security-core/message-auth";
+import { validateInboundFrame } from "@openclaw/gateway-security-core/ws-frame-validator";
+import {
+  checkRateLimit,
+  createRateLimiterState,
+  DEFAULT_FRAME_LIMITS,
+  type RateLimiterState,
+} from "@openclaw/gateway-security-core/ws-protocol";
 import {
   GATEWAY_CLIENT_IDS,
   GATEWAY_CLIENT_MODES,
@@ -198,12 +205,26 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
   let messageAuthContext: MessageAuthorizationContext | undefined;
   let deviceSessionAuthority: DeviceSessionAuthoritySnapshot | null = null;
 
+  // Per-connection rate limiter state for frame/message/byte budget enforcement.
+  const rateLimiterState: RateLimiterState = createRateLimiterState();
+
   const handleMessage = async (data: RawData) => {
     if (isClosed()) {
       return;
     }
+    // Per-connection rate limiting: frame/message/byte budget.
+    const payloadBytes = rawDataByteLength(data);
+    const rateResult = checkRateLimit(rateLimiterState, DEFAULT_FRAME_LIMITS, payloadBytes);
+    if (!rateResult.ok) {
+      setCloseCause("rate-limit-exceeded", { reason: rateResult.reason });
+      logWsControl.warn(
+        `rate limit exceeded conn=${connId} reason=${rateResult.reason} remote=${remoteAddr ?? "?"}`,
+      );
+      close(1008, rateResult.reason);
+      return;
+    }
 
-    const preauthPayloadBytes = !getClient() ? rawDataByteLength(data) : undefined;
+    const preauthPayloadBytes = !getClient() ? payloadBytes : undefined;
     if (preauthPayloadBytes !== undefined && preauthPayloadBytes > MAX_PREAUTH_PAYLOAD_BYTES) {
       logRejectedLargePayload({
         surface: "gateway.ws.preauth",
@@ -275,6 +296,19 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         );
       }
     };
+
+    // Defense-in-depth: validate frame structure against Zod schema.
+    const frameValidation = validateInboundFrame(parsed);
+    if (!frameValidation.ok) {
+      malformedFrameCount += 1;
+      if (malformedFrameCount >= MAX_MALFORMED_FRAMES_BEFORE_CLOSE) {
+        setCloseCause("too-many-malformed-frames", {
+          count: malformedFrameCount,
+        });
+        close(1008, "too many invalid frames");
+      }
+      return;
+    }
     try {
       const client = getClient();
       if (

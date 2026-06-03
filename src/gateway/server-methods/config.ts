@@ -2,6 +2,10 @@
 // with validation, redaction restoration, secret prep, and reload planning.
 import { isDeepStrictEqual } from "node:util";
 import {
+  assertNoProtectedPaths,
+  isProtectedConfigPath,
+} from "@openclaw/gateway-security-core/config-guard";
+import {
   asDateTimestampMs,
   resolveExpiresAtMsFromDurationMs,
 } from "@openclaw/normalization-core/number-coercion";
@@ -20,10 +24,6 @@ import {
   validateConfigSchemaParams,
   validateConfigSetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
-import {
-  assertNoProtectedPaths,
-  isProtectedConfigPath,
-} from "../../../packages/gateway-security-core/src/config-guard.js";
 import {
   createConfigIO,
   parseConfigJson5,

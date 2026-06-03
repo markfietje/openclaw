@@ -593,6 +593,16 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: "@openclaw/gateway-security-core/ws-frame-validator",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "ws-frame-validator.ts",
+        ),
+      },
+      {
         find: "@openclaw/gateway-security-core",
         replacement: path.join(repoRoot, "packages", "gateway-security-core", "src", "index.ts"),
       },
