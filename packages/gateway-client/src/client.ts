@@ -584,7 +584,6 @@ export class GatewayClient {
     const wsOptions: FingerprintCheckingClientOptions = {
       maxPayload: 25 * 1024 * 1024,
       ...(this.opts.origin ? { origin: this.opts.origin } : {}),
-      protocols: [GATEWAY_WS_SUBPROTOCOL],
       headers: buildGatewayClientHeaders(url),
     };
     if (url.startsWith("wss://")) {
@@ -625,7 +624,7 @@ export class GatewayClient {
       );
     }
     try {
-      ws = new WebSocket(url, wsOptions as ClientOptions);
+      ws = new WebSocket(url, [GATEWAY_WS_SUBPROTOCOL], wsOptions as ClientOptions);
     } catch (error) {
       throw error instanceof Error ? error : new Error(String(error));
     } finally {
