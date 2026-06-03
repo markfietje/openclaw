@@ -39,7 +39,7 @@ import {
 } from "./control-ui-routing.js";
 import type { ControlUiRootState } from "./control-ui.js";
 import type { AuthorizedGatewayHttpRequest } from "./http-auth-utils.js";
-import { sendGatewayAuthFailure, setDefaultSecurityHeaders } from "./http-common.js";
+import { sendGatewayAuthFailure, setApiSecurityHeaders } from "./http-common.js";
 import { resolveRequestClientIp } from "./net.js";
 import {
   normalizePluginNodeCapabilityScopedUrl,
@@ -560,7 +560,7 @@ export function createGatewayHttpServer(opts: {
   }
 
   async function handleRequest(req: IncomingMessage, res: ServerResponse) {
-    setDefaultSecurityHeaders(res, {
+    setApiSecurityHeaders(res, {
       strictTransportSecurity: strictTransportSecurityHeader ?? autoHsts,
     });
 

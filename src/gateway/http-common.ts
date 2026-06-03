@@ -27,6 +27,58 @@ export function setDefaultSecurityHeaders(
   }
 }
 
+/**
+ * Apply strict security headers for API-only responses (JSON, SSE).
+ * Includes X-Frame-Options: DENY since API responses should never be framed.
+ * Use this for non-HTML responses. For Control UI / canvas responses, use
+ * setDefaultSecurityHeaders() or setControlUiSecurityHeaders() instead.
+ */
+export function setApiSecurityHeaders(
+  res: ServerResponse,
+  opts?: { strictTransportSecurity?: string },
+) {
+  setDefaultSecurityHeaders(res, opts);
+  res.setHeader("X-Frame-Options", "DENY");
+}
+
+/**
+ * Apply security headers for Control UI HTML responses.
+ * Includes a strict Content-Security-Policy that only allows resources
+ * from the same origin. Canvas embedding via frame-ancestors is allowed
+ * for the specific canvas host use case.
+ *
+ * Note: the Control UI module (control-ui.ts) builds its own CSP via
+ * buildControlUiCspHeader() which is richer and includes inline script
+ * hashes. This function is a general-purpose alternative for simpler
+ * HTML-serving handlers.
+ */
+export function setControlUiSecurityHeaders(
+  res: ServerResponse,
+  opts?: { strictTransportSecurity?: string; canvasAllowedOrigins?: string[] },
+) {
+  setDefaultSecurityHeaders(res, opts);
+
+  const frameAncestors = opts?.canvasAllowedOrigins?.length
+    ? `'self' ${opts.canvasAllowedOrigins.join(" ")}`
+    : "'self'";
+
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self'",
+      "connect-src 'self' wss:",
+      "frame-ancestors " + frameAncestors,
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+    ].join("; "),
+  );
+}
+
 export function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
