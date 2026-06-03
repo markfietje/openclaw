@@ -101,17 +101,29 @@ export function createAuditLogBase<T extends AuditLogEntry>(
   const hmacToken = params.config?.token ?? "";
 
   // JSONL is required for HMAC-signed append-only logs — a JSON array cannot be
-  // appended to without parsing and rewriting the entire file. The format field
-  // is parsed here for callers to inspect and for future structured output modes
-  // (e.g., a separate rotated JSON index file).
-  const format: AuditLogFormat = params.config?.format ?? "jsonl";
+  // appended to without parsing and rewriting the entire file. Reserved for future
+  // structured output modes (e.g., a separate rotated JSON index file).
+  const _format: AuditLogFormat = params.config?.format ?? "jsonl";
+  void _format;
 
   const activeFile = path.join(logDir, `${params.baseFilename}.${EXT}`);
 
+  const MAX_PENDING_DEPTH = 1000;
+  let pendingDepth = 0;
   let pending: Promise<void> = Promise.resolve();
 
   function log(entry: Omit<T, "ts">): void {
-    pending = pending.then(() => writeEntry(entry as AuditLogEntry)).catch(() => {});
+    if (pendingDepth >= MAX_PENDING_DEPTH) {
+      // Drop entry to avoid unbounded promise chain growth on I/O failures.
+      return;
+    }
+    pendingDepth++;
+    pending = pending
+      .then(() => writeEntry(entry as AuditLogEntry))
+      .catch(() => {})
+      .finally(() => {
+        pendingDepth--;
+      });
   }
 
   function flush(): Promise<void> {

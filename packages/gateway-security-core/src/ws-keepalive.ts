@@ -54,6 +54,7 @@ export function createWsKeepalive(
       handlers.warn(`pong timeout after ${pongTimeoutMs}ms — closing dead connection`);
       handlers.close();
     }, pongTimeoutMs);
+    pongTimer?.unref?.();
   }
 
   function start() {
@@ -72,6 +73,7 @@ export function createWsKeepalive(
         // Socket may already be closing.
       }
     }, pingIntervalMs);
+    pingTimer?.unref?.();
   }
 
   function stop() {

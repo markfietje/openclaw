@@ -27,7 +27,6 @@ export default defineConfig({
     "src/ws-protocol.ts",
     "src/config-guard.ts",
     "src/ws-keepalive.ts",
-    "src/reconnect.ts",
     "src/security-config.ts",
   ],
   platform: "node",
