@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars -- tests destructure `log` from createVerifyClient() for shared assertions; not all tests need it */
 import type { IncomingMessage } from "node:http";
 import net from "node:net";
+import type { ConnectionRateLimiter } from "@openclaw/gateway-security-core/connection-rate-limit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
 import type { OpenClawConfig } from "../../config/config.js";
 import { clearRuntimeConfigSnapshot, setRuntimeConfigSnapshot } from "../../config/io.js";
-import type { ConnectionRateLimiter } from "../connection-rate-limit.js";
 import {
   createGatewayVerifyClient,
   runGatewayUpgradePreflight,
