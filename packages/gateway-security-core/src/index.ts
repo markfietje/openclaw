@@ -9,3 +9,8 @@ export * from "./startup-security-checks.js";
 export * from "./tool-audit.js";
 export * from "./ws-endpoint.js";
 export * from "./ws-protocol.js";
+export * from "./config-guard.js";
+export * from "./ws-keepalive.js";
+export * from "./reconnect.js";
+export * from "./security-config.js";
+export * from "./ws-frame-validator.js";
