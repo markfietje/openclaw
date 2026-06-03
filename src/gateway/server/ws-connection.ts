@@ -8,6 +8,7 @@ import {
   GATEWAY_STARTUP_CLOSE_CODE,
   GATEWAY_STARTUP_PENDING_CLOSE_CAUSE,
 } from "../../../packages/gateway-protocol/src/startup-unavailable.js";
+import { createWsKeepalive } from "../../../packages/gateway-security-core/src/ws-keepalive.js";
 import { getRuntimeConfig } from "../../config/io.js";
 import { upsertPresence } from "../../infra/system-presence.js";
 import { logRejectedLargePayload } from "../../logging/diagnostic-payload.js";
@@ -166,6 +167,8 @@ export type GatewayWsSharedHandlerParams = {
   gatewayMethods: string[];
   events: string[];
   refreshHealthSnapshot: GatewayRequestContext["refreshHealthSnapshot"];
+  /** Optional keepalive config overrides; defaults come from @openclaw/gateway-security-core/ws-keepalive. */
+  keepaliveConfig?: import("@openclaw/gateway-security-core/ws-keepalive").WsKeepaliveConfig;
 };
 
 export type AttachGatewayWsConnectionHandlerParams = GatewayWsSharedHandlerParams & {
@@ -327,6 +330,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     };
 
     let pingTimer: ReturnType<typeof setInterval> | undefined;
+    let keepaliveStop: (() => void) | undefined;
     const handshakeTimeoutMs = resolvePreauthHandshakeTimeoutMs({
       configuredTimeoutMs: params.preauthHandshakeTimeoutMs,
     });
@@ -352,6 +356,10 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       clearTimeout(handshakeTimer);
       if (pingTimer !== undefined) {
         clearInterval(pingTimer);
+      }
+      if (keepaliveStop) {
+        keepaliveStop();
+        keepaliveStop = undefined;
       }
       releasePreauthBudget();
       if (client) {
@@ -392,12 +400,17 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
     };
 
+    // Fork security: nonce challenge gated by enableHandshakeTokens (default true).
+    // FORK_SECURITY.md § Post-Handshake step 6.
+    const securityConfig = getRuntimeConfig().gateway?.security;
     const connectNonce = randomUUID();
-    send({
-      type: "event",
-      event: "connect.challenge",
-      payload: { nonce: connectNonce, ts: Date.now() },
-    });
+    if (securityConfig?.enableHandshakeTokens !== false) {
+      send({
+        type: "event",
+        event: "connect.challenge",
+        payload: { nonce: connectNonce, ts: Date.now() },
+      });
+    }
 
     socket.once("error", (err) => {
       if (isWsPayloadLimitError(err)) {
@@ -577,13 +590,26 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
         releasePreauthBudget();
         client = next;
         clients.add(next);
-        pingTimer = setInterval(() => {
-          try {
-            socket.ping();
-          } catch {
-            // close() clears the timer; ping can race with a socket already entering CLOSING.
-          }
-        }, 25_000);
+        const keepalive = createWsKeepalive(
+          {
+            pingIntervalMs: params.keepaliveConfig?.pingIntervalMs ?? 25_000,
+            pongTimeoutMs: params.keepaliveConfig?.pongTimeoutMs ?? 10_000,
+          },
+          {
+            ping: () => {
+              try {
+                socket.ping();
+              } catch {
+                // Socket may already be closing.
+              }
+            },
+            close: () => close(1008, "pong timeout"),
+            warn: (msg) => logWsControl.warn(msg),
+          },
+        );
+        socket.on("pong", () => keepalive.onPong());
+        keepalive.start();
+        keepaliveStop = () => keepalive.stop();
         return true;
       },
       setHandshakeState: (next) => {
