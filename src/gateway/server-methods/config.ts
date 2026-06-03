@@ -2,10 +2,7 @@
 // with validation, redaction restoration, secret prep, and reload planning.
 import { execFile } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
-import {
-  assertNoProtectedPaths,
-  isProtectedConfigPath,
-} from "@openclaw/gateway-security-core/config-guard";
+import { assertNoProtectedPaths } from "@openclaw/gateway-security-core/config-guard";
 import {
   asDateTimestampMs,
   resolveExpiresAtMsFromDurationMs,

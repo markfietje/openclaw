@@ -539,10 +539,7 @@ export type GatewayToolsConfig = {
 // through the central config types barrel. The package type includes all
 // defense-layer fields (transport, pre-handshake, auth, authorization, operational)
 // so IDE autocomplete and TypeScript checking cover the full security surface.
-import type {
-  GatewaySecurityConfig,
-  GatewayAuditFlagConfig,
-} from "@openclaw/gateway-security-core/security-config";
+import type { GatewaySecurityConfig } from "@openclaw/gateway-security-core/security-config";
 
 export type {
   GatewaySecurityConfig,
