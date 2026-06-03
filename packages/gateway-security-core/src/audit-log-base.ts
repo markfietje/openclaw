@@ -7,11 +7,15 @@ import { resolveStateDir } from "./paths.js";
 // Shared types
 // ---------------------------------------------------------------------------
 
+export type AuditLogFormat = "jsonl" | "json";
+
 export type AuditLogConfig = {
   maxBytes?: number;
   maxFiles?: number;
   logDir?: string;
   token?: string;
+  /** Output format. "jsonl" (default) writes one JSON object per line. "json" is reserved for future structured output modes. */
+  format?: AuditLogFormat;
 };
 
 export type AuditLogEntry = Record<string, unknown>;
@@ -95,6 +99,13 @@ export function createAuditLogBase<T extends AuditLogEntry>(
   const maxFiles = params.config?.maxFiles ?? DEFAULT_MAX_FILES;
   const logDir = params.config?.logDir ?? path.join(resolveStateDir(), "logs");
   const hmacToken = params.config?.token ?? "";
+
+  // JSONL is required for HMAC-signed append-only logs — a JSON array cannot be
+  // appended to without parsing and rewriting the entire file. The format field
+  // is parsed here for callers to inspect and for future structured output modes
+  // (e.g., a separate rotated JSON index file).
+  const format: AuditLogFormat = params.config?.format ?? "jsonl";
+
   const activeFile = path.join(logDir, `${params.baseFilename}.${EXT}`);
 
   let pending: Promise<void> = Promise.resolve();
