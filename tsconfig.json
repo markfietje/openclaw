@@ -119,6 +119,12 @@
       "@openclaw/gateway-security-core/ws-protocol": [
         "./packages/gateway-security-core/src/ws-protocol.ts"
       ],
+      "@openclaw/gateway-security-core/security-config": [
+        "./packages/gateway-security-core/src/security-config.ts"
+      ],
+      "@openclaw/gateway-security-core/ws-keepalive": [
+        "./packages/gateway-security-core/src/ws-keepalive.ts"
+      ],
       "@openclaw/media-generation-core": ["./packages/media-generation-core/src/index.ts"],
       "@openclaw/media-generation-core/capability-model-ref": [
         "./packages/media-generation-core/src/capability-model-ref.ts"
