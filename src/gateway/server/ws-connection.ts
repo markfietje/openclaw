@@ -261,7 +261,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     const wsPath = (upgradeReq.url ?? "/gateway").replace(/\/$/, "").split("?")[0]!;
     if (!isKnownWsEndpoint(wsPath)) {
       logWsControl.warn(
-        `rejected unknown WS path conn path=${wsPath} remote=${socket.remoteAddress ?? "?"}`,
+        `rejected unknown WS path conn path=${wsPath} remote=${upgradeReq.socket.remoteAddress ?? "?"}`,
       );
       socket.close(1008, "unknown websocket endpoint");
       return;
