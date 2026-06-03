@@ -605,16 +605,6 @@ export const sharedVitestConfig = {
         ),
       },
       {
-        find: "@openclaw/gateway-security-core/ws-keepalive",
-        replacement: path.join(
-          repoRoot,
-          "packages",
-          "gateway-security-core",
-          "src",
-          "ws-keepalive.ts",
-        ),
-      },
-      {
         find: "@openclaw/gateway-security-core",
         replacement: path.join(repoRoot, "packages", "gateway-security-core", "src", "index.ts"),
       },
