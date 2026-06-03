@@ -235,6 +235,16 @@ export function createGatewayVerifyClient(
     //    through here; they are authenticated post-handshake.
     const requestOrigin = info.origin;
     const hasBrowserOriginHeader = Boolean(requestOrigin && requestOrigin !== "null");
+    // Non-browser clients (no Origin header). When enforceOriginCheckForAllClients
+    // is enabled, reject — only known browser clients are allowed through.
+    // FORK_SECURITY.md § test_01: opt-in for internet-facing deployments.
+    if (!hasBrowserOriginHeader) {
+      if (securityConfig.enforceOriginCheckForAllClients === true) {
+        log.warn("verifyClient: non-browser client rejected (enforceOriginCheckForAllClients)");
+        callback(false, HTTP_FORBIDDEN, "origin header required");
+        return;
+      }
+    }
     if (hasBrowserOriginHeader) {
       const isLocalClient = isLoopbackAddress(remoteAddr) && !hasProxyHeaders;
       const hostHeaderOriginFallbackEnabled =
