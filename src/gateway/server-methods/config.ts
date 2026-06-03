@@ -4,6 +4,10 @@ import { isDeepStrictEqual } from "node:util";
 import { assertNoProtectedPaths } from "@openclaw/gateway-security-core/config-guard";
 
 import {
+  assertNoProtectedPaths,
+  isProtectedConfigPath,
+} from "@openclaw/gateway-security-core/config-guard";
+import {
   asDateTimestampMs,
   resolveExpiresAtMsFromDurationMs,
 } from "@openclaw/normalization-core/number-coercion";
