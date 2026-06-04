@@ -578,6 +578,8 @@ export class GatewayClient {
     }
     // Allow node screen snapshots and other large responses.
     this.deps.beforeConnect();
+    // ws requires the subprotocol as the second constructor argument;
+    // a `protocol` key inside the options object is silently ignored.
     const wsOptions: FingerprintCheckingClientOptions = {
       maxPayload: 25 * 1024 * 1024,
       ...(this.opts.origin ? { origin: this.opts.origin } : {}),
@@ -621,7 +623,7 @@ export class GatewayClient {
       );
     }
     try {
-      ws = new WebSocket(url, [GATEWAY_WS_SUBPROTOCOL], wsOptions as ClientOptions);
+      ws = new WebSocket(url, GATEWAY_WS_SUBPROTOCOL, wsOptions as ClientOptions);
     } catch (error) {
       throw error instanceof Error ? error : new Error(String(error));
     } finally {
