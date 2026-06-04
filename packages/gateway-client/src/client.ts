@@ -593,10 +593,11 @@ export class GatewayClient {
     }
     // Allow node screen snapshots and other large responses.
     this.deps.beforeConnect();
+    // ws requires the subprotocol as the second constructor argument;
+    // a `protocol` key inside the options object is silently ignored.
     const wsOptions: FingerprintCheckingClientOptions = {
       maxPayload: 25 * 1024 * 1024,
       ...(this.opts.origin ? { origin: this.opts.origin } : {}),
-      protocol: GATEWAY_WS_SUBPROTOCOL,
       headers: buildGatewayClientHeaders(url),
     };
     if (url.startsWith("wss://")) {
@@ -630,7 +631,7 @@ export class GatewayClient {
     // lifecycle and must remove it immediately after the socket is created.
     const unregisterGatewayLoopbackBypass = this.deps.registerGatewayLoopbackBypass(url);
     try {
-      ws = new WebSocket(url, wsOptions as ClientOptions);
+      ws = new WebSocket(url, GATEWAY_WS_SUBPROTOCOL, wsOptions as ClientOptions);
     } catch (error) {
       this.notifyConnectError(error instanceof Error ? error : new Error(String(error)));
       return;
