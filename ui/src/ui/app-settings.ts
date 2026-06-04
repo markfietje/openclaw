@@ -288,7 +288,12 @@ export function applySettingsFromUrl(host: SettingsHost) {
   const hasTokenParam = hashToken != null || queryToken != null;
   const token = normalizeOptionalString(hashToken ?? queryToken);
   const session = normalizeOptionalString(params.get("session") ?? hashParams.get("session"));
-  const shouldResetSessionForToken = Boolean(token && !session && !shouldConfirmGatewayUrlChange);
+  // Reset session only when the token is genuinely new (e.g., a deep link from another
+  // device). When native Mac auth has already applied the same keychain token, or the
+  // token matches what is already persisted, the user's last session should be preserved.
+  const shouldResetSessionForToken = Boolean(
+    token && !session && !shouldConfirmGatewayUrlChange && token !== host.settings.token,
+  );
   let shouldCleanUrl = false;
 
   if (params.has("token")) {

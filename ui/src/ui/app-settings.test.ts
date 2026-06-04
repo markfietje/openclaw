@@ -419,6 +419,29 @@ describe("applySettingsFromUrl", () => {
     expect(host.settings.lastActiveSessionKey).toBe("main");
   });
 
+  it("preserves last active session when the URL token matches the stored token (Mac keychain reopen)", () => {
+    setTestWindowUrl("https://control.example/chat#token=existing-token");
+    const host = createHost("chat");
+    host.settings = {
+      ...host.settings,
+      gatewayUrl: "wss://control.example/gateway",
+      token: "existing-token",
+      sessionKey: "agent:main:dashboard:dc96a97a-23ba-44a3-a5da-aca6c5fce999",
+      lastActiveSessionKey: "agent:main:dashboard:dc96a97a-23ba-44a3-a5da-aca6c5fce999",
+    };
+    host.sessionKey = "agent:main:dashboard:dc96a97a-23ba-44a3-a5da-aca6c5fce999";
+
+    applySettingsFromUrl(host);
+
+    expect(host.sessionKey).toBe("agent:main:dashboard:dc96a97a-23ba-44a3-a5da-aca6c5fce999");
+    expect(host.settings.sessionKey).toBe(
+      "agent:main:dashboard:dc96a97a-23ba-44a3-a5da-aca6c5fce999",
+    );
+    expect(host.settings.lastActiveSessionKey).toBe(
+      "agent:main:dashboard:dc96a97a-23ba-44a3-a5da-aca6c5fce999",
+    );
+  });
+
   it("applies same-origin gateway endpoint URLs without confirmation", () => {
     setTestWindowUrl(
       "https://control.example/chat#gatewayUrl=wss%3A%2F%2Fcontrol.example%2Fgateway&token=test-token",
