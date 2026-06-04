@@ -964,4 +964,29 @@ describe("resolveApplicationStartupSettings gateway deep links", () => {
     expect(result.pendingGatewayToken).toBe("cross-token");
     expect(result.settings.gatewayUrl).toBe("wss://control.example");
   });
+
+  it("preserves last active session when the URL token matches the stored token", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "control.example",
+      pathname: "/chat",
+    });
+    const preserved = "agent:main:dashboard:dc96a97a-23ba-44a3-a5da-aca6c5fce999";
+    const initial: UiSettings = {
+      ...loadSettings(),
+      gatewayUrl: "wss://control.example/gateway",
+      token: "existing-token",
+      sessionKey: preserved,
+      lastActiveSessionKey: preserved,
+    };
+
+    const result = resolveApplicationStartupSettings(initial, {
+      pathname: "/chat",
+      search: "",
+      hash: "token=existing-token",
+    });
+
+    expect(result.settings.sessionKey).toBe(preserved);
+    expect(result.settings.lastActiveSessionKey).toBe(preserved);
+  });
 });
