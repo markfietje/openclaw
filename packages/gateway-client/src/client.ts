@@ -242,15 +242,12 @@ function isSecureWebSocketUrl(rawUrl: string, options?: { allowPrivateWs?: boole
   }
 }
 
-function buildGatewayClientHeaders(url: string): Record<string, string> {
-  const headers: Record<string, string> = {};
-  try {
-    const parsed = new URL(url);
-    headers["origin"] = `${parsed.protocol}//${parsed.host}`;
-  } catch {
-    // Keep malformed URLs on the existing error path.
-  }
-  return headers;
+function buildGatewayClientHeaders(_url: string): Record<string, string> {
+  // Browser clients send their own Origin header automatically. Non-browser
+  // GatewayClient callers (TUI, ACP, MCP) must not send a synthetic Origin —
+  // the gateway's verifyClient origin check is designed for browser origins
+  // and rejects non-matching values even for loopback connections.
+  return {};
 }
 
 type Pending = {
