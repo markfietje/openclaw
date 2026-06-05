@@ -42,6 +42,8 @@ describe("Proxy Header Enforcement", () => {
     mode: "none",
     allowTailscale: false,
     dangerouslyAllowNoAuth: true,
+    allowLocalDirectNoAuth: true,
+    toolsInvokeMaxBodyBytes: 256 * 1024,
   };
 
   describe("requests without proxy headers", () => {
@@ -355,6 +357,8 @@ describe("Proxy Header Enforcement", () => {
         mode: "token",
         token: "secret-token",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
       };
 
       const req = createMockRequest({
