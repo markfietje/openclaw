@@ -12,6 +12,8 @@ function stripDisallowedChatControlChars(message: string): string {
   return chars.join("");
 }
 
+const MAX_CHAT_MESSAGE_LENGTH = 100_000;
+
 /** Normalize chat text and reject null bytes before routing to channels. */
 export function sanitizeChatSendMessageInput(
   message: string,
@@ -19,6 +21,12 @@ export function sanitizeChatSendMessageInput(
   const normalized = message.normalize("NFC");
   if (normalized.includes("\u0000")) {
     return { ok: false, error: "message must not contain null bytes" };
+  }
+  if (normalized.length > MAX_CHAT_MESSAGE_LENGTH) {
+    return {
+      ok: false,
+      error: `message exceeds maximum length (${MAX_CHAT_MESSAGE_LENGTH} characters)`,
+    };
   }
   return { ok: true, message: stripDisallowedChatControlChars(normalized) };
 }
