@@ -12,6 +12,8 @@ export type DeviceSessionInvalidation = {
 
 const DEVICE_SCOPE = "*";
 
+const MAX_GENERATION_ENTRIES = 4096;
+
 function normalizeNonEmpty(value: string): string | null {
   const normalized = value.trim();
   return normalized ? normalized : null;
@@ -66,6 +68,13 @@ export class DeviceSessionAuthorityTracker {
 
   private bump(deviceId: string, role: string): void {
     const generationKey = key(deviceId, role);
+    if (!this.generations.has(generationKey) && this.generations.size >= MAX_GENERATION_ENTRIES) {
+      // Evict the oldest entry to prevent unbounded growth in long-running gateways.
+      const oldestKey = this.generations.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.generations.delete(oldestKey);
+      }
+    }
     this.generations.set(generationKey, (this.generations.get(generationKey) ?? 0) + 1);
   }
 
