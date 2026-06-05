@@ -67,10 +67,10 @@ export function setControlUiSecurityHeaders(
     [
       "default-src 'self'",
       "script-src 'self'",
-      "style-src 'self' 'unsafe-inline'",
+      "style-src 'self'",
       "img-src 'self' data: blob:",
       "font-src 'self'",
-      "connect-src 'self' wss:",
+      "connect-src 'self'",
       "frame-ancestors " + frameAncestors,
       "base-uri 'self'",
       "form-action 'self'",
