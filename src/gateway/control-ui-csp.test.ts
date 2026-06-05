@@ -26,10 +26,11 @@ describe("buildControlUiCspHeader", () => {
     expect(connectSrc?.split(" ")).toEqual([
       "connect-src",
       "'self'",
-      "wss:",
       "https://api.openai.com",
       "https://tweakcn.com",
     ]);
+    // 'self' covers the gateway's own WSS endpoint; no broad wss: wildcard.
+    expect(connectSrc).not.toContain("wss:");
     expect(connectSrc).not.toContain("https://*.tweakcn.com");
     expect(connectSrc?.split(" ")).not.toContain("https:");
   });
