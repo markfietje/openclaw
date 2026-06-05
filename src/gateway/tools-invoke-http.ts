@@ -14,7 +14,7 @@ import {
 } from "./http-utils.js";
 import { invokeGatewayTool, type ToolsInvokeInput } from "./tools-invoke-shared.js";
 
-const DEFAULT_BODY_BYTES = 2 * 1024 * 1024;
+const DEFAULT_BODY_BYTES = 256 * 1024;
 
 /** Handle `/tools/invoke` requests and return false when another HTTP route should handle them. */
 export async function handleToolsInvokeHttpRequest(
@@ -65,7 +65,11 @@ export async function handleToolsInvokeHttpRequest(
   }
   const { cfg, requestAuth } = authResult;
 
-  const bodyUnknown = await readJsonBodyOrError(req, res, opts.maxBodyBytes ?? DEFAULT_BODY_BYTES);
+  const bodyUnknown = await readJsonBodyOrError(
+    req,
+    res,
+    opts.maxBodyBytes ?? opts.auth.toolsInvokeMaxBodyBytes ?? DEFAULT_BODY_BYTES,
+  );
   if (bodyUnknown === undefined) {
     return true;
   }
