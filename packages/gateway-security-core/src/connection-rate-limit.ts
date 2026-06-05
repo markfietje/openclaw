@@ -16,7 +16,8 @@
  */
 
 import { normalizeIpAddress } from "@openclaw/net-policy/ip";
-import { isLoopbackAddress, resolveClientIp } from "./net-helpers.js";
+import { isLoopbackAddress } from "./ip.js";
+import { createSlidingWindowStore, type SlidingWindowBucket } from "./sliding-window-store.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,13 +50,6 @@ export interface ConnectionRateLimitCheckResult {
   retryAfterMs: number;
 }
 
-interface ConnectionRateLimitEntry {
-  /** Timestamps (epoch ms) of recent connection attempts inside the window. */
-  attempts: number[];
-  /** If set, connections from this IP are blocked until this epoch-ms instant. */
-  lockedUntil?: number;
-}
-
 export interface ConnectionRateLimiter {
   /** Check whether `ip` is currently allowed to attempt a connection. */
   check(ip: string | undefined): ConnectionRateLimitCheckResult;
@@ -76,8 +70,54 @@ export interface ConnectionRateLimiter {
 const DEFAULT_MAX_ATTEMPTS = 30;
 const DEFAULT_WINDOW_MS = 10_000; // 10 seconds
 const DEFAULT_LOCKOUT_MS = 60_000; // 1 minute
-const PRUNE_INTERVAL_MS = 30_000; // prune stale entries every 30 seconds
+const DEFAULT_PRUNE_INTERVAL_MS = 30_000; // prune stale entries every 30 seconds
 const DEFAULT_IPV6_SUBNET = 56; // OWASP recommended /56 for IPv6 rate limiting
+
+// ---------------------------------------------------------------------------
+// IPv6 subnet masking (connection-specific OWASP policy)
+// ---------------------------------------------------------------------------
+
+// Expand :: compression to a full 8-block IPv6 address so masking
+// operates on a predictable number of blocks.
+function expandIPv6(address: string): string {
+  if (!address.includes("::")) {
+    return address;
+  }
+  const halves = address.split("::");
+  const left = halves[0] ? halves[0].split(":") : [];
+  const right = halves[1] ? halves[1].split(":") : [];
+  const missing = 8 - left.length - right.length;
+  const expanded = [...left, ...Array(missing).fill("0"), ...right];
+  return expanded.map((p) => p.padStart(4, "0")).join(":");
+}
+
+// Apply a bitwise subnet mask to an IPv6 address.
+// For example /56 keeps 3 full 16-bit blocks and masks the 4th to
+// the first 8 bits (e.g. "abcd" → "ab00").
+function applyIpv6SubnetMask(address: string, maskBits: number): string {
+  const expanded = expandIPv6(address);
+  const parts = expanded.split(":");
+  const fullBlocks = Math.floor(maskBits / 16);
+  const remainingBits = maskBits % 16;
+
+  const result: string[] = [];
+
+  for (let i = 0; i < fullBlocks && i < parts.length; i++) {
+    result.push(parts[i]!);
+  }
+
+  if (remainingBits > 0 && fullBlocks < parts.length) {
+    const blockValue = parseInt(parts[fullBlocks]!, 16);
+    const mask = 0xffff << (16 - remainingBits);
+    result.push((blockValue & mask).toString(16).padStart(4, "0"));
+  }
+
+  while (result.length < 8) {
+    result.push("0");
+  }
+
+  return result.join(":");
+}
 
 // ---------------------------------------------------------------------------
 // Implementation
@@ -90,68 +130,17 @@ export function createConnectionRateLimiter(
   const windowMs = config?.windowMs ?? DEFAULT_WINDOW_MS;
   const lockoutMs = config?.lockoutMs ?? DEFAULT_LOCKOUT_MS;
   const exemptLoopback = config?.exemptLoopback ?? true;
-  const pruneIntervalMs = config?.pruneIntervalMs ?? PRUNE_INTERVAL_MS;
+  const pruneIntervalMs = config?.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
   const ipv6SubnetMask = config?.ipv6SubnetMask ?? DEFAULT_IPV6_SUBNET;
 
-  const entries = new Map<string, ConnectionRateLimitEntry>();
-
-  // Periodic cleanup to avoid unbounded map growth.
-  const pruneTimer = pruneIntervalMs > 0 ? setInterval(() => prune(), pruneIntervalMs) : null;
-  if (pruneTimer?.unref) {
-    pruneTimer.unref();
-  }
+  const store = createSlidingWindowStore({ windowMs, pruneIntervalMs });
 
   function isExempt(ip: string): boolean {
     return exemptLoopback && isLoopbackAddress(ip);
   }
 
-  // Expand :: compression to a full 8-block IPv6 address so masking
-  // operates on a predictable number of blocks.
-  function expandIPv6(address: string): string {
-    if (!address.includes("::")) {
-      return address;
-    }
-    const halves = address.split("::");
-    const left = halves[0] ? halves[0].split(":") : [];
-    const right = halves[1] ? halves[1].split(":") : [];
-    const missing = 8 - left.length - right.length;
-    const expanded = [...left, ...Array(missing).fill("0"), ...right];
-    return expanded.map((p) => p.padStart(4, "0")).join(":");
-  }
-
-  // Apply a bitwise subnet mask to an IPv6 address.
-  // For example /56 keeps 3 full 16-bit blocks and masks the 4th to
-  // the first 8 bits (e.g. "abcd" → "ab00").
-  function applyIpv6SubnetMask(address: string, maskBits: number): string {
-    const expanded = expandIPv6(address);
-    const parts = expanded.split(":");
-    const fullBlocks = Math.floor(maskBits / 16);
-    const remainingBits = maskBits % 16;
-
-    const result: string[] = [];
-
-    // Copy full blocks unchanged
-    for (let i = 0; i < fullBlocks && i < parts.length; i++) {
-      result.push(parts[i]!);
-    }
-
-    // Apply bitmask to the partial block
-    if (remainingBits > 0 && fullBlocks < parts.length) {
-      const blockValue = parseInt(parts[fullBlocks]!, 16);
-      const mask = 0xffff << (16 - remainingBits);
-      result.push((blockValue & mask).toString(16).padStart(4, "0"));
-    }
-
-    // Fill remaining blocks with 0
-    while (result.length < 8) {
-      result.push("0");
-    }
-
-    return result.join(":");
-  }
-
   function normalizeIp(ip: string | undefined, skipMask?: boolean): string {
-    const resolved = resolveClientIp({ remoteAddr: ip }) ?? "unknown";
+    const resolved = ip ?? "unknown";
     const normalized = normalizeIpAddress(resolved);
     if (!normalized) {
       return "unknown";
@@ -172,94 +161,64 @@ export function createConnectionRateLimiter(
     return normalized;
   }
 
-  function slideWindow(entry: ConnectionRateLimitEntry, now: number): void {
-    const cutoff = now - windowMs;
-    entry.attempts = entry.attempts.filter((ts) => ts > cutoff);
-  }
-
   function check(ip: string | undefined): ConnectionRateLimitCheckResult {
-    const normalized = normalizeIp(ip);
-    if (isExempt(normalized)) {
+    const key = normalizeIp(ip);
+    if (isExempt(key)) {
       return { allowed: true, retryAfterMs: 0 };
     }
 
     const now = Date.now();
-    const entry = entries.get(normalized);
+    const entry = store.entries.get(key);
 
     if (!entry) {
       return { allowed: true, retryAfterMs: 0 };
     }
 
-    // Still locked out?
     if (entry.lockedUntil && now < entry.lockedUntil) {
-      return {
-        allowed: false,
-        retryAfterMs: entry.lockedUntil - now,
-      };
+      return { allowed: false, retryAfterMs: entry.lockedUntil - now };
     }
 
-    // Lockout expired – clear it.
     if (entry.lockedUntil && now >= entry.lockedUntil) {
       entry.lockedUntil = undefined;
-      entry.attempts = [];
+      entry.timestamps = [];
     }
 
-    slideWindow(entry, now);
-    const remaining = maxAttempts - entry.attempts.length;
+    store.slideWindow(entry, now);
+    const remaining = maxAttempts - entry.timestamps.length;
     return { allowed: remaining > 0, retryAfterMs: 0 };
   }
 
   function recordAttempt(ip: string | undefined): void {
-    const normalized = normalizeIp(ip);
-    if (isExempt(normalized)) {
+    const key = normalizeIp(ip);
+    if (isExempt(key)) {
       return;
     }
 
     const now = Date.now();
-    let entry = entries.get(normalized);
+    let entry: SlidingWindowBucket | undefined = store.entries.get(key);
 
     if (!entry) {
-      entry = { attempts: [] };
-      entries.set(normalized, entry);
+      entry = { timestamps: [] };
+      store.entries.set(key, entry);
     }
 
-    // If currently locked, do nothing (already blocked).
     if (entry.lockedUntil && now < entry.lockedUntil) {
       return;
     }
 
-    slideWindow(entry, now);
-    entry.attempts.push(now);
+    store.slideWindow(entry, now);
+    entry.timestamps.push(now);
 
-    if (entry.attempts.length >= maxAttempts) {
+    if (entry.timestamps.length >= maxAttempts) {
       entry.lockedUntil = now + lockoutMs;
     }
   }
 
-  function prune(): void {
-    const now = Date.now();
-    for (const [key, entry] of entries) {
-      // If locked out, keep the entry until the lockout expires.
-      if (entry.lockedUntil && now < entry.lockedUntil) {
-        continue;
-      }
-      slideWindow(entry, now);
-      if (entry.attempts.length === 0) {
-        entries.delete(key);
-      }
-    }
-  }
-
-  function size(): number {
-    return entries.size;
-  }
-
-  function dispose(): void {
-    if (pruneTimer) {
-      clearInterval(pruneTimer);
-    }
-    entries.clear();
-  }
-
-  return { check, recordAttempt, size, prune, dispose };
+  return {
+    check,
+    recordAttempt,
+    size: store.size,
+    prune: () => store.prune(),
+    dispose: store.dispose,
+  };
 }
