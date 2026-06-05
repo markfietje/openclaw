@@ -13,6 +13,7 @@
 const MIN_ECHO_CHARS = 80;
 const MAX_BOOT_CHUNK_PROMPTS = 64;
 const MAX_BOOT_CONTEXT_SESSIONS = 512;
+const MAX_BOOT_PROMPT_CHUNK_LENGTH = 4_096;
 
 type BootEchoContext = {
   bootPrompt: string;
@@ -39,9 +40,10 @@ function getBootPromptChunks(normalizedBootPrompt: string, minLen: number): Set<
   if (cached) {
     return cached;
   }
+  const cappedPrompt = normalizedBootPrompt.slice(0, MAX_BOOT_PROMPT_CHUNK_LENGTH);
   const chunks = new Set<string>();
-  for (let i = 0; i <= normalizedBootPrompt.length - minLen; i += 1) {
-    chunks.add(normalizedBootPrompt.slice(i, i + minLen));
+  for (let i = 0; i <= cappedPrompt.length - minLen; i += 1) {
+    chunks.add(cappedPrompt.slice(i, i + minLen));
   }
   chunksByLength.set(minLen, chunks);
   return chunks;
@@ -56,6 +58,20 @@ export function setBootEchoContextForSession(sessionKey: string, bootPrompt: str
     const oldestKey = bootContextBySessionKey.keys().next().value;
     if (oldestKey !== undefined) {
       clearBootEchoContextForSession(oldestKey);
+    }
+  }
+  // Decrement ref count for the old prompt when overwriting an existing session.
+  const existingContext = bootContextBySessionKey.get(sessionKey);
+  if (
+    existingContext &&
+    existingContext.normalizedBootPrompt !== normalizeEchoComparisonText(bootPrompt)
+  ) {
+    const oldRefCount = bootChunksRefByNormalizedPrompt.get(existingContext.normalizedBootPrompt);
+    if (oldRefCount !== undefined && oldRefCount <= 1) {
+      bootChunksByNormalizedPrompt.delete(existingContext.normalizedBootPrompt);
+      bootChunksRefByNormalizedPrompt.delete(existingContext.normalizedBootPrompt);
+    } else if (oldRefCount !== undefined) {
+      bootChunksRefByNormalizedPrompt.set(existingContext.normalizedBootPrompt, oldRefCount - 1);
     }
   }
   const normalizedBootPrompt = normalizeEchoComparisonText(bootPrompt);
