@@ -5,19 +5,20 @@ import { describe, expect, it } from "vitest";
 import { buildControlUiCspHeader, computeInlineScriptHashes } from "./control-ui-csp.js";
 
 describe("buildControlUiCspHeader", () => {
-  it("blocks inline scripts while allowing inline styles", () => {
+  it("blocks inline scripts and inline styles by default", () => {
     const csp = buildControlUiCspHeader();
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("frame-src 'self' http: https:");
     expect(csp).toContain("script-src 'self'");
-    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
-    expect(csp).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com");
+    expect(csp).not.toContain("'unsafe-inline'");
+    expect(csp).toContain("style-src 'self'");
   });
 
-  it("allows Google Fonts for style and font loading", () => {
+  it("restricts font loading to same-origin", () => {
     const csp = buildControlUiCspHeader();
-    expect(csp).toContain("https://fonts.googleapis.com");
-    expect(csp).toContain("font-src 'self' https://fonts.gstatic.com");
+    expect(csp).toContain("font-src 'self'");
+    expect(csp).not.toContain("fonts.googleapis");
+    expect(csp).not.toContain("fonts.gstatic");
   });
 
   it("allows OpenAI realtime and tweakcn theme import requests without allowing all HTTPS", () => {
@@ -26,7 +27,6 @@ describe("buildControlUiCspHeader", () => {
     expect(connectSrc?.split(" ")).toEqual([
       "connect-src",
       "'self'",
-      "ws:",
       "wss:",
       "data:",
       "https://api.openai.com",
