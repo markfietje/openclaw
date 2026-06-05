@@ -4,7 +4,6 @@ import {
   classifyWsEndpoint,
   isKnownWsEndpoint,
   getEndpointSecurity,
-  type WsEndpoint,
 } from "./ws-endpoint.js";
 
 describe("ws-endpoint", () => {

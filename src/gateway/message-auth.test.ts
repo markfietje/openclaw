@@ -88,7 +88,6 @@ describe("gateway message authorization", () => {
   });
 
   it("allows unknown methods when no decision is resolved", () => {
-    const ctx = createCtx({ role: "operator", scopes: [] });
     const decision = resolveMessageAuthorizationDecision("gateway.method.nonexistent");
     expect(decision).toBeUndefined();
   });

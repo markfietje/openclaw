@@ -17,10 +17,7 @@
  *   {@link createAuthRateLimiter} and pass it where needed.
  */
 
-import {
-  createSlidingWindowStore,
-  type SlidingWindowBucket,
-} from "@openclaw/gateway-security-core/sliding-window-store";
+import { createSlidingWindowStore } from "@openclaw/gateway-security-core/sliding-window-store";
 import { resolveTimerTimeoutMs } from "../shared/number-coercion.js";
 import { isLoopbackAddress, resolveClientIp } from "./net.js";
 
@@ -219,8 +216,8 @@ export function createAuthRateLimiter(config?: RateLimitConfig): AuthRateLimiter
     check,
     recordFailure,
     reset,
-    size: store.size,
-    prune: store.prune,
-    dispose: store.dispose,
+    size: () => store.size(),
+    prune: () => store.prune(),
+    dispose: () => store.dispose(),
   };
 }
