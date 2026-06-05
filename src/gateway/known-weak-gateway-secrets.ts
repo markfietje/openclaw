@@ -18,11 +18,11 @@ const KNOWN_WEAK_GATEWAY_PASSWORD_PLACEHOLDERS = ["change-me-to-a-strong-passwor
  * credential.
  */
 const KNOWN_WEAK_GATEWAY_TOKENS: ReadonlySet<string> = new Set(
-  KNOWN_WEAK_GATEWAY_TOKEN_PLACEHOLDERS,
+  KNOWN_WEAK_GATEWAY_TOKEN_PLACEHOLDERS.map((s) => s.toLowerCase()),
 );
 
 const KNOWN_WEAK_GATEWAY_PASSWORDS: ReadonlySet<string> = new Set(
-  KNOWN_WEAK_GATEWAY_PASSWORD_PLACEHOLDERS,
+  KNOWN_WEAK_GATEWAY_PASSWORD_PLACEHOLDERS.map((s) => s.toLowerCase()),
 );
 
 export function assertGatewayAuthNotKnownWeak(auth: ResolvedGatewayAuth): void {
