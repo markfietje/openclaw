@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CORE_GATEWAY_METHOD_SPECS } from "../../../src/gateway/methods/core-descriptors.js";
 import {
   authorizeMessage,
   createMessageAuthContext,
   resolveMessageAuthorizationDecision,
 } from "./message-auth.js";
+import { CORE_GATEWAY_METHOD_SPECS } from "./methods/core-descriptors.js";
 
 function createCtx(params: { role?: string; scopes?: string[] }) {
   return createMessageAuthContext({

@@ -7,14 +7,14 @@ import {
   TALK_SECRETS_SCOPE,
   resolveRequiredOperatorScopeForMethod,
   type OperatorScope,
-} from "../../../src/gateway/method-scopes.js";
-import { resolveCoreGatewayMethodScope } from "../../../src/gateway/methods/core-descriptors.js";
+} from "./method-scopes.js";
+import { resolveCoreGatewayMethodScope } from "./methods/core-descriptors.js";
 import {
   DYNAMIC_GATEWAY_METHOD_SCOPE,
   NODE_GATEWAY_METHOD_SCOPE,
   type GatewayMethodRegistryView,
   type GatewayMethodScope,
-} from "../../../src/gateway/methods/descriptor.js";
+} from "./methods/descriptor.js";
 
 // ---------------------------------------------------------------------------
 // Operator scope → capability translation
