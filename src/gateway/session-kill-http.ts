@@ -121,7 +121,7 @@ export async function handleSessionKillHttpRequest(
       ok: false,
       error: {
         type: "not_found",
-        message: `Session not found: ${sessionKey}`,
+        message: "Session not found",
       },
     });
     return true;

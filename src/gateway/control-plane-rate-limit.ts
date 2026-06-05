@@ -1,3 +1,4 @@
+import { normalizePart } from "./control-plane-audit.js";
 // Control-plane rate limiting bounds write-side RPC attempts per device/IP and
 // caps bucket growth against unique-key memory pressure.
 import type { GatewayClient } from "./server-methods/types.js";
@@ -15,14 +16,6 @@ type Bucket = {
 };
 
 const controlPlaneBuckets = new Map<string, Bucket>();
-
-function normalizePart(value: unknown, fallback: string): string {
-  if (typeof value !== "string") {
-    return fallback;
-  }
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : fallback;
-}
 
 /** Builds a stable throttle key while avoiding shared fallback buckets for anonymous clients. */
 export function resolveControlPlaneRateLimitKey(client: GatewayClient | null): string {
@@ -59,9 +52,18 @@ export function consumeControlPlaneWriteBudget(params: {
       !controlPlaneBuckets.has(key) &&
       controlPlaneBuckets.size >= CONTROL_PLANE_BUCKET_MAX_ENTRIES
     ) {
-      const oldest = controlPlaneBuckets.keys().next().value;
-      if (oldest !== undefined) {
-        controlPlaneBuckets.delete(oldest);
+      // Evict the bucket with the oldest windowStartMs (LRU) instead of
+      // insertion order, so active clients aren't unfairly evicted.
+      let oldestKey: string | undefined;
+      let oldestMs = Infinity;
+      for (const [k, b] of controlPlaneBuckets) {
+        if (b.windowStartMs < oldestMs) {
+          oldestMs = b.windowStartMs;
+          oldestKey = k;
+        }
+      }
+      if (oldestKey !== undefined) {
+        controlPlaneBuckets.delete(oldestKey);
       }
     }
     controlPlaneBuckets.set(key, {

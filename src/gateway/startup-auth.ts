@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { GatewayAuthConfig, GatewayTailscaleConfig } from "../config/types.gateway.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { safeEqualSecret } from "../security/secret-equal.js";
 import {
   hasConfiguredGatewayAuthSecretInput,
   resolveGatewayPasswordSecretRefValue,
@@ -114,7 +115,7 @@ function warnHooksTokenReuseGatewayAuth(params: {
     return;
   }
   const hooksToken = normalizeOptionalString(params.cfg.hooks.token) ?? "";
-  if (!hooksToken || hooksToken !== findActiveGatewaySharedSecret(params.auth)) {
+  if (!hooksToken || !safeEqualSecret(hooksToken, findActiveGatewaySharedSecret(params.auth))) {
     return;
   }
   params.warn(HOOKS_GATEWAY_AUTH_REUSE_WARNING);

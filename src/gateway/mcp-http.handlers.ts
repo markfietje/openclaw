@@ -1,6 +1,7 @@
 // Gateway MCP loopback JSON-RPC handlers.
 // Implements initialize, tools/list, tools/call, and notification handling.
 import crypto from "node:crypto";
+import { z } from "zod";
 import { runBeforeToolCallHook, type HookContext } from "../agents/agent-tools.before-tool-call.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import {
@@ -16,6 +17,17 @@ import {
   type McpLoopbackTool,
   type McpToolSchemaEntry,
 } from "./mcp-http.schema.js";
+
+/** Zod schema for `tools/call` params envelope. Limits key count to bound processing cost. */
+const ToolsCallParamsSchema = z.object({
+  name: z.string().min(1).max(256),
+  arguments: z
+    .record(z.string(), z.unknown())
+    .refine((obj) => Object.keys(obj).length <= 64, {
+      message: "arguments must contain at most 64 keys",
+    })
+    .optional(),
+});
 
 type McpTextContent = {
   type: "text";
@@ -73,14 +85,16 @@ export async function handleMcpJsonRpc(params: {
     case "tools/list":
       return jsonRpcResult(id, { tools: params.toolSchema });
     case "tools/call": {
-      const toolName = typeof methodParams?.name === "string" ? methodParams.name.trim() : "";
-      const toolArgs = (methodParams?.arguments ?? {}) as Record<string, unknown>;
-      if (!toolName) {
-        return jsonRpcResult(id, {
-          content: [{ type: "text", text: "Tool not available: unknown" }],
-          isError: true,
-        });
+      const paramsResult = ToolsCallParamsSchema.safeParse(methodParams);
+      if (!paramsResult.success) {
+        return jsonRpcError(
+          id,
+          -32602,
+          `Invalid params: ${paramsResult.error.issues.map((i) => i.message).join(", ")}`,
+        );
       }
+      const toolName = paramsResult.data.name;
+      const toolArgs = paramsResult.data.arguments ?? {};
       if (!params.toolSchema.some((tool) => tool.name === toolName)) {
         return jsonRpcResult(id, {
           content: [{ type: "text", text: `Tool not available: ${toolName}` }],

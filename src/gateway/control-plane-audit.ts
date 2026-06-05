@@ -10,7 +10,7 @@ export type ControlPlaneActor = {
   connId: string;
 };
 
-function normalizePart(value: unknown, fallback: string): string {
+export function normalizePart(value: unknown, fallback: string): string {
   if (typeof value !== "string") {
     return fallback;
   }
