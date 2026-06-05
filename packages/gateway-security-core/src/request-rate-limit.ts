@@ -9,6 +9,7 @@
  * for consistency with the existing gateway rate-limiting architecture.
  */
 
+import { normalizeIpAddress } from "@openclaw/net-policy/ip";
 import { isLoopbackAddress } from "./ip.js";
 import { createSlidingWindowStore, type SlidingWindowBucket } from "./sliding-window-store.js";
 
@@ -27,6 +28,12 @@ export interface RequestRateLimitConfig {
   maxEntries?: number;
   /** Background prune interval in milliseconds; set <= 0 to disable auto-prune.  @default 30_000 */
   pruneIntervalMs?: number;
+  /**
+   * IPv6 subnet mask for rate-limit key generation.
+   * Mirrors the connection-rate-limit config; /56 collapses ISP-assigned IPv6 ranges.
+   * Set to 0 to disable.  @default 56
+   */
+  ipv6SubnetMask?: number;
 }
 
 export interface RequestRateLimitCheckResult {
@@ -55,6 +62,52 @@ function normalizePositiveInteger(value: number | undefined, fallback: number): 
 }
 
 // ---------------------------------------------------------------------------
+// IPv6 subnet masking (mirrors connection-rate-limit for consistency)
+// ---------------------------------------------------------------------------
+
+// Expand :: compression to a full 8-block IPv6 address so masking
+// operates on a predictable number of blocks.
+function expandIPv6(address: string): string {
+  if (!address.includes("::")) {
+    return address;
+  }
+  const halves = address.split("::");
+  const left = halves[0] ? halves[0].split(":") : [];
+  const right = halves[1] ? halves[1].split(":") : [];
+  const missing = 8 - left.length - right.length;
+  const expanded = [...left, ...Array(missing).fill("0"), ...right];
+  return expanded.map((p) => p.padStart(4, "0")).join(":");
+}
+
+// Apply a bitwise subnet mask to an IPv6 address.
+// For example /56 keeps 3 full 16-bit blocks and masks the 4th to
+// the first 8 bits (e.g. "abcd" -> "ab00").
+function applyIpv6SubnetMask(address: string, maskBits: number): string {
+  const expanded = expandIPv6(address);
+  const parts = expanded.split(":");
+  const fullBlocks = Math.floor(maskBits / 16);
+  const remainingBits = maskBits % 16;
+
+  const result: string[] = [];
+
+  for (let i = 0; i < fullBlocks && i < parts.length; i++) {
+    result.push(parts[i]);
+  }
+
+  if (remainingBits > 0 && fullBlocks < parts.length) {
+    const blockValue = Number.parseInt(parts[fullBlocks], 16);
+    const mask = 0xffff << (16 - remainingBits);
+    result.push((blockValue & mask).toString(16).padStart(4, "0"));
+  }
+
+  while (result.length < 8) {
+    result.push("0");
+  }
+
+  return result.join(":");
+}
+
+// ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
 
@@ -64,11 +117,23 @@ export function createRequestRateLimiter(config?: RequestRateLimitConfig) {
   const exemptLoopback = config?.exemptLoopback ?? true;
   const maxEntries = normalizePositiveInteger(config?.maxEntries, DEFAULT_MAX_ENTRIES);
   const pruneIntervalMs = config?.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
+  const ipv6SubnetMask = config?.ipv6SubnetMask ?? 56;
 
   const store = createSlidingWindowStore({ windowMs, pruneIntervalMs });
 
   function normalizeIp(ip: string | undefined): string {
-    return ip ?? "unknown";
+    const resolved = ip ?? "unknown";
+    const normalized = normalizeIpAddress(resolved);
+    if (!normalized) {
+      return "unknown";
+    }
+    // Apply IPv6 subnet masking consistent with connection-rate-limit.
+    // Loopback addresses are never masked — they are exempt from rate
+    // limiting and must remain identifiable for the isExempt() check.
+    if (ipv6SubnetMask > 0 && normalized.includes(":") && !isLoopbackAddress(normalized)) {
+      return applyIpv6SubnetMask(normalized, ipv6SubnetMask);
+    }
+    return normalized;
   }
 
   function isExempt(ip: string): boolean {
@@ -143,6 +208,11 @@ export function createRequestRateLimiter(config?: RequestRateLimitConfig) {
 
     if (!entry) {
       if (!canTrackNewEntry(now)) {
+        // Fail closed: callers MUST call check() before recordRequest().
+        // When the tracking table is full, check() returns { allowed: false }
+        // and the request is rejected before reaching this path. If code
+        // reaches here despite check() returning false, silently drop the
+        // recording but the request was already rejected upstream.
         return;
       }
       entry = { timestamps: [] };
