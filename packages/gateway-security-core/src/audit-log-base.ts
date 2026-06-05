@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { appendFile, chmod, mkdir, rename, stat } from "node:fs/promises";
 import path from "node:path";
-import { resolveStateDir } from "./paths.js";
+import { resolveStateDir } from "../../../src/config/paths.js";
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -34,6 +34,21 @@ export const DEFAULT_MAX_FILES = 3;
 export const AUDIT_DIR_MODE = 0o700;
 export const AUDIT_FILE_MODE = 0o600;
 export const EXT = "jsonl";
+
+// Bound upstream-supplied audit-log string fields (user, clientId, etc.) so a
+// hostile trusted-proxy header or misconfigured identity provider cannot
+// inflate log lines or consume memory on disk. Appending an ellipsis keeps
+// it obvious to an analyst that the value was clipped.
+export const MAX_AUDIT_STRING_LENGTH = 256;
+
+export function truncateAuditField(value: string | undefined): string | undefined {
+  if (value === undefined || value.length === 0) {
+    return value;
+  }
+  return value.length > MAX_AUDIT_STRING_LENGTH
+    ? `${value.slice(0, MAX_AUDIT_STRING_LENGTH)}\u2026`
+    : value;
+}
 
 // ---------------------------------------------------------------------------
 // Shared HMAC helpers

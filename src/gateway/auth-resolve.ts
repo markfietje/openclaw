@@ -6,6 +6,7 @@ import type {
   GatewayTrustedProxyConfig,
 } from "../config/types.gateway.js";
 import { resolveSecretInputRef } from "../config/types.secrets.js";
+import { logWarn } from "../logger.js";
 import { resolveGatewayCredentialsFromValues } from "./credentials.js";
 
 const DANGEROUSLY_ALLOW_NO_AUTH_ENV = "OPENCLAW_DANGEROUSLY_ALLOW_NO_AUTH";
@@ -25,6 +26,14 @@ export type ResolvedGatewayAuth = {
   password?: string;
   allowTailscale: boolean;
   dangerouslyAllowNoAuth?: boolean;
+  /**
+   * When `mode = "none"`, allow loopback direct-local requests to authenticate
+   * without credentials. Default: true for back-compat; set to false via
+   * `gateway.auth.allowLocalDirectNoAuth` to require auth even on loopback.
+   */
+  allowLocalDirectNoAuth: boolean;
+  /** Max body bytes for `/tools/invoke` (HTTP). Default 262144 (256 KiB). */
+  toolsInvokeMaxBodyBytes: number;
   trustedProxy?: GatewayTrustedProxyConfig;
 };
 
@@ -33,6 +42,16 @@ export type EffectiveSharedGatewayAuth = {
   mode: "token" | "password";
   secret: string | undefined;
 };
+
+const TOOLS_INVOKE_DEFAULT_MAX_BODY_BYTES = 256 * 1024;
+const TOOLS_INVOKE_HARD_MAX_BODY_BYTES = 1024 * 1024;
+
+function resolveToolsInvokeMaxBodyBytes(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return TOOLS_INVOKE_DEFAULT_MAX_BODY_BYTES;
+  }
+  return Math.min(Math.floor(value), TOOLS_INVOKE_HARD_MAX_BODY_BYTES);
+}
 
 export function resolveGatewayAuth(params: {
   authConfig?: GatewayAuthConfig | null;
@@ -61,6 +80,15 @@ export function resolveGatewayAuth(params: {
     }
     if (authOverride.trustedProxy !== undefined) {
       authConfig.trustedProxy = authOverride.trustedProxy;
+    }
+    if (authOverride.dangerouslyAllowNoAuth !== undefined) {
+      authConfig.dangerouslyAllowNoAuth = authOverride.dangerouslyAllowNoAuth;
+    }
+    if (authOverride.allowLocalDirectNoAuth !== undefined) {
+      authConfig.allowLocalDirectNoAuth = authOverride.allowLocalDirectNoAuth;
+    }
+    if (authOverride.toolsInvokeMaxBodyBytes !== undefined) {
+      authConfig.toolsInvokeMaxBodyBytes = authOverride.toolsInvokeMaxBodyBytes;
     }
   }
   const env = params.env ?? process.env;
@@ -100,13 +128,25 @@ export function resolveGatewayAuth(params: {
     authConfig.allowTailscale ??
     (params.tailscaleMode === "serve" && mode !== "password" && mode !== "trusted-proxy");
 
+  // Config takes precedence; env-var remains as a deprecated fallback so
+  // existing dev setups keep working but log a one-shot deprecation notice.
+  let dangerouslyAllowNoAuth = authConfig.dangerouslyAllowNoAuth === true;
+  if (!dangerouslyAllowNoAuth && env[DANGEROUSLY_ALLOW_NO_AUTH_ENV] === "1") {
+    dangerouslyAllowNoAuth = true;
+    logWarn(
+      `Gateway: ${DANGEROUSLY_ALLOW_NO_AUTH_ENV}=1 is deprecated; set gateway.auth.dangerouslyAllowNoAuth: true in openclaw.json instead.`,
+    );
+  }
+
   return {
     mode,
     modeSource,
     token,
     password,
     allowTailscale,
-    ...(env[DANGEROUSLY_ALLOW_NO_AUTH_ENV] === "1" ? { dangerouslyAllowNoAuth: true } : {}),
+    ...(dangerouslyAllowNoAuth ? { dangerouslyAllowNoAuth: true } : {}),
+    allowLocalDirectNoAuth: authConfig.allowLocalDirectNoAuth !== false,
+    toolsInvokeMaxBodyBytes: resolveToolsInvokeMaxBodyBytes(authConfig.toolsInvokeMaxBodyBytes),
     trustedProxy,
   };
 }

@@ -2,6 +2,10 @@
 // Authorizes HTTP/websocket gateway requests across shared-secret, Tailscale, and proxy modes.
 import type { IncomingMessage } from "node:http";
 import {
+  MAX_AUDIT_STRING_LENGTH,
+  truncateAuditField,
+} from "@openclaw/gateway-security-core/audit-log-base";
+import {
   isIpAllowed,
   type IpRestrictionConfig,
 } from "@openclaw/gateway-security-core/ip-restriction-policy";
@@ -35,6 +39,9 @@ export {
 
 const LEGACY_OPENCLAW_ENV_NOTE =
   " Legacy CLAWDBOT_* and MOLTBOT_* environment variables are ignored; use OPENCLAW_* names.";
+
+// Conservative identity charset: email-style and most SSO header values fit.
+const TRUSTED_PROXY_USER_CHARSET = /^[A-Za-z0-9._@-]+$/;
 
 export type GatewayAuthResult = {
   ok: boolean;
@@ -358,6 +365,13 @@ function authorizeTrustedProxy(params: {
 
   const user = userHeaderValue.trim();
 
+  if (user.length > MAX_AUDIT_STRING_LENGTH) {
+    return { reason: "trusted_proxy_user_too_long" };
+  }
+  if (!TRUSTED_PROXY_USER_CHARSET.test(user)) {
+    return { reason: "trusted_proxy_user_invalid_charset" };
+  }
+
   const allowUsers = trustedProxyConfig.allowUsers ?? [];
   if (allowUsers.length > 0 && !allowUsers.includes(user)) {
     return { reason: "trusted_proxy_user_not_allowed" };
@@ -482,8 +496,9 @@ export type CredentialStrengthResult = {
 };
 
 /**
- * Validate credential strength when the gateway is network-exposed.
- * Direct loopback remains permissive; exposed binds reject clearly weak secrets.
+ * Validate credential strength. Network-exposed binds hard-reject clearly weak
+ * secrets; loopback binds downgrade the same checks to warnings so local
+ * development is not blocked while still surfacing the risk.
  */
 export function validateCredentialStrength(params: {
   auth: ResolvedGatewayAuth;
@@ -493,28 +508,31 @@ export function validateCredentialStrength(params: {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  if (!isNetworkExposed) {
-    return { ok: true, errors, warnings };
-  }
-
-  // Import ResolvedGatewayAuth fields — token and password are optional
+  // Pull ResolvedGatewayAuth fields via duck-typing — token and password are
+  // optional and the sealed type does not export them directly.
   const authObj = auth as Record<string, unknown>;
   const token = typeof authObj.token === "string" ? authObj.token : "";
   const password = typeof authObj.password === "string" ? authObj.password : "";
 
   if (auth.mode === "token" && token) {
     if (token.length < 32) {
-      errors.push(
-        `gateway auth token is only ${token.length} characters; minimum 32 required for network-exposed gateways`,
-      );
+      const message = `gateway auth token is only ${token.length} characters; minimum 32 required`;
+      if (isNetworkExposed) {
+        errors.push(message);
+      } else {
+        warnings.push(message);
+      }
     }
   }
 
   if (auth.mode === "password" && password) {
     if (password.length < 15) {
-      errors.push(
-        `gateway auth password is only ${password.length} characters; minimum 15 required for network-exposed gateways`,
-      );
+      const message = `gateway auth password is only ${password.length} characters; minimum 15 required`;
+      if (isNetworkExposed) {
+        errors.push(message);
+      } else {
+        warnings.push(message);
+      }
     }
     if (/^\d+$/.test(password)) {
       warnings.push("gateway auth password contains only digits — use a mix of character types");
@@ -529,7 +547,7 @@ export function validateCredentialStrength(params: {
     }
   }
 
-  return { ok: errors.length === 0 && warnings.length === 0, errors, warnings };
+  return { ok: errors.length === 0, errors, warnings };
 }
 
 /** Authorize a gateway connection, including rate-limit handling around shared-secret failures. */
@@ -617,7 +635,7 @@ async function authorizeGatewayConnectCore(
         event: "auth_success",
         clientIp: ip,
         method: "trusted-proxy",
-        user: result.user,
+        user: truncateAuditField(result.user),
       });
       return { ok: true, method: "trusted-proxy", user: result.user };
     }
@@ -639,7 +657,7 @@ async function authorizeGatewayConnectCore(
           event: "auth_success",
           clientIp: ip,
           method: trustedProxyPasswordResult.method,
-          user: trustedProxyPasswordResult.user,
+          user: truncateAuditField(trustedProxyPasswordResult.user),
         });
       } else {
         auditLogger?.log({
@@ -655,9 +673,19 @@ async function authorizeGatewayConnectCore(
   }
 
   if (auth.mode === "none") {
-    if (auth.dangerouslyAllowNoAuth !== true && req && !localDirect) {
-      auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: "no_auth_not_allowed" });
-      return { ok: false, reason: "no_auth_not_allowed" };
+    if (req) {
+      if (!localDirect && auth.dangerouslyAllowNoAuth !== true) {
+        auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: "no_auth_not_allowed" });
+        return { ok: false, reason: "no_auth_not_allowed" };
+      }
+      if (localDirect && !auth.allowLocalDirectNoAuth) {
+        auditLogger?.log({
+          event: "auth_failure",
+          clientIp: ip,
+          reason: "no_auth_local_disabled",
+        });
+        return { ok: false, reason: "no_auth_local_disabled" };
+      }
     }
     const originResult = authorizeHttpBrowserOrigin({
       authSurface,
@@ -694,7 +722,7 @@ async function authorizeGatewayConnectCore(
         event: "auth_success",
         clientIp: ip,
         method: "tailscale",
-        user: tailscaleCheck.user.login,
+        user: truncateAuditField(tailscaleCheck.user.login),
       });
       return {
         ok: true,
@@ -717,7 +745,7 @@ async function authorizeGatewayConnectCore(
         event: "auth_success",
         clientIp: ip,
         method: tokenResult.method,
-        user: tokenResult.user,
+        user: truncateAuditField(tokenResult.user),
       });
     } else {
       auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: tokenResult.reason });
@@ -738,7 +766,7 @@ async function authorizeGatewayConnectCore(
         event: "auth_success",
         clientIp: ip,
         method: passwordResult.method,
-        user: passwordResult.user,
+        user: truncateAuditField(passwordResult.user),
       });
     } else {
       auditLogger?.log({ event: "auth_failure", clientIp: ip, reason: passwordResult.reason });
