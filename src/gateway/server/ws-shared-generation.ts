@@ -1,7 +1,13 @@
 // WebSocket shared-session generation hashes gateway auth inputs so clients can detect credential rotation.
+import { randomBytes } from "node:crypto";
 import type { GatewayTrustedProxyConfig } from "../../config/types.gateway.js";
-import { sha256Base64Url } from "../../infra/crypto-digest.js";
+import { sha256Base64Url, sha256Base64UrlWithPepper } from "../../infra/crypto-digest.js";
 import type { ResolvedGatewayAuth } from "../auth.js";
+
+// Per-process random pepper prevents offline brute-force of the auth secret
+// from the generation hash, which is exposed to unauthenticated clients
+// during the handshake challenge. The pepper rotates on gateway restart.
+const PROCESS_PEPPER = randomBytes(32);
 
 function resolveSharedSecret(
   auth: ResolvedGatewayAuth,
@@ -40,7 +46,7 @@ export function resolveSharedGatewaySessionGeneration(
 ): string | undefined {
   const shared = resolveSharedSecret(auth);
   if (shared) {
-    return sha256Base64Url(`${shared.mode}\u0000${shared.secret}`);
+    return sha256Base64UrlWithPepper(`${shared.mode}\u0000${shared.secret}`, PROCESS_PEPPER);
   }
   if (auth.mode === "trusted-proxy") {
     return sha256Base64Url(
