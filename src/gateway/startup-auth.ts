@@ -51,6 +51,15 @@ export function mergeGatewayAuthConfig(
   if (override.trustedProxy !== undefined) {
     merged.trustedProxy = override.trustedProxy;
   }
+  if (override.allowLocalDirectNoAuth !== undefined) {
+    merged.allowLocalDirectNoAuth = override.allowLocalDirectNoAuth;
+  }
+  if (override.dangerouslyAllowNoAuth !== undefined) {
+    merged.dangerouslyAllowNoAuth = override.dangerouslyAllowNoAuth;
+  }
+  if (override.toolsInvokeMaxBodyBytes !== undefined) {
+    merged.toolsInvokeMaxBodyBytes = override.toolsInvokeMaxBodyBytes;
+  }
   return merged;
 }
 
