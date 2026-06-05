@@ -2,6 +2,7 @@
 // Serializes limiter attempts per IP/scope so concurrent failures count correctly.
 import { AUTH_RATE_LIMIT_SCOPE_DEFAULT, normalizeRateLimitClientIp } from "./auth-rate-limit.js";
 
+const MAX_PENDING_ATTEMPTS = 10_000;
 const pendingAttempts = new Map<string, Promise<void>>();
 
 function normalizeScope(scope: string | undefined): string {
@@ -25,6 +26,13 @@ export async function withSerializedRateLimitAttempt<T>(params: {
     releaseCurrent = resolve;
   });
   const tail = previous.catch(() => {}).then(() => current);
+  if (pendingAttempts.size >= MAX_PENDING_ATTEMPTS && !pendingAttempts.has(key)) {
+    // Evict the oldest pending attempt key to prevent unbounded growth.
+    const oldestKey = pendingAttempts.keys().next().value;
+    if (oldestKey !== undefined) {
+      pendingAttempts.delete(oldestKey);
+    }
+  }
   pendingAttempts.set(key, tail);
 
   await previous.catch(() => {});
