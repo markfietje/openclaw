@@ -35,4 +35,9 @@ export default defineConfig({
   outDir: "dist",
   clean: true,
   external: isCrossPackageImport,
+  outputOptions: {
+    // Stable chunk names without content hashes so the package.json "exports"
+    // map can reference them deterministically.
+    chunkFileNames: "chunks/[name].mjs",
+  },
 });
