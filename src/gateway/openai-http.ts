@@ -135,6 +135,8 @@ const OpenAiChatCompletionRequestSchema = z
   })
   .passthrough();
 
+// 20 MiB default to accommodate multi-message conversations with tool results
+// and base64-encoded image attachments in chat completions.
 const DEFAULT_OPENAI_CHAT_COMPLETIONS_BODY_BYTES = 20 * 1024 * 1024;
 const DEFAULT_OPENAI_MAX_IMAGE_PARTS = 8;
 const DEFAULT_OPENAI_MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024;

@@ -641,19 +641,6 @@ export function createGatewayHttpServer(opts: {
         }
         httpRequestRateLimiter.recordRequest(rateLimitIp);
       }
-      if (GATEWAY_PROBE_STATUS_BY_PATH.get(requestPath) === "live") {
-        await handleGatewayProbeRequest(
-          req,
-          res,
-          requestPath,
-          getResolvedAuth(),
-          [],
-          false,
-          getReadiness,
-        );
-        return;
-      }
-
       const configSnapshot = loadGatewayConfig();
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
       const allowRealIpFallback = configSnapshot.gateway?.allowRealIpFallback === true;
