@@ -38,7 +38,7 @@ export const ENDPOINT_SECURITY: Record<WsEndpoint, EndpointSecurityConfig> = {
   [WS_ENDPOINT.LEGACY]: {
     requireOrigin: true,
     requireAuth: true,
-    allowedCapabilities: ["*"],
+    allowedCapabilities: ["agent:read", "agent:write", "agent:execute"],
   },
 };
 
