@@ -45,6 +45,7 @@ export type EffectiveSharedGatewayAuth = {
 
 const TOOLS_INVOKE_DEFAULT_MAX_BODY_BYTES = 256 * 1024;
 const TOOLS_INVOKE_HARD_MAX_BODY_BYTES = 1024 * 1024;
+const MAX_CREDENTIAL_LENGTH = 1024;
 
 function resolveToolsInvokeMaxBodyBytes(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
@@ -103,6 +104,18 @@ export function resolveGatewayAuth(params: {
   });
   const token = resolvedCredentials.token;
   const password = resolvedCredentials.password;
+  if (token && token.length > MAX_CREDENTIAL_LENGTH) {
+    throw new Error(
+      `Gateway auth token exceeds maximum length (${token.length} > ${MAX_CREDENTIAL_LENGTH}). ` +
+        "Check your configuration for accidentally pasted long values.",
+    );
+  }
+  if (password && password.length > MAX_CREDENTIAL_LENGTH) {
+    throw new Error(
+      `Gateway auth password exceeds maximum length (${password.length} > ${MAX_CREDENTIAL_LENGTH}). ` +
+        "Check your configuration for accidentally pasted long values.",
+    );
+  }
   const trustedProxy = authConfig.trustedProxy;
 
   let mode: ResolvedGatewayAuth["mode"];
