@@ -156,7 +156,13 @@ export function createRequestRateLimiter(config?: RequestRateLimitConfig) {
     }
   }
 
-  return { check, recordRequest, prune: store.prune, dispose: store.dispose, size: store.size };
+  return {
+    check,
+    recordRequest,
+    prune: () => store.prune(),
+    dispose: () => store.dispose(),
+    size: () => store.size(),
+  };
 }
 
 export type RequestRateLimiter = ReturnType<typeof createRequestRateLimiter>;

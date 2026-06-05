@@ -1945,10 +1945,15 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
             : {}),
           ...(() => {
             const deviceId = connectParams.device?.id;
-            const role = connectParams.client?.mode;
-            if (deviceId && role) {
-              const snap = deviceSessionAuthorityTracker?.createSnapshot({ deviceId, role });
-              if (snap) return { deviceSessionAuthority: snap };
+            const clientMode = connectParams.client?.mode;
+            if (deviceId && clientMode) {
+              const snap = deviceSessionAuthorityTracker?.createSnapshot({
+                deviceId,
+                role: clientMode,
+              });
+              if (snap) {
+                return { deviceSessionAuthority: snap };
+              }
             }
             return {};
           })(),
@@ -2286,7 +2291,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         const messageType = `gateway.method.${req.method}`;
         const methodRegistry = getMethodRegistry?.();
         const decision = resolveMessageAuthorizationDecision(messageType, {
-          ...(methodRegistry !== undefined ? { methodRegistry } : {}),
+          ...(methodRegistry !== undefined && { methodRegistry }),
         });
         // Defense-in-depth (opt-in via gateway.security.messageAuth.enabled): enforce EXTRA
         // capability checks (secrets, config-protected) and node-role gating. Standard operator
@@ -2306,7 +2311,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           }
           if (requiresExtraCheck) {
             const authDecision = authorizeMessage(messageAuthContext, messageType, {
-              ...(methodRegistry !== undefined ? { methodRegistry } : {}),
+              ...(methodRegistry !== undefined && { methodRegistry }),
             });
             if (!authDecision.ok) {
               const isNodeRole = decision.kind === "role" && decision.role === "node";

@@ -1,20 +1,12 @@
 // Compares secret strings with timing-safe equality.
 import { timingSafeEqual } from "node:crypto";
 
-function padSecretBytes(bytes: Buffer, length: number): Buffer {
-  if (bytes.length === length) {
-    return bytes;
-  }
-  const padded = Buffer.alloc(length);
-  bytes.copy(padded);
-  return padded;
-}
-
 /**
  * Compare two optional UTF-8 secrets without leaking length through
  * `timingSafeEqual` errors. Fail-closed: any absent side returns false so
- * callers never receive a positive match on missing input. Pad-to-max-length
- * keeps the comparison timing roughly constant.
+ * callers never receive a positive match on missing input. The pre-equal
+ * length check keeps the comparison timing roughly constant for equal-length
+ * inputs.
  */
 export function safeEqualSecret(
   provided: string | undefined | null,

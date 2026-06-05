@@ -133,7 +133,7 @@ export function buildMissingScopeForbiddenBody(missingScope: string | undefined)
     ok: false,
     error: {
       type: "forbidden",
-      message: `missing scope: ${missingScope}`,
+      message: missingScope ? `missing scope: ${missingScope}` : "Insufficient permissions",
     },
   };
 }
@@ -170,12 +170,12 @@ export async function readJsonBodyOrError(
   const body = await readJsonBody(req, maxBytes);
   if (!body.ok) {
     if (body.error === "payload too large") {
-      const contentLength = parseContentLengthHeader(req.headers?.["content-length"]);
+      const announcedLength = parseContentLengthHeader(req.headers?.["content-length"]);
       logRejectedLargePayload({
         surface: "gateway.http.json",
         limitBytes: maxBytes,
         reason: "json_body_limit",
-        ...(contentLength !== undefined ? { bytes: contentLength } : {}),
+        ...(announcedLength !== undefined ? { bytes: announcedLength } : {}),
       });
       sendJson(res, 413, {
         error: { message: "Payload too large", type: "invalid_request_error" },

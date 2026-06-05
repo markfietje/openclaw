@@ -58,6 +58,10 @@ export function computeHmac(jsonWithoutHmac: string, token: string): string {
   return crypto.createHmac("sha256", token).update(jsonWithoutHmac).digest("hex");
 }
 
+// `T` is intentionally return-position only: callers supply the narrowed
+// entry type (e.g. `verifyAuditLine<AuthAuditEntry>(...)`) so the returned
+// `entry` is typed for the audit log domain rather than the generic base.
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- Caller-controlled entry narrowing is part of the public API contract.
 export function verifyAuditLine<T extends AuditLogEntry>(
   line: string,
   token: string,
@@ -116,10 +120,10 @@ export function createAuditLogBase<T extends AuditLogEntry>(
   const hmacToken = params.config?.token ?? "";
 
   // JSONL is required for HMAC-signed append-only logs — a JSON array cannot be
-  // appended to without parsing and rewriting the entire file. Reserved for future
-  // structured output modes (e.g., a separate rotated JSON index file).
-  const _format: AuditLogFormat = params.config?.format ?? "jsonl";
-  void _format;
+  // appended to without parsing and rewriting the entire file. `format` is
+  // reserved for future structured output modes (e.g., a separate rotated JSON
+  // index file) and is read off the config without a local binding for now.
+  void params.config?.format;
 
   const activeFile = path.join(logDir, `${params.baseFilename}.${EXT}`);
 

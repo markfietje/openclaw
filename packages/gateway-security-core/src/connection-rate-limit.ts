@@ -103,11 +103,11 @@ function applyIpv6SubnetMask(address: string, maskBits: number): string {
   const result: string[] = [];
 
   for (let i = 0; i < fullBlocks && i < parts.length; i++) {
-    result.push(parts[i]!);
+    result.push(parts[i]);
   }
 
   if (remainingBits > 0 && fullBlocks < parts.length) {
-    const blockValue = parseInt(parts[fullBlocks]!, 16);
+    const blockValue = Number.parseInt(parts[fullBlocks], 16);
     const mask = 0xffff << (16 - remainingBits);
     result.push((blockValue & mask).toString(16).padStart(4, "0"));
   }
@@ -217,8 +217,8 @@ export function createConnectionRateLimiter(
   return {
     check,
     recordAttempt,
-    size: store.size,
+    size: () => store.size(),
     prune: () => store.prune(),
-    dispose: store.dispose,
+    dispose: () => store.dispose(),
   };
 }
