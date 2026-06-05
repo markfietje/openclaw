@@ -133,12 +133,6 @@ export type GatewaySecurityConfig = {
    */
   ipBlocklist?: string[];
 
-  /** Legacy IP allow/deny list (deprecated: use ipAllowlist/ipBlocklist). */
-  ipRestriction?: {
-    allow?: string[];
-    deny?: string[];
-  };
-
   /**
    * Require the `openclaw-gateway-v1` WebSocket subprotocol header on upgrade.
    * FORK_SECURITY.md § Backward Compatibility.

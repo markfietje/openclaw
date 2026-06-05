@@ -414,6 +414,16 @@ export const sharedVitestConfig = {
           "auth-audit-log.ts",
         ),
       },
+      {
+        find: "@openclaw/gateway-security-core/audit-log-base",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "audit-log-base.ts",
+        ),
+      },
 
       {
         find: "@openclaw/gateway-security-core/connection-rate-limit",
@@ -456,13 +466,17 @@ export const sharedVitestConfig = {
         ),
       },
       {
-        find: "@openclaw/gateway-security-core/message-auth",
+        find: "@openclaw/gateway-security-core/ip",
+        replacement: path.join(repoRoot, "packages", "gateway-security-core", "src", "ip.ts"),
+      },
+      {
+        find: "@openclaw/gateway-security-core/sliding-window-store",
         replacement: path.join(
           repoRoot,
           "packages",
           "gateway-security-core",
           "src",
-          "message-auth.ts",
+          "sliding-window-store.ts",
         ),
       },
       {
@@ -533,6 +547,16 @@ export const sharedVitestConfig = {
           "gateway-security-core",
           "src",
           "ws-frame-validator.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/ws-keepalive",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "ws-keepalive.ts",
         ),
       },
       {
