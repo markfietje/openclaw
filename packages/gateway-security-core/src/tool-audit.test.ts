@@ -54,8 +54,10 @@ describe("tool audit logger", () => {
     expect(entry.runId).toBe("run-abc");
     expect(entry.toolCallId).toBe("tc-001");
     expect(entry.ts).toBeDefined();
-    // No hmac when token is not configured
-    expect(entry.hmac).toBeUndefined();
+    // HMAC is auto-generated when no explicit token is configured,
+    // ensuring audit log integrity is always protected.
+    expect(entry.hmac).toBeDefined();
+    expect(typeof entry.hmac).toBe("string");
   });
 
   it.runIf(process.platform !== "win32")(

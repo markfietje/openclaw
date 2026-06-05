@@ -117,7 +117,10 @@ export function createAuditLogBase<T extends AuditLogEntry>(
   const maxBytes = params.config?.maxBytes ?? DEFAULT_MAX_BYTES;
   const maxFiles = params.config?.maxFiles ?? DEFAULT_MAX_FILES;
   const logDir = params.config?.logDir ?? path.join(resolveStateDir(), "logs");
-  const hmacToken = params.config?.token ?? "";
+  // Auto-generate a per-process HMAC token when none is configured so audit
+  // logs are always integrity-protected. The token is ephemeral — rotated on
+  // gateway restart — which is acceptable for local single-process deployments.
+  const hmacToken = params.config?.token ?? crypto.randomBytes(32).toString("hex");
 
   // JSONL is required for HMAC-signed append-only logs — a JSON array cannot be
   // appended to without parsing and rewriting the entire file. `format` is
@@ -196,7 +199,11 @@ export function createAuditLogBase<T extends AuditLogEntry>(
       try {
         await rename(newer, older);
         await secureFile(older);
-      } catch {}
+      } catch (err) {
+        // Rotation failure is non-fatal but operators should know about
+        // disk/permission issues before the active log grows unbounded.
+        console.warn("[audit-log] log rotation failed:", err);
+      }
     }
   }
 
