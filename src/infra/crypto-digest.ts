@@ -15,6 +15,15 @@ export function sha256Base64Url(input: DigestInput): string {
   return createHash("sha256").update(input).digest("base64url");
 }
 
+/**
+ * SHA-256 base64url with a leading secret pepper byte sequence. Used for digests
+ * exposed to unauthenticated clients (e.g. WebSocket shared-generation hashes)
+ * where a per-process random pepper blocks offline brute-force of the input.
+ */
+export function sha256Base64UrlWithPepper(input: DigestInput, pepper: Uint8Array): string {
+  return createHash("sha256").update(pepper).update(input).digest("base64url");
+}
+
 export function sha256Base64UrlPrefix(input: DigestInput, length: number): string {
   return sha256Base64Url(input).slice(0, length);
 }
