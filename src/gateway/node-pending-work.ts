@@ -71,6 +71,11 @@ function ensurePruneTimer(): void {
         stateByNodeId.delete(nodeId);
       }
     }
+    // Stop the timer when no entries remain to avoid idle CPU wakeups.
+    if (stateByNodeId.size === 0) {
+      clearInterval(pruneTimer);
+      pruneTimer = undefined;
+    }
   }, PRUNE_STALE_EMPTY_INTERVAL_MS);
   pruneTimer.unref();
 }
@@ -87,6 +92,9 @@ function capStateByNodeId(): void {
     // All entries have items; evict the oldest (first-inserted) entry.
     const oldestKey = stateByNodeId.keys().next().value;
     if (oldestKey !== undefined) {
+      console.warn(
+        `[node-pending-work] evicting node ${oldestKey} with active items to cap at ${MAX_STATE_BY_NODE_ID_ENTRIES}`,
+      );
       stateByNodeId.delete(oldestKey);
     }
   }
@@ -132,6 +140,11 @@ function pruneExpired(state: NodePendingWorkState, nowMs: number): boolean {
 function pruneStateIfEmpty(nodeId: string, state: NodePendingWorkState) {
   if (state.itemsById.size === 0) {
     stateByNodeId.delete(nodeId);
+  }
+  // Stop the prune timer when all node queues are empty.
+  if (stateByNodeId.size === 0 && pruneTimer) {
+    clearInterval(pruneTimer);
+    pruneTimer = undefined;
   }
 }
 
