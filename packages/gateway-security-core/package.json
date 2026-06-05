@@ -19,7 +19,11 @@
       "import": "./dist/auth-audit-log.mjs",
       "default": "./dist/auth-audit-log.mjs"
     },
-
+    "./audit-log-base": {
+      "types": "./dist/audit-log-base.d.mts",
+      "import": "./dist/audit-log-base.mjs",
+      "default": "./dist/audit-log-base.mjs"
+    },
     "./connection-rate-limit": {
       "types": "./dist/connection-rate-limit.d.mts",
       "import": "./dist/connection-rate-limit.mjs",
@@ -39,11 +43,6 @@
       "types": "./dist/ip-restriction-policy.d.mts",
       "import": "./dist/ip-restriction-policy.mjs",
       "default": "./dist/ip-restriction-policy.mjs"
-    },
-    "./message-auth": {
-      "types": "./dist/message-auth.d.mts",
-      "import": "./dist/message-auth.mjs",
-      "default": "./dist/message-auth.mjs"
     },
     "./request-rate-limit": {
       "types": "./dist/request-rate-limit.d.mts",
@@ -89,6 +88,16 @@
       "types": "./dist/security-config.d.mts",
       "import": "./dist/security-config.mjs",
       "default": "./dist/security-config.mjs"
+    },
+    "./ip": {
+      "types": "./dist/ip.d.mts",
+      "import": "./dist/ip.mjs",
+      "default": "./dist/ip.mjs"
+    },
+    "./sliding-window-store": {
+      "types": "./dist/sliding-window-store.d.mts",
+      "import": "./dist/sliding-window-store.mjs",
+      "default": "./dist/sliding-window-store.mjs"
     }
   },
   "dependencies": {
