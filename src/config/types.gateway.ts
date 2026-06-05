@@ -203,6 +203,23 @@ export type GatewayAuthConfig = {
    * Required when mode is "trusted-proxy".
    */
   trustedProxy?: GatewayTrustedProxyConfig;
+  /**
+   * DANGEROUS: Allow `auth.mode = "none"` to authenticate non-loopback requests.
+   * Replaces the OPENCLAW_DANGEROUSLY_ALLOW_NO_AUTH env var.
+   * Use only for short-lived local development.
+   */
+  dangerouslyAllowNoAuth?: boolean;
+  /**
+   * When `auth.mode = "none"`, allow loopback direct-local requests to
+   * authenticate without credentials. Default: true (back-compat).
+   * Set to false to require auth even on loopback in "none" mode.
+   */
+  allowLocalDirectNoAuth?: boolean;
+  /**
+   * Maximum HTTP request body bytes accepted by `/tools/invoke`.
+   * Default: 262144 (256 KiB). Hard ceiling: 1 MiB.
+   */
+  toolsInvokeMaxBodyBytes?: number;
 };
 
 export type GatewayAuthRateLimitConfig = {

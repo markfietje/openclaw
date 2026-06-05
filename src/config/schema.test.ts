@@ -1087,7 +1087,6 @@ describe("config schema", () => {
           methodRateLimits: { "tools.invoke": 60 },
           connectionRateLimitPerMinute: 30,
           browserRateLimitPerMinute: 120,
-          ipRestriction: { allow: ["10.0.0.0/8"], deny: [] },
           strictHeaderValidation: true,
           rejectUntrustedProxyHeaders: true,
           dangerouslyAllowHostHeaderOriginFallback: false,

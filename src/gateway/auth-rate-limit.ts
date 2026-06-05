@@ -8,14 +8,19 @@
  *
  * Design decisions:
  * - Pure in-memory Map – no external dependencies; suitable for a single
- *   gateway process.  The Map is periodically pruned to avoid unbounded
- *   growth.
+ *   gateway process.  The Map is periodically pruned and bounded by a hard
+ *   max-entries cap (default 100k) so a burst of unique {scope, ip} keys
+ *   cannot grow it without bound.
  * - Loopback addresses (127.0.0.1 / ::1) are exempt by default so that local
  *   CLI sessions are never locked out.
  * - The module is side-effect-free: callers create an instance via
  *   {@link createAuthRateLimiter} and pass it where needed.
  */
 
+import {
+  createSlidingWindowStore,
+  type SlidingWindowBucket,
+} from "@openclaw/gateway-security-core/sliding-window-store";
 import { resolveTimerTimeoutMs } from "../shared/number-coercion.js";
 import { isLoopbackAddress, resolveClientIp } from "./net.js";
 
@@ -34,6 +39,11 @@ export interface RateLimitConfig {
   exemptLoopback?: boolean;
   /** Background prune interval in milliseconds; set <= 0 to disable auto-prune.  @default 60_000 */
   pruneIntervalMs?: number;
+  /**
+   * Hard cap on tracked {scope, ip} keys. When full, the oldest non-locked
+   * entry is evicted to make room. 0 disables the cap. Default 100_000.
+   */
+  maxEntries?: number;
 }
 
 export const AUTH_RATE_LIMIT_SCOPE_DEFAULT = "default";
@@ -52,13 +62,6 @@ export const AUTH_RATE_LIMIT_SCOPE_NODE_PAIRING = "node-pairing";
 export const AUTH_RATE_LIMIT_SCOPE_BOOTSTRAP_TOKEN = "bootstrap-token";
 export const AUTH_RATE_LIMIT_SCOPE_HOOK_AUTH = "hook-auth";
 const BROWSER_ORIGIN_RATE_LIMIT_KEY_PREFIX = "browser-origin:";
-
-interface RateLimitEntry {
-  /** Timestamps (epoch ms) of recent failed attempts inside the window. */
-  attempts: number[];
-  /** If set, requests from this IP are blocked until this epoch-ms instant. */
-  lockedUntil?: number;
-}
 
 export interface RateLimitCheckResult {
   /** Whether the request is allowed to proceed. */
@@ -91,7 +94,7 @@ export interface AuthRateLimiter {
 const DEFAULT_MAX_ATTEMPTS = 10;
 const DEFAULT_WINDOW_MS = 60_000; // 1 minute
 const DEFAULT_LOCKOUT_MS = 300_000; // 5 minutes
-const PRUNE_INTERVAL_MS = 60_000; // prune stale entries every minute
+const DEFAULT_PRUNE_INTERVAL_MS = 60_000; // prune stale entries every minute
 
 // ---------------------------------------------------------------------------
 // Implementation
@@ -110,12 +113,12 @@ export function normalizeRateLimitClientIp(ip: string | undefined): string {
 
 function resolvePruneIntervalMs(value: number | undefined): number {
   if (value === undefined) {
-    return PRUNE_INTERVAL_MS;
+    return DEFAULT_PRUNE_INTERVAL_MS;
   }
   if (Number.isFinite(value) && value <= 0) {
     return 0;
   }
-  return resolveTimerTimeoutMs(value, PRUNE_INTERVAL_MS);
+  return resolveTimerTimeoutMs(value, DEFAULT_PRUNE_INTERVAL_MS);
 }
 
 export function createAuthRateLimiter(config?: RateLimitConfig): AuthRateLimiter {
@@ -124,15 +127,9 @@ export function createAuthRateLimiter(config?: RateLimitConfig): AuthRateLimiter
   const lockoutMs = resolveTimerTimeoutMs(config?.lockoutMs, DEFAULT_LOCKOUT_MS, 0);
   const exemptLoopback = config?.exemptLoopback ?? true;
   const pruneIntervalMs = resolvePruneIntervalMs(config?.pruneIntervalMs);
+  const maxEntries = config?.maxEntries ?? 100_000;
 
-  const entries = new Map<string, RateLimitEntry>();
-
-  // Periodic cleanup to avoid unbounded map growth.
-  const pruneTimer = pruneIntervalMs > 0 ? setInterval(() => prune(), pruneIntervalMs) : null;
-  // Allow the Node.js process to exit even if the timer is still active.
-  if (pruneTimer?.unref) {
-    pruneTimer.unref();
-  }
+  const store = createSlidingWindowStore({ windowMs, pruneIntervalMs, maxEntries });
 
   function normalizeScope(scope: string | undefined): string {
     return (scope ?? AUTH_RATE_LIMIT_SCOPE_DEFAULT).trim() || AUTH_RATE_LIMIT_SCOPE_DEFAULT;
@@ -158,12 +155,6 @@ export function createAuthRateLimiter(config?: RateLimitConfig): AuthRateLimiter
     return exemptLoopback && isLoopbackAddress(ip);
   }
 
-  function slideWindow(entry: RateLimitEntry, now: number): void {
-    const cutoff = now - windowMs;
-    // Remove attempts that fell outside the window.
-    entry.attempts = entry.attempts.filter((ts) => ts > cutoff);
-  }
-
   function check(rawIp: string | undefined, rawScope?: string): RateLimitCheckResult {
     const { key, ip } = resolveKey(rawIp, rawScope);
     if (isExempt(ip)) {
@@ -171,7 +162,7 @@ export function createAuthRateLimiter(config?: RateLimitConfig): AuthRateLimiter
     }
 
     const now = Date.now();
-    const entry = entries.get(key);
+    const entry = store.entries.get(key);
 
     if (!entry) {
       return { allowed: true, remaining: maxAttempts, retryAfterMs: 0 };
@@ -189,11 +180,11 @@ export function createAuthRateLimiter(config?: RateLimitConfig): AuthRateLimiter
     // Lockout expired – clear it.
     if (entry.lockedUntil && now >= entry.lockedUntil) {
       entry.lockedUntil = undefined;
-      entry.attempts = [];
+      entry.timestamps = [];
     }
 
-    slideWindow(entry, now);
-    const remaining = Math.max(0, maxAttempts - entry.attempts.length);
+    store.slideWindow(entry, now);
+    const remaining = Math.max(0, maxAttempts - entry.timestamps.length);
     return { allowed: remaining > 0, remaining, retryAfterMs: 0 };
   }
 
@@ -204,55 +195,32 @@ export function createAuthRateLimiter(config?: RateLimitConfig): AuthRateLimiter
     }
 
     const now = Date.now();
-    let entry = entries.get(key);
-
-    if (!entry) {
-      entry = { attempts: [] };
-      entries.set(key, entry);
-    }
+    const entry = store.reserve(key, now);
 
     // If currently locked, do nothing (already blocked).
     if (entry.lockedUntil && now < entry.lockedUntil) {
       return;
     }
 
-    slideWindow(entry, now);
-    entry.attempts.push(now);
+    store.slideWindow(entry, now);
+    entry.timestamps.push(now);
 
-    if (entry.attempts.length >= maxAttempts) {
+    if (entry.timestamps.length >= maxAttempts) {
       entry.lockedUntil = now + lockoutMs;
     }
   }
 
   function reset(rawIp: string | undefined, rawScope?: string): void {
     const { key } = resolveKey(rawIp, rawScope);
-    entries.delete(key);
+    store.entries.delete(key);
   }
 
-  function prune(): void {
-    const now = Date.now();
-    for (const [key, entry] of entries) {
-      // If locked out, keep the entry until the lockout expires.
-      if (entry.lockedUntil && now < entry.lockedUntil) {
-        continue;
-      }
-      slideWindow(entry, now);
-      if (entry.attempts.length === 0) {
-        entries.delete(key);
-      }
-    }
-  }
-
-  function size(): number {
-    return entries.size;
-  }
-
-  function dispose(): void {
-    if (pruneTimer) {
-      clearInterval(pruneTimer);
-    }
-    entries.clear();
-  }
-
-  return { check, recordFailure, reset, size, prune, dispose };
+  return {
+    check,
+    recordFailure,
+    reset,
+    size: store.size,
+    prune: store.prune,
+    dispose: store.dispose,
+  };
 }
