@@ -377,6 +377,7 @@ export function createAgentEventHandler({
   // do not touch the session store. Results are cached per sessionKey because
   // spawnedBy is immutable once set and resolveSpawnedBy sits on the hot event
   // path (delta, flush, final, agent, seq-gap).
+  const SPAWNED_BY_CACHE_MAX = 4096;
   const spawnedByCache = new Map<string, string | null>();
   const resolveSpawnedBy = (sessionKey: string): string | null => {
     if (spawnedByCache.has(sessionKey)) {
@@ -392,6 +393,14 @@ export function createAgentEventHandler({
       result = loadGatewaySessionRow(sessionKey)?.spawnedBy ?? null;
     } catch {
       // result stays null
+    }
+    // Evict oldest entries when the cache exceeds the cap to prevent
+    // unbounded growth in deployments with high session churn.
+    if (spawnedByCache.size >= SPAWNED_BY_CACHE_MAX) {
+      const oldestKey = spawnedByCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        spawnedByCache.delete(oldestKey);
+      }
     }
     spawnedByCache.set(sessionKey, result);
     return result;
