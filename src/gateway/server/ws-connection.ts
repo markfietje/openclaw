@@ -274,7 +274,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
   wss.on("connection", (socket, upgradeReq) => {
     // Reject unknown WebSocket paths to prevent endpoint confusion attacks.
     // Known paths: /gateway, /gateway/ws-agent, /gateway/ws-admin, /gateway/ws-internal.
-    const wsPath = (upgradeReq.url ?? "/gateway").replace(/\/$/, "").split("?")[0]!;
+    const wsPath = (upgradeReq.url ?? "/gateway").replace(/\/$/, "").split("?")[0];
     if (!isKnownWsEndpoint(wsPath)) {
       logWsControl.warn(
         `rejected unknown WS path conn path=${wsPath} remote=${upgradeReq.socket.remoteAddress ?? "?"}`,
@@ -373,9 +373,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
     };
 
-    let pingTimer: ReturnType<typeof setInterval> | undefined;
     let cleanupWorkerConnection: (() => void) | undefined;
-    let awaitingPong = false;
     let keepaliveStop: (() => void) | undefined;
     const handshakeTimeoutMs = resolvePreauthHandshakeTimeoutMs({
       configuredTimeoutMs: params.preauthHandshakeTimeoutMs,
@@ -405,9 +403,6 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
       closed = true;
       clearTimeout(handshakeTimer);
-      if (pingTimer !== undefined) {
-        clearInterval(pingTimer);
-      }
       cleanupWorkerConnection?.();
       if (keepaliveStop) {
         keepaliveStop();
@@ -417,7 +412,11 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       if (client) {
         clients.delete(client);
         if (authenticatedConnectionBudget) {
-          authenticatedConnectionBudget.release(client.connect?.device?.id, connId);
+          authenticatedConnectionBudget.release(
+            client.connect?.device?.id,
+            connId,
+            client.clientIp,
+          );
         }
       }
       try {
@@ -631,25 +630,6 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       releasePreauthBudget();
       client = next;
       clients.add(next);
-      pingTimer = setInterval(() => {
-        // A half-open TCP connection can remain OPEN indefinitely. Terminate
-        // after one missed pong so the normal close handler releases node state.
-        if (awaitingPong) {
-          setCloseCause("heartbeat-timeout");
-          try {
-            socket.terminate();
-          } catch {
-            close();
-          }
-          return;
-        }
-        awaitingPong = true;
-        try {
-          socket.ping();
-        } catch {
-          // close() clears the timer; ping can race with a socket already entering CLOSING.
-        }
-      }, 25_000);
       return true;
     };
 

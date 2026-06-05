@@ -222,7 +222,7 @@ function formatMissingAuthorization(decision: MessageAuthorizationDecision): str
     case "role":
       return `role:${decision.role}`;
     default:
-      return "unknown";
+      return "unauthorized";
   }
 }
 
