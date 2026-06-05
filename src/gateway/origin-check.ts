@@ -228,6 +228,16 @@ export function checkBrowserOrigin(params: OriginCheckParams): OriginCheckResult
     }
 
     if (params.allowHostHeaderOriginFallback === true) {
+      // When a trusted proxy is present but X-Forwarded-Host is absent,
+      // still validate that the origin matches the direct request host.
+      // Without this check, any Origin header would be accepted.
+      const directHost = normalizeHostToMatchUrlHost(params.requestHost);
+      if (!requestForwardedHost && parsedOrigin.host !== directHost) {
+        return {
+          ok: false,
+          reason: "origin does not match request host in trusted-proxy fallback",
+        };
+      }
       return {
         ok: true,
         matchedBy: "host-header-fallback",
