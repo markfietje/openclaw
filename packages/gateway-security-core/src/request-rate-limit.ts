@@ -9,7 +9,8 @@
  * for consistency with the existing gateway rate-limiting architecture.
  */
 
-import { isLoopbackAddress, resolveClientIp } from "./net-helpers.js";
+import { isLoopbackAddress } from "./ip.js";
+import { createSlidingWindowStore, type SlidingWindowBucket } from "./sliding-window-store.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,7 +45,14 @@ export interface RequestRateLimitCheckResult {
 const DEFAULT_MAX_REQUESTS = 120;
 const DEFAULT_WINDOW_MS = 60_000; // 1 minute
 const DEFAULT_MAX_ENTRIES = 10_000;
-const PRUNE_INTERVAL_MS = 30_000;
+const DEFAULT_PRUNE_INTERVAL_MS = 30_000;
+
+function normalizePositiveInteger(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(1, Math.floor(value));
+}
 
 // ---------------------------------------------------------------------------
 // Implementation
@@ -55,40 +63,19 @@ export function createRequestRateLimiter(config?: RequestRateLimitConfig) {
   const windowMs = normalizePositiveInteger(config?.windowMs, DEFAULT_WINDOW_MS);
   const exemptLoopback = config?.exemptLoopback ?? true;
   const maxEntries = normalizePositiveInteger(config?.maxEntries, DEFAULT_MAX_ENTRIES);
-  const pruneIntervalMs = config?.pruneIntervalMs ?? PRUNE_INTERVAL_MS;
+  const pruneIntervalMs = config?.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
 
-  interface Entry {
-    timestamps: number[];
-  }
-
-  function normalizePositiveInteger(value: number | undefined, fallback: number): number {
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      return fallback;
-    }
-    return Math.max(1, Math.floor(value));
-  }
-
-  const entries = new Map<string, Entry>();
-
-  const pruneTimer = pruneIntervalMs > 0 ? setInterval(() => prune(), pruneIntervalMs) : null;
-  if (pruneTimer?.unref) {
-    pruneTimer.unref();
-  }
+  const store = createSlidingWindowStore({ windowMs, pruneIntervalMs });
 
   function normalizeIp(ip: string | undefined): string {
-    return resolveClientIp({ remoteAddr: ip }) ?? "unknown";
+    return ip ?? "unknown";
   }
 
   function isExempt(ip: string): boolean {
     return exemptLoopback && isLoopbackAddress(ip);
   }
 
-  function slideWindow(entry: Entry, now: number): void {
-    const cutoff = now - windowMs;
-    entry.timestamps = entry.timestamps.filter((ts) => ts > cutoff);
-  }
-
-  function retryAfterForEntry(entry: Entry, now: number): number {
+  function retryAfterForEntry(entry: SlidingWindowBucket, now: number): number {
     const oldestTimestamp = entry.timestamps[0];
     if (oldestTimestamp === undefined) {
       return 0;
@@ -98,7 +85,7 @@ export function createRequestRateLimiter(config?: RequestRateLimitConfig) {
 
   function retryAfterForFullTable(now: number): number {
     let retryAfterMs: number | undefined;
-    for (const entry of entries.values()) {
+    for (const entry of store.entries.values()) {
       const candidate = retryAfterForEntry(entry, now);
       if (candidate <= 0) {
         continue;
@@ -109,21 +96,21 @@ export function createRequestRateLimiter(config?: RequestRateLimitConfig) {
   }
 
   function canTrackNewEntry(now: number): boolean {
-    if (entries.size < maxEntries) {
+    if (store.entries.size < maxEntries) {
       return true;
     }
-    prune(now);
-    return entries.size < maxEntries;
+    store.prune(now);
+    return store.entries.size < maxEntries;
   }
 
   function check(ip: string | undefined): RequestRateLimitCheckResult {
-    const normalized = normalizeIp(ip);
-    if (isExempt(normalized)) {
+    const key = normalizeIp(ip);
+    if (isExempt(key)) {
       return { allowed: true, remaining: maxRequests, retryAfterMs: 0 };
     }
 
     const now = Date.now();
-    const entry = entries.get(normalized);
+    const entry = store.entries.get(key);
 
     if (!entry) {
       if (!canTrackNewEntry(now)) {
@@ -132,9 +119,9 @@ export function createRequestRateLimiter(config?: RequestRateLimitConfig) {
       return { allowed: true, remaining: maxRequests, retryAfterMs: 0 };
     }
 
-    slideWindow(entry, now);
+    store.slideWindow(entry, now);
     if (entry.timestamps.length === 0) {
-      entries.delete(normalized);
+      store.entries.delete(key);
       return { allowed: true, remaining: maxRequests, retryAfterMs: 0 };
     }
 
@@ -146,50 +133,30 @@ export function createRequestRateLimiter(config?: RequestRateLimitConfig) {
   }
 
   function recordRequest(ip: string | undefined): void {
-    const normalized = normalizeIp(ip);
-    if (isExempt(normalized)) {
+    const key = normalizeIp(ip);
+    if (isExempt(key)) {
       return;
     }
 
     const now = Date.now();
-    let entry = entries.get(normalized);
+    let entry: SlidingWindowBucket | undefined = store.entries.get(key);
 
     if (!entry) {
       if (!canTrackNewEntry(now)) {
         return;
       }
       entry = { timestamps: [] };
-      entries.set(normalized, entry);
+      store.entries.set(key, entry);
     }
 
-    slideWindow(entry, now);
+    store.slideWindow(entry, now);
     entry.timestamps.push(now);
     if (entry.timestamps.length > maxRequests) {
       entry.timestamps = entry.timestamps.slice(-maxRequests);
     }
   }
 
-  function prune(now = Date.now()): void {
-    for (const [key, entry] of entries) {
-      slideWindow(entry, now);
-      if (entry.timestamps.length === 0) {
-        entries.delete(key);
-      }
-    }
-  }
-
-  function dispose(): void {
-    if (pruneTimer) {
-      clearInterval(pruneTimer);
-    }
-    entries.clear();
-  }
-
-  function size(): number {
-    return entries.size;
-  }
-
-  return { check, recordRequest, prune, dispose, size };
+  return { check, recordRequest, prune: store.prune, dispose: store.dispose, size: store.size };
 }
 
 export type RequestRateLimiter = ReturnType<typeof createRequestRateLimiter>;
