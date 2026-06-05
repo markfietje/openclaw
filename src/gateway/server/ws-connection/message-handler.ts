@@ -4,12 +4,6 @@ import type {
   DeviceSessionAuthoritySnapshot,
   DeviceSessionAuthorityTracker,
 } from "@openclaw/gateway-security-core/device-session-authority";
-import {
-  authorizeMessage,
-  createMessageAuthContext,
-  resolveMessageAuthorizationDecision,
-  type MessageAuthorizationContext,
-} from "@openclaw/gateway-security-core/message-auth";
 import { validateInboundFrame } from "@openclaw/gateway-security-core/ws-frame-validator";
 import {
   checkRateLimit,
@@ -50,6 +44,12 @@ import {
 } from "../../../process/gateway-work-admission.js";
 import { isWebchatClient } from "../../../utils/message-channel.js";
 import { hasForwardedRequestHeaders, isLocalDirectRequest } from "../../auth.js";
+import {
+  authorizeMessage,
+  createMessageAuthContext,
+  resolveMessageAuthorizationDecision,
+  type MessageAuthorizationContext,
+} from "../../message-auth.js";
 import {
   isLocalishHost,
   isLoopbackAddress,
