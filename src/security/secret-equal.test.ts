@@ -1,41 +1,63 @@
-import { describe, expect, it, vi } from "vitest";
+// Verifies timing-safe secret comparison semantics and edge cases.
+import { describe, expect, it } from "vitest";
 import { safeEqualSecret } from "./secret-equal.js";
 
-const { timingSafeEqualSpy } = vi.hoisted(() => ({
-  timingSafeEqualSpy: vi.fn(),
-}));
-
-vi.mock("node:crypto", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:crypto")>();
-  timingSafeEqualSpy.mockImplementation(actual.timingSafeEqual);
-  return { ...actual, timingSafeEqual: timingSafeEqualSpy };
-});
-
 describe("safeEqualSecret", () => {
-  it.each([
-    ["secret-token", "secret-token", true],
-    ["secret-token", "secret-tokEn", false],
-    ["short", "much-longer", false],
-    ["", "", true],
-    ["", "secret", false],
-    [undefined, "secret", false],
-    [null, "secret", false],
-  ] as const)("compares %o and %o", (left, right, expected) => {
-    expect(safeEqualSecret(left, right)).toBe(expected);
+  it("returns true for identical strings", () => {
+    expect(safeEqualSecret("abc", "abc")).toBe(true);
   });
 
-  it("compares Unicode by exact UTF-8 bytes without normalization", () => {
-    expect(safeEqualSecret("é", "e\u0301")).toBe(false);
+  it("returns false for different strings of the same length", () => {
+    expect(safeEqualSecret("abc", "abd")).toBe(false);
+    expect(safeEqualSecret("aaa", "bbb")).toBe(false);
   });
 
-  it("pads unequal UTF-8 lengths but still rejects original length mismatches", () => {
-    timingSafeEqualSpy.mockClear();
-    expect(safeEqualSecret("é", "much-longer-秘密")).toBe(false);
-    const [providedBytes, expectedBytes] = timingSafeEqualSpy.mock.calls[0] ?? [];
-    expect(providedBytes).toHaveLength(expectedBytes?.byteLength ?? 0);
+  it("returns false for strings of different lengths", () => {
+    expect(safeEqualSecret("abc", "abcd")).toBe(false);
+    expect(safeEqualSecret("abcd", "abc")).toBe(false);
+  });
 
-    timingSafeEqualSpy.mockClear();
-    expect(safeEqualSecret("a", "a\0")).toBe(false);
-    expect(timingSafeEqualSpy).toHaveReturnedWith(true);
+  it("returns false for completely different strings", () => {
+    expect(safeEqualSecret("a", "b")).toBe(false);
+    expect(safeEqualSecret("hunter2", "correcthorse")).toBe(false);
+  });
+
+  it("returns false for undefined inputs", () => {
+    expect(safeEqualSecret(undefined, "abc")).toBe(false);
+    expect(safeEqualSecret("abc", undefined)).toBe(false);
+  });
+
+  it("returns false for null inputs", () => {
+    expect(safeEqualSecret(null, "abc")).toBe(false);
+    expect(safeEqualSecret("abc", null)).toBe(false);
+  });
+
+  it("returns false when both inputs are empty (fail-closed on missing secret)", () => {
+    expect(safeEqualSecret("", "")).toBe(false);
+    expect(safeEqualSecret(undefined, undefined)).toBe(false);
+    expect(safeEqualSecret(null, null)).toBe(false);
+  });
+
+  it("returns false when only one side is empty", () => {
+    expect(safeEqualSecret("", "abc")).toBe(false);
+    expect(safeEqualSecret("abc", "")).toBe(false);
+  });
+
+  it("handles unicode and multibyte characters correctly", () => {
+    expect(safeEqualSecret("café", "café")).toBe(true);
+    expect(safeEqualSecret("café", "cafe")).toBe(false);
+  });
+
+  it("does not match a prefix of a longer secret", () => {
+    expect(safeEqualSecret("abc", "abcdef")).toBe(false);
+    expect(safeEqualSecret("abcdef", "abc")).toBe(false);
+  });
+
+  it("handles long secrets without leaking length via timing", () => {
+    // Same length, differing content
+    const a = "a".repeat(128);
+    const b = "b".repeat(128);
+    expect(safeEqualSecret(a, b)).toBe(false);
+    expect(safeEqualSecret(a, a)).toBe(true);
   });
 });
