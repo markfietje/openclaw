@@ -30,7 +30,7 @@ export function assertGatewayAuthNotKnownWeak(auth: ResolvedGatewayAuth): void {
     // Token/password checks stay separate because auth mode is exclusive and
     // error text should name the credential the operator must rotate.
     const token = auth.token?.trim() ?? "";
-    if (token && KNOWN_WEAK_GATEWAY_TOKENS.has(token)) {
+    if (token && KNOWN_WEAK_GATEWAY_TOKENS.has(token.toLowerCase())) {
       throw new Error(
         "Invalid config: gateway auth token is set to a published example placeholder " +
           "from docs or .env.example. Generate a real secret (e.g. `openssl rand -hex 32`) " +
@@ -42,7 +42,7 @@ export function assertGatewayAuthNotKnownWeak(auth: ResolvedGatewayAuth): void {
   }
   if (auth.mode === "password") {
     const password = auth.password?.trim() ?? "";
-    if (password && KNOWN_WEAK_GATEWAY_PASSWORDS.has(password)) {
+    if (password && KNOWN_WEAK_GATEWAY_PASSWORDS.has(password.toLowerCase())) {
       throw new Error(
         "Invalid config: gateway auth password is set to the example placeholder " +
           "from .env.example. Choose a real password and set OPENCLAW_GATEWAY_PASSWORD " +
