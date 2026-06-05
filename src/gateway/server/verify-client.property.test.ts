@@ -139,7 +139,9 @@ describe("verify-client property tests", () => {
         const headers: Record<string, string> = {
           "sec-websocket-protocol": "openclaw-gateway-v1",
         };
-        if (origin) headers["origin"] = origin;
+        if (origin) {
+          headers["origin"] = origin;
+        }
 
         const result = await runVerify(verify, createMockReq({ remoteAddress: ip, headers }));
         expect(result.allowed).toBe(true);
@@ -494,8 +496,10 @@ describe("verify-client property tests", () => {
       },
     ];
 
-    for (const { desc, remoteAddress, headers, config } of rejectionCases) {
-      if (config) setRuntimeConfigSnapshot(makeConfig(config));
+    for (const { desc: _desc, remoteAddress, headers, config } of rejectionCases) {
+      if (config) {
+        setRuntimeConfigSnapshot(makeConfig(config));
+      }
 
       const result = await runVerify(verify, createMockReq({ remoteAddress, headers }));
 
@@ -504,7 +508,9 @@ describe("verify-client property tests", () => {
       expect(result.message).toBeTruthy();
       expect(result.message!.length).toBeGreaterThan(0);
 
-      if (config) setRuntimeConfigSnapshot(makeConfig());
+      if (config) {
+        setRuntimeConfigSnapshot(makeConfig());
+      }
     }
   });
 

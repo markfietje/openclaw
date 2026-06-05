@@ -252,9 +252,8 @@ export function resolveApplicationStartupSettings(
   const gatewayUrlChanged = Boolean(nextGatewayUrl && nextGatewayUrl !== settings.gatewayUrl);
   // Same-origin /gateway deep links are applied directly; only cross-origin or
   // non-/gateway changes route through pendingGatewayUrl + confirmation.
-  const shouldConfirmGatewayUrlChange = Boolean(
-    gatewayUrlChanged && !isSameOriginGatewayEndpoint(nextGatewayUrl),
-  );
+  const shouldConfirmGatewayUrlChange =
+    gatewayUrlChanged && !isSameOriginGatewayEndpoint(nextGatewayUrl);
   const queryToken = params.get("token");
   const hashToken = hashParams.get("token");
   const hasTokenParam = hashToken != null || queryToken != null;
