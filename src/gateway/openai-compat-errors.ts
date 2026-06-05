@@ -36,6 +36,15 @@ function statusForReason(reason: FailoverReason, status: number | undefined): nu
   return status ?? resolveFailoverStatus(reason) ?? 500;
 }
 
+// Internal patterns that should be stripped from error messages before
+// sending them to API clients to prevent information disclosure.
+const INTERNAL_PATTERN_RE =
+  /(?:\/(?:Users|home|tmp|var|etc)\/[^\s"]+|0x[0-9a-f]+|node:internal\/[^\s"]+|at \S+ \([^)]*\))/gi;
+
+function sanitizeErrorMessage(message: string): string {
+  return message.replace(INTERNAL_PATTERN_RE, "[internal]").slice(0, 512);
+}
+
 function messageForReason(params: {
   reason: FailoverReason;
   message: string;
@@ -50,7 +59,8 @@ function messageForReason(params: {
   if (params.reason === "overloaded") {
     return "upstream provider overloaded";
   }
-  return params.rawError?.trim() || params.message.trim() || "request failed";
+  const raw = params.rawError?.trim() || params.message.trim() || "request failed";
+  return sanitizeErrorMessage(raw);
 }
 
 /** Converts a provider failover error into an OpenAI-compatible error envelope. */

@@ -52,9 +52,18 @@ export function consumeControlPlaneWriteBudget(params: {
       !controlPlaneBuckets.has(key) &&
       controlPlaneBuckets.size >= CONTROL_PLANE_BUCKET_MAX_ENTRIES
     ) {
-      const oldest = controlPlaneBuckets.keys().next().value;
-      if (oldest !== undefined) {
-        controlPlaneBuckets.delete(oldest);
+      // Evict the bucket with the oldest windowStartMs (LRU) instead of
+      // insertion order, so active clients aren't unfairly evicted.
+      let oldestKey: string | undefined;
+      let oldestMs = Infinity;
+      for (const [k, b] of controlPlaneBuckets) {
+        if (b.windowStartMs < oldestMs) {
+          oldestMs = b.windowStartMs;
+          oldestKey = k;
+        }
+      }
+      if (oldestKey !== undefined) {
+        controlPlaneBuckets.delete(oldestKey);
       }
     }
     controlPlaneBuckets.set(key, {

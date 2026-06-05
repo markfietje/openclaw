@@ -8,6 +8,7 @@ import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
+import { z } from "zod";
 import { isClientToolNameConflictError } from "../agents/agent-tool-definition-adapter.js";
 import type { AgentStreamParams, ClientToolDefinition } from "../agents/command/shared-types.js";
 import type { ImageContent } from "../agents/command/types.js";
@@ -109,6 +110,34 @@ type OpenAiChatCompletionRequest = {
   seed?: unknown;
   stop?: unknown;
 };
+
+/**
+ * Defense-in-depth schema for the OpenAI Chat Completions request body.
+ * Validated at the gateway boundary; unknown fields pass through for forward compat.
+ * Individual message/tool shapes are validated downstream.
+ */
+const OpenAiChatCompletionRequestSchema = z
+  .object({
+    model: z.string().optional(),
+    stream: z.boolean().optional(),
+    // Passed through as-is for the transport layer.
+    stream_options: z.unknown().optional(),
+    messages: z.array(z.unknown()).optional(),
+    tools: z.array(z.unknown()).optional(),
+    tool_choice: z.unknown().optional(),
+    user: z.string().max(256).optional(),
+    max_tokens: z.number().int().positive().optional(),
+    max_completion_tokens: z.number().int().positive().optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    top_p: z.number().min(0).max(1).optional(),
+    // Validated downstream by resolveResponseFormat.
+    response_format: z.unknown().optional(),
+    frequency_penalty: z.number().min(-2).max(2).optional(),
+    presence_penalty: z.number().min(-2).max(2).optional(),
+    seed: z.number().int().optional(),
+    stop: z.union([z.string(), z.array(z.string()).max(4)]).optional(),
+  })
+  .passthrough();
 
 const DEFAULT_OPENAI_CHAT_COMPLETIONS_BODY_BYTES = 20 * 1024 * 1024;
 const DEFAULT_OPENAI_MAX_IMAGE_PARTS = 8;
@@ -715,11 +744,34 @@ function buildAgentPrompt(
   };
 }
 
+class ChatCompletionsSchemaError extends Error {
+  constructor(
+    message: string,
+    readonly issues: ReadonlyArray<{ path: (string | number)[]; message: string }>,
+  ) {
+    super(message);
+  }
+}
+
 function coerceRequest(val: unknown): OpenAiChatCompletionRequest {
   if (!val || typeof val !== "object") {
     return {};
   }
-  return val as OpenAiChatCompletionRequest;
+  const result = OpenAiChatCompletionRequestSchema.safeParse(val);
+  if (!result.success) {
+    throw new ChatCompletionsSchemaError(
+      result.error.issues
+        .map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message))
+        .join("; "),
+      result.error.issues.map((i) => ({
+        path: i.path.filter(
+          (p): p is string | number => typeof p === "string" || typeof p === "number",
+        ),
+        message: i.message,
+      })),
+    );
+  }
+  return result.data as OpenAiChatCompletionRequest;
 }
 
 function resolveAgentResponseText(result: unknown): string {
@@ -903,7 +955,18 @@ export async function handleOpenAiHttpRequest(
     sendMissingScopeForbidden(res, modelOverrideAuth.missingScope);
     return true;
   }
-  const payload = coerceRequest(handled.body);
+  let payload: OpenAiChatCompletionRequest;
+  try {
+    payload = coerceRequest(handled.body);
+  } catch (err) {
+    if (err instanceof ChatCompletionsSchemaError) {
+      sendJson(res, 400, {
+        error: { message: err.message, type: "invalid_request_error" },
+      });
+      return true;
+    }
+    throw err;
+  }
   const stream = Boolean(payload.stream);
   const streamIncludeUsage = stream && resolveIncludeUsageForStreaming(payload);
   const model = typeof payload.model === "string" ? payload.model : "openclaw";

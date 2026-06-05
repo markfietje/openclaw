@@ -3,6 +3,7 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizeSecretInputString, resolveSecretInputRef } from "../config/types.secrets.js";
+import { safeEqualSecret } from "../security/secret-equal.js";
 
 const GATEWAY_ENV_TOKEN = "OPENCLAW_GATEWAY_TOKEN";
 const GATEWAY_SERVICE_KIND = "gateway";
@@ -56,7 +57,7 @@ export function resolveGatewayAuthTokenSourceConflict(params: {
   if (!ref && !configToken) {
     return null;
   }
-  if (configToken === envToken) {
+  if (safeEqualSecret(configToken, envToken)) {
     return null;
   }
 

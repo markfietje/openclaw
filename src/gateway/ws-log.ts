@@ -32,6 +32,7 @@ const wsInflightCompact = new Map<string, WsInflightEntry>();
 let wsLastCompactConnId: string | undefined;
 const wsInflightOptimized = new Map<string, number>();
 const wsInflightSince = new Map<string, number>();
+const MAX_WS_INFLIGHT_ENTRIES = 2000;
 const wsLog = createSubsystemLogger("gateway/ws");
 
 const WS_META_SKIP_KEYS = new Set(["connId", "id", "method", "ok", "event"]);
@@ -425,6 +426,9 @@ function logWsCompact(direction: "in" | "out", kind: string, meta?: Record<strin
 
   if (kind === "req" && direction === "in" && inflightKey) {
     wsInflightCompact.set(inflightKey, { ts: now, method, meta });
+    if (wsInflightCompact.size > MAX_WS_INFLIGHT_ENTRIES) {
+      wsInflightCompact.clear();
+    }
     return;
   }
 

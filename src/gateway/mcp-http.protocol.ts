@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /** Server identity advertised by the local MCP loopback initialize response. */
 export const MCP_LOOPBACK_SERVER_NAME = "openclaw";
 /** Protocol-facing loopback server version, independent from the OpenClaw app version. */
@@ -14,6 +16,14 @@ export type JsonRpcRequest = {
   method: string;
   params?: Record<string, unknown>;
 };
+
+/** Zod schema validating the JSON-RPC request envelope for the MCP loopback. */
+export const JsonRpcRequestSchema = z.object({
+  jsonrpc: z.literal("2.0"),
+  id: z.union([z.string(), z.number(), z.null()]).optional(),
+  method: z.string().min(1).max(128),
+  params: z.record(z.string(), z.unknown()).optional(),
+});
 
 /**
  * Builds a JSON-RPC success response, using null for notifications or malformed missing ids.

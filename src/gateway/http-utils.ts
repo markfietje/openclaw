@@ -196,6 +196,24 @@ export function resolveAgentIdForRequest(params: {
   return resolveDefaultAgentId(cfg);
 }
 
+const MAX_SESSION_KEY_LENGTH = 256;
+// Allow alphanumeric, hyphens, underscores, colons, dots, and forward slashes.
+const SESSION_KEY_CHARSET_RE = /^[A-Za-z0-9_.\-:/]+$/;
+
+function sanitizeSessionKey(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.length > MAX_SESSION_KEY_LENGTH) {
+    return trimmed.slice(0, MAX_SESSION_KEY_LENGTH);
+  }
+  if (trimmed.length === 0) {
+    return trimmed;
+  }
+  // Strip characters outside the allowlist to prevent injection into file paths or queries.
+  return SESSION_KEY_CHARSET_RE.test(trimmed)
+    ? trimmed
+    : trimmed.replace(/[^A-Za-z0-9_.\-:/]/g, "");
+}
+
 function resolveSessionKey(params: {
   req: IncomingMessage;
   agentId: string;
@@ -207,7 +225,7 @@ function resolveSessionKey(params: {
     if (isReservedSessionKeyOverride(explicit, params.agentId)) {
       throw new GatewaySessionKeyOverrideError();
     }
-    return explicit;
+    return sanitizeSessionKey(rawExplicit);
   }
 
   const user = params.user?.trim();
