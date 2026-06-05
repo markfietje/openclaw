@@ -88,6 +88,9 @@
       "@openclaw/gateway-security-core/auth-audit-log": [
         "./packages/gateway-security-core/src/auth-audit-log.ts"
       ],
+      "@openclaw/gateway-security-core/audit-log-base": [
+        "./packages/gateway-security-core/src/audit-log-base.ts"
+      ],
 
       "@openclaw/gateway-security-core/connection-rate-limit": [
         "./packages/gateway-security-core/src/connection-rate-limit.ts"
@@ -101,8 +104,11 @@
       "@openclaw/gateway-security-core/ip-restriction-policy": [
         "./packages/gateway-security-core/src/ip-restriction-policy.ts"
       ],
-      "@openclaw/gateway-security-core/message-auth": [
-        "./packages/gateway-security-core/src/message-auth.ts"
+      "@openclaw/gateway-security-core/ip": [
+        "./packages/gateway-security-core/src/ip.ts"
+      ],
+      "@openclaw/gateway-security-core/sliding-window-store": [
+        "./packages/gateway-security-core/src/sliding-window-store.ts"
       ],
       "@openclaw/gateway-security-core/request-rate-limit": [
         "./packages/gateway-security-core/src/request-rate-limit.ts"
