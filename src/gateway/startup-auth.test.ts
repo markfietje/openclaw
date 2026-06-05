@@ -499,6 +499,8 @@ describe("assertGatewayAuthNotKnownWeak", () => {
         modeSource: "config",
         token,
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
       });
     },
   );
@@ -509,6 +511,8 @@ describe("assertGatewayAuthNotKnownWeak", () => {
       modeSource: "config",
       password: "change-me-to-a-strong-password", // pragma: allowlist secret
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
     });
   });
 
@@ -520,6 +524,8 @@ describe("assertGatewayAuthNotKnownWeak", () => {
         modeSource: "config",
         token: `  ${token}  `,
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
       });
     },
   );
@@ -530,6 +536,8 @@ describe("assertGatewayAuthNotKnownWeak", () => {
       modeSource: "config",
       token: "",
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
     });
   });
 
@@ -539,6 +547,8 @@ describe("assertGatewayAuthNotKnownWeak", () => {
       modeSource: "config",
       token: "a-legit-random-token-0123456789abcdef",
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
     });
   });
 
@@ -547,6 +557,8 @@ describe("assertGatewayAuthNotKnownWeak", () => {
       mode: "none",
       modeSource: "default",
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
     });
   });
 });

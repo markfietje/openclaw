@@ -59,7 +59,13 @@ describe("gateway auth", () => {
   }) {
     const limiter = createLimiterSpy();
     const res = await authorizeWsControlUiGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: false },
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { token: "wrong" },
       req: {
         socket: { remoteAddress: "127.0.0.1" },
@@ -79,7 +85,13 @@ describe("gateway auth", () => {
     expected: { ok: false; reason: string } | { ok: true; method: string; user: string };
   }) {
     const res = await params.authorize({
-      auth: { mode: "token", token: "secret", allowTailscale: true },
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: true,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: null,
       tailscaleWhois: createTailscaleWhois(),
       req: createTailscaleForwardedReq(),
@@ -245,7 +257,13 @@ describe("gateway auth", () => {
 
   it("authorizes matching token auth when req is missing socket", async () => {
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: false },
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { token: "secret" },
       // Regression: avoid crashing on req.socket.remoteAddress when callers pass a non-IncomingMessage.
       req: {} as never,
@@ -255,14 +273,26 @@ describe("gateway auth", () => {
 
   it("reports missing and mismatched token reasons", async () => {
     const missing = await authorizeHttpGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: false },
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: null,
     });
     expect(missing.ok).toBe(false);
     expect(missing.reason).toBe("token_missing");
 
     const mismatch = await authorizeHttpGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: false },
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { token: "wrong" },
     });
     expect(mismatch.ok).toBe(false);
@@ -271,7 +301,12 @@ describe("gateway auth", () => {
 
   it("reports missing token config reason", async () => {
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "token", allowTailscale: false },
+      auth: {
+        mode: "token",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { token: "anything" },
     });
     expect(res.ok).toBe(false);
@@ -280,7 +315,12 @@ describe("gateway auth", () => {
 
   it("allows explicit auth mode none", async () => {
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "none", allowTailscale: false },
+      auth: {
+        mode: "none",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: null,
     });
     expect(res.ok).toBe(true);
@@ -409,14 +449,26 @@ describe("gateway auth", () => {
 
   it("reports missing and mismatched password reasons", async () => {
     const missing = await authorizeHttpGatewayConnect({
-      auth: { mode: "password", password: "secret", allowTailscale: false },
+      auth: {
+        mode: "password",
+        password: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: null,
     });
     expect(missing.ok).toBe(false);
     expect(missing.reason).toBe("password_missing");
 
     const mismatch = await authorizeHttpGatewayConnect({
-      auth: { mode: "password", password: "secret", allowTailscale: false },
+      auth: {
+        mode: "password",
+        password: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { password: "wrong" },
     });
     expect(mismatch.ok).toBe(false);
@@ -425,7 +477,12 @@ describe("gateway auth", () => {
 
   it("reports missing password config reason", async () => {
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "password", allowTailscale: false },
+      auth: {
+        mode: "password",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { password: "secret" },
     });
     expect(res.ok).toBe(false);
@@ -434,7 +491,13 @@ describe("gateway auth", () => {
 
   it("treats local tailscale serve hostnames as direct", async () => {
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: true },
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: true,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { token: "secret" },
       req: {
         socket: { remoteAddress: "127.0.0.1" },
@@ -448,7 +511,13 @@ describe("gateway auth", () => {
 
   it("does not allow tailscale identity to satisfy token mode auth by default", async () => {
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: true },
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: true,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: null,
       tailscaleWhois: createTailscaleWhois(),
       req: createTailscaleForwardedReq(),
@@ -460,7 +529,13 @@ describe("gateway auth", () => {
 
   it("allows tailscale identity when header auth is explicitly enabled", async () => {
     const res = await authorizeWsControlUiGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: true },
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: true,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: null,
       tailscaleWhois: createTailscaleWhois(),
       req: createTailscaleForwardedReq(),
@@ -490,7 +565,13 @@ describe("gateway auth", () => {
     };
 
     const baseParams = {
-      auth: { mode: "token" as const, token: "secret", allowTailscale: true },
+      auth: {
+        mode: "token" as const,
+        token: "secret",
+        allowTailscale: true,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { token: "wrong" },
       tailscaleWhois,
       req: createTailscaleForwardedReq(),
@@ -556,7 +637,13 @@ describe("gateway auth", () => {
   it("passes custom rate-limit scope to limiter operations", async () => {
     const limiter = createLimiterSpy();
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "password", password: "secret", allowTailscale: false },
+      auth: {
+        mode: "password",
+        password: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { password: "wrong" },
       rateLimiter: limiter,
       rateLimitScope: "custom-scope",
@@ -570,7 +657,13 @@ describe("gateway auth", () => {
   it("does not record rate-limit failure for missing token (misconfigured client, not brute-force)", async () => {
     const limiter = createLimiterSpy();
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: false },
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: null,
       rateLimiter: limiter,
     });
@@ -583,7 +676,13 @@ describe("gateway auth", () => {
   it("does not record rate-limit failure for missing password (misconfigured client, not brute-force)", async () => {
     const limiter = createLimiterSpy();
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "password", password: "secret", allowTailscale: false },
+      auth: {
+        mode: "password",
+        password: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: null,
       rateLimiter: limiter,
     });
@@ -596,7 +695,13 @@ describe("gateway auth", () => {
   it("still records rate-limit failure for wrong token (brute-force attempt)", async () => {
     const limiter = createLimiterSpy();
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "token", token: "secret", allowTailscale: false },
+      auth: {
+        mode: "token",
+        token: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { token: "wrong" },
       rateLimiter: limiter,
     });
@@ -609,7 +714,13 @@ describe("gateway auth", () => {
   it("still records rate-limit failure for wrong password (brute-force attempt)", async () => {
     const limiter = createLimiterSpy();
     const res = await authorizeHttpGatewayConnect({
-      auth: { mode: "password", password: "secret", allowTailscale: false },
+      auth: {
+        mode: "password",
+        password: "secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       connectAuth: { password: "wrong" },
       rateLimiter: limiter,
     });
@@ -700,6 +811,8 @@ describe("trusted-proxy auth", () => {
       auth: options?.auth ?? {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
         trustedProxy: trustedProxyConfig,
       },
       connectAuth: null,
@@ -784,6 +897,8 @@ describe("trusted-proxy auth", () => {
         auth: {
           mode: "trusted-proxy",
           allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
           trustedProxy: trustedProxyConfig,
         },
         connectAuth: null,
@@ -814,6 +929,8 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
         trustedProxy: trustedProxyConfig,
       },
       connectAuth: null,
@@ -844,6 +961,8 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
         trustedProxy: trustedProxyConfig,
       },
       connectAuth: null,
@@ -907,6 +1026,8 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
         trustedProxy: {
           userHeader: "x-forwarded-user",
           allowUsers: ["admin@example.com", "nick@example.com"],
@@ -926,6 +1047,8 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
         trustedProxy: {
           userHeader: "x-forwarded-user",
           allowUsers: ["admin@example.com", "nick@example.com"],
@@ -958,6 +1081,8 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
       },
       headers: {
         "x-forwarded-user": "nick@example.com",
@@ -1025,6 +1150,8 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
         trustedProxy: {
           userHeader: "x-pomerium-claim-email",
           requiredHeaders: ["x-pomerium-jwt-assertion"],
@@ -1048,6 +1175,8 @@ describe("trusted-proxy auth", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
         trustedProxy: {
           userHeader: "x-forwarded-user",
         },
@@ -1075,6 +1204,8 @@ describe("trusted-proxy auth", () => {
         auth: {
           mode: "trusted-proxy",
           allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
           ...(Object.hasOwn(options ?? {}, "trustedProxy")
             ? { trustedProxy: options?.trustedProxy }
             : { trustedProxy: trustedProxyConfig }),
@@ -1206,6 +1337,8 @@ describe("trusted-proxy auth", () => {
         auth: {
           mode: "trusted-proxy",
           allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
           trustedProxy: trustedProxyConfig,
         },
         connectAuth: null,
@@ -1228,6 +1361,8 @@ describe("trusted-proxy auth", () => {
         auth: {
           mode: "trusted-proxy",
           allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
           trustedProxy: {
             ...trustedProxyConfig,
             allowLoopback: true,
@@ -1257,6 +1392,8 @@ describe("trusted-proxy auth", () => {
         auth: {
           mode: "trusted-proxy",
           allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
           trustedProxy: {
             ...trustedProxyConfig,
             allowLoopback: true,
@@ -1282,6 +1419,8 @@ describe("trusted-proxy auth", () => {
         auth: {
           mode: "trusted-proxy",
           allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
           trustedProxy: {
             userHeader: "x-forwarded-user",
             requiredHeaders: ["x-forwarded-proto"],
@@ -1310,6 +1449,8 @@ describe("trusted-proxy auth", () => {
         auth: {
           mode: "trusted-proxy",
           allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
           trustedProxy: trustedProxyConfig,
           password: "secret", // pragma: allowlist secret
         },
@@ -1334,6 +1475,8 @@ describe("trusted-proxy auth", () => {
         auth: {
           mode: "trusted-proxy",
           allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
           trustedProxy: trustedProxyConfig,
           token: "secret",
         },
@@ -1356,6 +1499,8 @@ describe("trusted-proxy auth", () => {
         auth: {
           mode: "trusted-proxy",
           allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
           trustedProxy: trustedProxyConfig,
         },
         connectAuth: null,

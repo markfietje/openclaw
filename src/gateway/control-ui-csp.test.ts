@@ -27,11 +27,12 @@ describe("buildControlUiCspHeader", () => {
     expect(connectSrc?.split(" ")).toEqual([
       "connect-src",
       "'self'",
+      "ws:",
       "wss:",
-      "data:",
       "https://api.openai.com",
       "https://tweakcn.com",
     ]);
+    // No broad https: wildcard and no other origins are allowed.
     expect(connectSrc).not.toContain("https://*.tweakcn.com");
     expect(connectSrc?.split(" ")).not.toContain("https:");
   });
@@ -68,10 +69,10 @@ describe("buildControlUiCspHeader", () => {
     expect(csp).toMatch(/script-src 'self'(?:;|$)/);
   });
 
-  it("does not relax script execution for the terminal unless allowWasm is set", () => {
+  it("does not relax script execution or connect-src for the terminal unless allowWasm is set", () => {
     const csp = buildControlUiCspHeader();
     expect(csp).not.toContain("wasm-unsafe-eval");
-    expect(csp).toMatch(/connect-src[^;]*data:/);
+    expect(csp).not.toMatch(/connect-src[^;]*data:/);
   });
 
   it("relaxes script-src and connect-src for the terminal's ghostty-web WASM engine", () => {
