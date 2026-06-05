@@ -685,13 +685,6 @@ const CidrOrIpSchema = z.string().superRefine((val, ctx) => {
   }
 });
 
-const GatewayIpRestrictionSchema = z
-  .object({
-    allow: z.array(CidrOrIpSchema).optional(),
-    deny: z.array(CidrOrIpSchema).optional(),
-  })
-  .strict();
-
 const GatewayAuditFlagSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -727,7 +720,6 @@ const GatewaySecurityConfigSchema = z
     enforceOriginCheckForAllClients: z.boolean().default(false),
     ipAllowlist: z.array(CidrOrIpSchema).optional(),
     ipBlocklist: z.array(CidrOrIpSchema).optional(),
-    ipRestriction: GatewayIpRestrictionSchema.optional(),
     requireSubprotocol: z.boolean().default(true),
     maxWebSocketConnections: z.number().int().min(0).max(10_000).optional(),
     connectionRateLimit: GatewayConnectionRateLimitSchema.optional(),
@@ -1391,6 +1383,24 @@ export const OpenClawSchema = z
               })
               .strict()
               .optional(),
+            /**
+             * DANGEROUS: Allow auth mode "none" on non-loopback requests.
+             * Prefer OPENCLAW_GATEWAY_TOKEN or trusted-proxy for any network-exposed
+             * bind. Replaces the OPENCLAW_DANGEROUSLY_ALLOW_NO_AUTH env var.
+             */
+            dangerouslyAllowNoAuth: z.boolean().optional(),
+            /**
+             * When auth mode is "none", allow it to authenticate loopback
+             * direct-local requests without credentials (default: true for
+             * back-compat). Set to false to require auth even on loopback
+             * when mode is "none" — useful for hardened dev environments.
+             */
+            allowLocalDirectNoAuth: z.boolean().optional(),
+            /**
+             * Maximum HTTP request body bytes accepted by `/tools/invoke`.
+             * Default: 262144 (256 KiB). Hard ceiling: 1 MiB.
+             */
+            toolsInvokeMaxBodyBytes: z.number().int().min(1024).max(1_048_576).optional(),
           })
           .strict()
           .optional(),
