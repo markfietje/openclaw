@@ -57,15 +57,51 @@ const PRIORITY_RANK: Record<NodePendingWorkPriority, number> = {
 };
 
 const stateByNodeId = new Map<string, NodePendingWorkState>();
+const MAX_STATE_BY_NODE_ID_ENTRIES = 1024;
+const PRUNE_STALE_EMPTY_INTERVAL_MS = 60_000;
+let pruneTimer: ReturnType<typeof setInterval> | undefined;
+
+function ensurePruneTimer(): void {
+  if (pruneTimer) {
+    return;
+  }
+  pruneTimer = setInterval(() => {
+    for (const [nodeId, state] of stateByNodeId) {
+      if (state.itemsById.size === 0) {
+        stateByNodeId.delete(nodeId);
+      }
+    }
+  }, PRUNE_STALE_EMPTY_INTERVAL_MS);
+  pruneTimer.unref();
+}
+
+function capStateByNodeId(): void {
+  if (stateByNodeId.size >= MAX_STATE_BY_NODE_ID_ENTRIES) {
+    // Evict the oldest empty or first-inserted entry.
+    for (const [nodeId, state] of stateByNodeId) {
+      if (state.itemsById.size === 0) {
+        stateByNodeId.delete(nodeId);
+        return;
+      }
+    }
+    // All entries have items; evict the oldest (first-inserted) entry.
+    const oldestKey = stateByNodeId.keys().next().value;
+    if (oldestKey !== undefined) {
+      stateByNodeId.delete(oldestKey);
+    }
+  }
+}
 
 function getOrCreateState(nodeId: string): NodePendingWorkState {
   let state = stateByNodeId.get(nodeId);
   if (!state) {
+    capStateByNodeId();
     state = {
       revision: 0,
       itemsById: new Map(),
     };
     stateByNodeId.set(nodeId, state);
+    ensurePruneTimer();
   }
   return state;
 }
@@ -206,6 +242,10 @@ export function drainNodePendingWork(nodeId: string, opts: DrainOptions = {}): D
 /** Clears all pending work state for tests. */
 export function resetNodePendingWorkForTests() {
   stateByNodeId.clear();
+  if (pruneTimer) {
+    clearInterval(pruneTimer);
+    pruneTimer = undefined;
+  }
 }
 
 /** Returns the number of node queues retained in memory for tests. */

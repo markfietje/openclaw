@@ -21,6 +21,19 @@ export type UnifiedTalkSessionRecord =
     };
 
 const unifiedTalkSessions = new Map<string, UnifiedTalkSessionRecord>();
+const MAX_UNIFIED_TALK_SESSIONS = 256;
+
+/** Evicts oldest entries when the registry exceeds the cap. */
+function evictOverflowTalkSessions(): void {
+  while (unifiedTalkSessions.size > MAX_UNIFIED_TALK_SESSIONS) {
+    const oldestKey = unifiedTalkSessions.keys().next().value;
+    if (oldestKey !== undefined) {
+      unifiedTalkSessions.delete(oldestKey);
+    } else {
+      break;
+    }
+  }
+}
 
 /** Associates a public Talk session id with its concrete gateway backend. */
 export function rememberUnifiedTalkSession(
@@ -28,6 +41,7 @@ export function rememberUnifiedTalkSession(
   session: UnifiedTalkSessionRecord,
 ): void {
   unifiedTalkSessions.set(sessionId, session);
+  evictOverflowTalkSessions();
 }
 
 /** Resolves a Talk session id or throws the protocol-facing unknown-session error. */

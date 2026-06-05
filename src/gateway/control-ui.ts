@@ -50,7 +50,11 @@ import {
   CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE,
   type ControlUiBootstrapConfig,
 } from "./control-ui-contract.js";
-import { buildControlUiCspHeader, computeInlineScriptHashes } from "./control-ui-csp.js";
+import {
+  buildControlUiCspHeader,
+  computeInlineScriptHashes,
+  computeInlineStyleHashes,
+} from "./control-ui-csp.js";
 import {
   isReadHttpMethod,
   respondNotFound as respondControlUiNotFound,
@@ -825,12 +829,17 @@ function serveResolvedIndexHtml(
     /<html\b/i,
     `<html${basePathAttribute} ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="${allowWasm === true}"`,
   );
-  const hashes = computeInlineScriptHashes(prepared);
+  const scriptHashes = computeInlineScriptHashes(prepared);
+  const styleHashes = computeInlineStyleHashes(prepared);
   // Always set the document CSP here (the index carries inline scripts) so the
   // terminal's WASM relaxation is applied to the page that loads ghostty-web.
   res.setHeader(
     "Content-Security-Policy",
-    buildControlUiCspHeader({ inlineScriptHashes: hashes, allowWasm }),
+    buildControlUiCspHeader({
+      inlineScriptHashes: scriptHashes.length > 0 ? scriptHashes : undefined,
+      inlineStyleHashes: styleHashes.length > 0 ? styleHashes : undefined,
+      allowWasm,
+    }),
   );
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");

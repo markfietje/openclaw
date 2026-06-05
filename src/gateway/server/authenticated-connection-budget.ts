@@ -29,8 +29,8 @@ export function getMaxAuthenticatedConnectionsPerIdentityFromEnv(
 export type AuthenticatedConnectionBudget = {
   /** Try to acquire a slot. Returns false if budget exceeded. */
   acquire(deviceId: string | undefined, connId: string, clientIp?: string): boolean;
-  /** Release a slot when a connection closes. */
-  release(deviceId: string | undefined, connId: string): void;
+  /** Release a slot when a connection closes. clientIp must match the value passed to acquire. */
+  release(deviceId: string | undefined, connId: string, clientIp?: string): void;
   /** Current count for a device. */
   count(deviceId: string | undefined): number;
   /** Dispose and clear all tracking. */
@@ -66,8 +66,8 @@ export function createAuthenticatedConnectionBudget(
       return true;
     },
 
-    release(deviceId, connId) {
-      const key = normalizeKey(deviceId);
+    release(deviceId, connId, clientIp) {
+      const key = normalizeKey(deviceId, clientIp);
       const set = connections.get(key);
       if (!set) {
         return;

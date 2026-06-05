@@ -2,10 +2,16 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ToolAuditLogger } from "@openclaw/gateway-security-core/tool-audit";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { z } from "zod";
 import { normalizeMessageChannel } from "../utils/message-channel.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
-import { readJsonBodyOrError, sendJson, sendMethodNotAllowed } from "./http-common.js";
+import {
+  readJsonBodyOrError,
+  sendInvalidRequest,
+  sendJson,
+  sendMethodNotAllowed,
+} from "./http-common.js";
 import {
   authorizeScopedGatewayHttpRequestOrReply,
   getHeader,
@@ -13,6 +19,23 @@ import {
   resolveOpenAiCompatibleHttpSenderIsOwner,
 } from "./http-utils.js";
 import { invokeGatewayTool, type ToolsInvokeInput } from "./tools-invoke-shared.js";
+
+const optionalBoundedString = z.string().max(256).optional();
+
+const ToolsInvokeBodySchema = z
+  .object({
+    tool: optionalBoundedString,
+    name: optionalBoundedString,
+    action: optionalBoundedString,
+    args: z
+      .record(z.string(), z.unknown())
+      .refine((v) => Object.keys(v).length <= 64, { message: "args must have at most 64 keys" })
+      .optional(),
+    sessionKey: optionalBoundedString,
+    agentId: optionalBoundedString,
+    idempotencyKey: optionalBoundedString,
+  })
+  .passthrough();
 
 const DEFAULT_BODY_BYTES = 256 * 1024;
 
@@ -73,7 +96,12 @@ export async function handleToolsInvokeHttpRequest(
   if (bodyUnknown === undefined) {
     return true;
   }
-  const body = (bodyUnknown ?? {}) as ToolsInvokeInput;
+  const parseResult = ToolsInvokeBodySchema.safeParse(bodyUnknown ?? {});
+  if (!parseResult.success) {
+    sendInvalidRequest(res, parseResult.error.issues.map((i) => i.message).join("; "));
+    return true;
+  }
+  const body = parseResult.data as ToolsInvokeInput;
 
   // Resolve message channel/account hints (optional headers) for policy inheritance.
   const messageChannel = normalizeMessageChannel(

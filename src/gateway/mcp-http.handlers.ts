@@ -2,7 +2,7 @@
 // Implements initialize, tools/list, tools/call, and notification handling.
 import crypto from "node:crypto";
 import { ContentBlockSchema, type ContentBlock } from "@modelcontextprotocol/sdk/types.js";
-import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { z } from "zod";
 import { runBeforeToolCallHook, type HookContext } from "../agents/agent-tools.before-tool-call.js";
 import {
   formatToolExecutionErrorMessage,
@@ -29,6 +29,17 @@ function stringifyMcpContent(value: unknown): string {
 }
 
 const MCP_LOOPBACK_CONTENT_TYPES = new Set<ContentBlock["type"]>(["text", "image", "resource"]);
+
+/** Zod schema for `tools/call` params envelope. Limits key count to bound processing cost. */
+const ToolsCallParamsSchema = z.object({
+  name: z.string().min(1).max(256),
+  arguments: z
+    .record(z.string(), z.unknown())
+    .refine((obj) => Object.keys(obj).length <= 64, {
+      message: "arguments must contain at most 64 keys",
+    })
+    .optional(),
+});
 
 // Tool implementations may return MCP content blocks, plain strings, or
 // arbitrary JSON. Preserve the valid block types shared by every protocol revision
@@ -97,18 +108,16 @@ export async function handleMcpJsonRpc(params: {
     case "tools/list":
       return jsonRpcResult(id, { tools: params.toolSchema });
     case "tools/call": {
-      const toolName = typeof methodParams?.name === "string" ? methodParams.name.trim() : "";
-      const rawToolArgs = methodParams?.arguments;
-      if (rawToolArgs !== undefined && !isRecord(rawToolArgs)) {
-        return jsonRpcError(id, -32602, "Invalid params: tools/call arguments must be an object");
+      const paramsResult = ToolsCallParamsSchema.safeParse(methodParams);
+      if (!paramsResult.success) {
+        return jsonRpcError(
+          id,
+          -32602,
+          `Invalid params: ${paramsResult.error.issues.map((i) => i.message).join(", ")}`,
+        );
       }
-      const toolArgs = rawToolArgs ?? {};
-      if (!toolName) {
-        return jsonRpcResult(id, {
-          content: [{ type: "text", text: "Tool not available: unknown" }],
-          isError: true,
-        });
-      }
+      const toolName = paramsResult.data.name;
+      const toolArgs = paramsResult.data.arguments ?? {};
       if (!params.toolSchema.some((tool) => tool.name === toolName)) {
         return jsonRpcResult(id, {
           content: [{ type: "text", text: `Tool not available: ${toolName}` }],

@@ -7,7 +7,14 @@ const DISALLOWED_CHAT_CONTROL_RE = new RegExp(`[${DISALLOWED_CHAT_CONTROL_RANGE}
 
 /** Drop disallowed control characters while preserving tab, line breaks, and Unicode. */
 function stripDisallowedChatControlChars(message: string): string {
-  return message.replace(DISALLOWED_CHAT_CONTROL_RE, "");
+  const chars: string[] = [];
+  for (const char of message) {
+    const code = char.charCodeAt(0);
+    if (code === 9 || code === 10 || code === 13 || (code >= 32 && code !== 127)) {
+      chars.push(char);
+    }
+  }
+  return chars.join("");
 }
 
 /** Normalize chat text and reject null bytes before routing to channels. */

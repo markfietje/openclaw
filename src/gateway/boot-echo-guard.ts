@@ -11,6 +11,8 @@
 // as the comparison source. Refs #53732.
 
 const MIN_ECHO_CHARS = 80;
+const MAX_BOOT_CHUNK_PROMPTS = 64;
+const MAX_BOOT_CONTEXT_SESSIONS = 512;
 
 type BootEchoContext = {
   bootPrompt: string;
@@ -19,6 +21,9 @@ type BootEchoContext = {
 
 const bootContextBySessionKey = new Map<string, BootEchoContext>();
 const bootChunksByNormalizedPrompt = new Map<string, Map<number, Set<string>>>();
+// Reference count for shared chunk entries so chunks are only freed when all
+// sessions using that normalized prompt are cleared.
+const bootChunksRefByNormalizedPrompt = new Map<string, number>();
 
 function normalizeEchoComparisonText(text: string): string {
   return text.replace(/\s+/gu, " ").trim();
@@ -46,10 +51,28 @@ export function setBootEchoContextForSession(sessionKey: string, bootPrompt: str
   if (!sessionKey || !bootPrompt) {
     return;
   }
+  // Evict oldest entries when the session map exceeds the cap.
+  if (bootContextBySessionKey.size >= MAX_BOOT_CONTEXT_SESSIONS) {
+    const oldestKey = bootContextBySessionKey.keys().next().value;
+    if (oldestKey !== undefined) {
+      clearBootEchoContextForSession(oldestKey);
+    }
+  }
   const normalizedBootPrompt = normalizeEchoComparisonText(bootPrompt);
   if (normalizedBootPrompt.length >= MIN_ECHO_CHARS) {
+    // Evict oldest chunk entries when the chunk map exceeds the cap.
+    if (bootChunksByNormalizedPrompt.size >= MAX_BOOT_CHUNK_PROMPTS) {
+      const oldestChunkKey = bootChunksByNormalizedPrompt.keys().next().value;
+      if (oldestChunkKey !== undefined) {
+        bootChunksByNormalizedPrompt.delete(oldestChunkKey);
+        bootChunksRefByNormalizedPrompt.delete(oldestChunkKey);
+      }
+    }
     getBootPromptChunks(normalizedBootPrompt, MIN_ECHO_CHARS);
   }
+  // Increment ref count for shared chunk deduplication.
+  const currentRefCount = bootChunksRefByNormalizedPrompt.get(normalizedBootPrompt) ?? 0;
+  bootChunksRefByNormalizedPrompt.set(normalizedBootPrompt, currentRefCount + 1);
   bootContextBySessionKey.set(sessionKey, { bootPrompt, normalizedBootPrompt });
 }
 
@@ -59,7 +82,14 @@ export function clearBootEchoContextForSession(sessionKey: string): void {
   }
   const context = bootContextBySessionKey.get(sessionKey);
   if (context) {
-    bootChunksByNormalizedPrompt.delete(context.normalizedBootPrompt);
+    // Decrement ref count; only free chunks when the last session using them clears.
+    const refCount = bootChunksRefByNormalizedPrompt.get(context.normalizedBootPrompt);
+    if (refCount !== undefined && refCount <= 1) {
+      bootChunksByNormalizedPrompt.delete(context.normalizedBootPrompt);
+      bootChunksRefByNormalizedPrompt.delete(context.normalizedBootPrompt);
+    } else if (refCount !== undefined) {
+      bootChunksRefByNormalizedPrompt.set(context.normalizedBootPrompt, refCount - 1);
+    }
   }
   bootContextBySessionKey.delete(sessionKey);
 }
@@ -116,4 +146,5 @@ export function stripBootEchoFromOutboundText(
 export function resetBootEchoContextForTests(): void {
   bootContextBySessionKey.clear();
   bootChunksByNormalizedPrompt.clear();
+  bootChunksRefByNormalizedPrompt.clear();
 }
