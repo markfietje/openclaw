@@ -23,9 +23,9 @@ describe("auth audit log HMAC", () => {
     return testDir;
   }
 
-  // --- Lines written without token have no `hmac` field ---
+  // --- Lines are always HMAC-signed (auto-generated token when none configured) ---
 
-  it("writes lines without hmac field when no token is configured", async () => {
+  it("writes lines with hmac field even without explicit token (auto-generated)", async () => {
     const dir = makeTestDir();
     logger = createAuthAuditLogger({ logDir: dir });
     logger.log({ event: "auth_failure", clientIp: "10.0.0.1", reason: "bad_token" });
@@ -34,7 +34,10 @@ describe("auth audit log HMAC", () => {
     const content = await readFile(path.join(dir, "gateway-auth.jsonl"), "utf-8");
     const entry = JSON.parse(content.trim());
     expect(entry.event).toBe("auth_failure");
-    expect(entry.hmac).toBeUndefined();
+    // HMAC is auto-generated per process when no explicit token is configured,
+    // ensuring audit log integrity is always protected.
+    expect(entry.hmac).toBeDefined();
+    expect(typeof entry.hmac).toBe("string");
   });
 
   // --- Lines written with token have `hmac` field ---
