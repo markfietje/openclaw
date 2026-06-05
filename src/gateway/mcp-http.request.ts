@@ -262,6 +262,10 @@ export async function readMcpHttpBody(
     const chunks: Buffer[] = [];
     let received = 0;
     let settled = false;
+    const timer = setTimeout(() => {
+      req.pause();
+      rejectOnce(createMcpHttpBodyTimeoutError(), { keepErrorListener: true });
+    }, MCP_HTTP_BODY_TIMEOUT_MS);
     // Remove listeners on every terminal path; oversized bodies keep the error
     // listener briefly so Node can deliver the pause/error safely.
     const cleanup = (cleanupOptions?: { keepErrorListener?: boolean }) => {
@@ -324,7 +328,7 @@ function createMcpHttpBodyTooLargeError(maxBytes: number): Error & { code: strin
 }
 
 function createMcpHttpBodyTimeoutError(): Error & { code: string } {
-  return Object.assign(new Error("Request body timed out"), {
+  return Object.assign(new Error("Request body read timed out"), {
     code: MCP_HTTP_BODY_TIMEOUT_CODE,
   });
 }
@@ -339,7 +343,8 @@ export function isMcpHttpBodyTooLargeError(error: unknown): error is Error & { c
   return (
     typeof error === "object" &&
     error !== null &&
-    (error as { code?: unknown }).code === MCP_HTTP_BODY_TOO_LARGE_CODE
+    ((error as { code?: unknown }).code === MCP_HTTP_BODY_TOO_LARGE_CODE ||
+      (error as { code?: unknown }).code === MCP_HTTP_BODY_TIMEOUT_CODE)
   );
 }
 

@@ -196,6 +196,8 @@ function lookupResponseSession(
   scope: ResponseSessionScope,
   now = Date.now(),
 ): string | undefined {
+  // Prune expired entries opportunistically on reads too.
+  pruneExpiredResponseSessions(now);
   if (!responseId) {
     return undefined;
   }

@@ -34,23 +34,49 @@ function hasScriptSrcAttribute(openTag: string): boolean {
   );
 }
 
+const STYLE_ATTRIBUTE_NAME_RE = /\s([^\s=/>]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/g;
+
+/** Compute SHA-256 CSP hashes for inline `<style>` blocks in an HTML string. */
+export function computeInlineStyleHashes(html: string): string[] {
+  const hashes: string[] = [];
+  const re = /<style(?:\s[^>]*)?>([^]*?)<\/style>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(html)) !== null) {
+    const content = match[1];
+    if (!content?.trim()) {
+      continue;
+    }
+    const hash = createHash("sha256").update(content, "utf8").digest("base64");
+    hashes.push(`sha256-${hash}`);
+  }
+  return hashes;
+}
+
 /** Build the CSP header applied to Gateway-served Control UI HTML. */
-export function buildControlUiCspHeader(opts?: { inlineScriptHashes?: string[] }): string {
+export function buildControlUiCspHeader(opts?: {
+  inlineScriptHashes?: string[];
+  inlineStyleHashes?: string[];
+}): string {
   const hashes = opts?.inlineScriptHashes;
   const scriptSrc = hashes?.length
     ? `script-src 'self' ${hashes.map((h) => `'${h}'`).join(" ")}`
     : "script-src 'self'";
+  const styleHashes = opts?.inlineStyleHashes;
+  const styleSrcBase = "'self'";
+  const styleSrc = styleHashes?.length
+    ? `style-src ${styleSrcBase} ${styleHashes.map((h) => `'${h}'`).join(" ")}`
+    : `style-src ${styleSrcBase}`;
   return [
     "default-src 'self'",
     "base-uri 'none'",
     "object-src 'none'",
     "frame-ancestors 'none'",
     scriptSrc,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    styleSrc,
     "img-src 'self' data: blob:",
     "media-src 'self' data: blob:",
-    "font-src 'self' https://fonts.gstatic.com",
+    "font-src 'self'",
     "worker-src 'self'",
-    "connect-src 'self' ws: wss: https://api.openai.com https://tweakcn.com",
+    "connect-src 'self' wss: https://api.openai.com https://tweakcn.com",
   ].join("; ");
 }

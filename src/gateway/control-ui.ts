@@ -38,7 +38,11 @@ import {
   CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
   type ControlUiBootstrapConfig,
 } from "./control-ui-contract.js";
-import { buildControlUiCspHeader, computeInlineScriptHashes } from "./control-ui-csp.js";
+import {
+  buildControlUiCspHeader,
+  computeInlineScriptHashes,
+  computeInlineStyleHashes,
+} from "./control-ui-csp.js";
 import {
   isReadHttpMethod,
   respondNotFound as respondControlUiNotFound,
@@ -744,11 +748,15 @@ function serveResolvedFile(res: ServerResponse, filePath: string, body: Buffer) 
 }
 
 function serveResolvedIndexHtml(res: ServerResponse, body: string) {
-  const hashes = computeInlineScriptHashes(body);
-  if (hashes.length > 0) {
+  const scriptHashes = computeInlineScriptHashes(body);
+  const styleHashes = computeInlineStyleHashes(body);
+  if (scriptHashes.length > 0 || styleHashes.length > 0) {
     res.setHeader(
       "Content-Security-Policy",
-      buildControlUiCspHeader({ inlineScriptHashes: hashes }),
+      buildControlUiCspHeader({
+        inlineScriptHashes: scriptHashes.length > 0 ? scriptHashes : undefined,
+        inlineStyleHashes: styleHashes.length > 0 ? styleHashes : undefined,
+      }),
     );
   }
   res.setHeader("Content-Type", "text/html; charset=utf-8");
