@@ -71,12 +71,13 @@ export function buildControlUiCspHeader(opts?: {
     "base-uri 'none'",
     "object-src 'none'",
     "frame-ancestors 'none'",
+    "form-action 'self'",
     scriptSrc,
     styleSrc,
     "img-src 'self' data: blob:",
     "media-src 'self' data: blob:",
     "font-src 'self'",
     "worker-src 'self'",
-    "connect-src 'self' wss: https://api.openai.com https://tweakcn.com",
+    "connect-src 'self' https://api.openai.com https://tweakcn.com",
   ].join("; ");
 }
