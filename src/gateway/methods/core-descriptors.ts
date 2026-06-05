@@ -46,7 +46,7 @@ const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "tts.setProvider", scope: "operator.write" },
   { name: "tts.setPersona", scope: "operator.write" },
   { name: "config.get", scope: "operator.read" },
-  { name: "config.set", scope: "operator.admin" },
+  { name: "config.set", scope: "operator.admin", controlPlaneWrite: true },
   { name: "config.apply", scope: "operator.admin", controlPlaneWrite: true },
   { name: "config.patch", scope: "operator.admin", controlPlaneWrite: true },
   { name: "config.schema", scope: "operator.admin" },

@@ -3,7 +3,10 @@
 import { KeyedAsyncQueue } from "openclaw/plugin-sdk/keyed-async-queue";
 import { AUTH_RATE_LIMIT_SCOPE_DEFAULT, normalizeRateLimitClientIp } from "./auth-rate-limit.js";
 
-const pendingAttempts = new KeyedAsyncQueue();
+// Cap on distinct in-flight attempt keys to keep memory bounded under floods of
+// unique keys (e.g. one per attacker IP). The oldest pending key is evicted at cap.
+const MAX_PENDING_ATTEMPTS = 10_000;
+const pendingAttempts = new KeyedAsyncQueue({ maxSize: MAX_PENDING_ATTEMPTS });
 
 function normalizeScope(scope: string | undefined): string {
   return (scope ?? AUTH_RATE_LIMIT_SCOPE_DEFAULT).trim() || AUTH_RATE_LIMIT_SCOPE_DEFAULT;
