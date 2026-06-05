@@ -32,6 +32,7 @@ let wsLastCompactConnId: string | undefined;
 const wsInflightOptimized = new Map<string, number>();
 const wsInflightSince = new Map<string, number>();
 const MAX_WS_INFLIGHT_ENTRIES = 2000;
+const MAX_WS_INFLIGHT_SINCE_AGE_MS = 60_000;
 const wsLog = createSubsystemLogger("gateway/ws");
 
 const WS_META_SKIP_KEYS = new Set(["connId", "id", "method", "ok", "event"]);
@@ -315,6 +316,14 @@ export function logWs(direction: "in" | "out", kind: string, meta?: Record<strin
 
   const inflightKey = connId && id ? `${connId}:${id}` : undefined;
   if (direction === "in" && kind === "req" && inflightKey) {
+    if (wsInflightSince.size > 0) {
+      const cutoff = now - MAX_WS_INFLIGHT_SINCE_AGE_MS;
+      for (const [key, ts] of wsInflightSince) {
+        if (ts < cutoff) {
+          wsInflightSince.delete(key);
+        }
+      }
+    }
     wsInflightSince.set(inflightKey, now);
   }
   const durationMs =
