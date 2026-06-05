@@ -147,6 +147,26 @@ export async function readJsonBodyOrError(
   res: ServerResponse,
   maxBytes: number,
 ): Promise<unknown> {
+  // Enforce JSON Content-Type for non-empty bodies. Missing body is fine
+  // (some callers allow empty POSTs); wrong media type returns 415.
+  const contentLengthRaw = req.headers?.["content-length"];
+  const contentLength = parseContentLengthHeader(contentLengthRaw) ?? 0;
+  if (contentLength > 0) {
+    const contentTypeRaw = req.headers?.["content-type"];
+    const contentType = (Array.isArray(contentTypeRaw) ? contentTypeRaw[0] : contentTypeRaw)
+      ?.split(";")[0]
+      ?.trim()
+      .toLowerCase();
+    if (contentType !== "application/json") {
+      sendJson(res, 415, {
+        error: {
+          message: "Content-Type must be application/json",
+          type: "invalid_request_error",
+        },
+      });
+      return undefined;
+    }
+  }
   const body = await readJsonBody(req, maxBytes);
   if (!body.ok) {
     if (body.error === "payload too large") {
