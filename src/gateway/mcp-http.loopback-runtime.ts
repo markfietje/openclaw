@@ -1,4 +1,5 @@
 // Process-local MCP loopback runtime state for owner/non-owner HTTP access.
+import { safeEqualSecret } from "../security/secret-equal.js";
 type McpLoopbackRuntime = {
   port: number;
   ownerToken: string;
@@ -361,7 +362,7 @@ export function resolveMcpLoopbackBearerToken(
 
 /** Clear loopback runtime only when the owning token matches the active runtime. */
 export function clearActiveMcpLoopbackRuntimeByOwnerToken(ownerToken: string): void {
-  if (activeRuntime?.ownerToken === ownerToken) {
+  if (activeRuntime && safeEqualSecret(activeRuntime.ownerToken, ownerToken)) {
     activeRuntime = undefined;
   }
 }
