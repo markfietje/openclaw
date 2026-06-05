@@ -1,10 +1,7 @@
 // Gateway connection authorization.
 // Authorizes HTTP/websocket gateway requests across shared-secret, Tailscale, and proxy modes.
 import type { IncomingMessage } from "node:http";
-import {
-  MAX_AUDIT_STRING_LENGTH,
-  truncateAuditField,
-} from "@openclaw/gateway-security-core/audit-log-base";
+import { MAX_AUDIT_STRING_LENGTH, truncateAuditField } from "@openclaw/gateway-security-core";
 import {
   isIpAllowed,
   type IpRestrictionConfig,

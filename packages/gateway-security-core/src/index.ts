@@ -1,3 +1,4 @@
+export * from "./audit-log-base.js";
 export * from "./auth-audit-log.js";
 export * from "./connection-rate-limit.js";
 export * from "./device-session-authority.js";

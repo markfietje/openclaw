@@ -69,6 +69,8 @@ function createResolvedAuth(token: string): ResolvedGatewayAuth {
   return {
     mode: "token",
     allowTailscale: false,
+    allowLocalDirectNoAuth: true,
+    toolsInvokeMaxBodyBytes: 256 * 1024,
     token,
   };
 }
