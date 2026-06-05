@@ -29,7 +29,6 @@ export type ToolsInvokeInput = {
   sessionKey?: unknown;
   agentId?: unknown;
   idempotencyKey?: unknown;
-  dryRun?: unknown;
 };
 
 type ToolsInvokeErrorType = "invalid_request" | "not_found" | "tool_call_blocked" | "tool_error";
