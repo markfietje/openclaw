@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# OpenClaw Apple Container installer (short wrapper).
+#
+# This file lives at https://markfietje.github.io/openclaw/install so the
+# install URL is short. The real installer is in the fork's main branch.
+# This wrapper always pulls the latest, so the URL never goes stale.
+#
+# Usage:
+#   curl -fsSL https://markfietje.github.io/openclaw/install | bash
+#   curl -fsSL https://markfietje.github.io/openclaw/install | bash -s -- run
+#   curl -fsSL https://markfietje.github.io/openclaw/install | bash -s -- stop
+#
+# Any subcommand (install, run, stop, upgrade, status, logs, uninstall)
+# is passed through to the real installer.
+
+set -euo pipefail
+
+REAL_INSTALLER="https://raw.githubusercontent.com/markfietje/openclaw/main/scripts/apple-container/bootstrap.sh"
+
+exec bash <(curl -fsSL "$REAL_INSTALLER") "$@"
