@@ -552,7 +552,14 @@ require_keychain_bridge_container_reachable() {
 
   while [[ "$attempt" -le "$max_attempts" ]]; do
     temp_name="${OPENCLAW_CONTAINER_NAME}-bridge-check-${attempt}"
-    container delete "$temp_name" >/dev/null 2>&1 || true
+    if ! container delete "$temp_name" >/dev/null 2>&1; then
+      # A leftover probe container from a previous failed run is normal
+      # (the loop may have aborted before its own delete fired). Anything
+      # else is a real Apple Container error and worth surfacing.
+      if container ls --quiet 2>/dev/null | grep -qx "$temp_name"; then
+        warn "Probe temp container '${temp_name}' could not be deleted; it may be leaking."
+      fi
+    fi
 
     set +e
     output="$(
@@ -575,7 +582,11 @@ require_keychain_bridge_container_reachable() {
     status=$?
     set -e
 
-    container delete "$temp_name" >/dev/null 2>&1 || true
+    if ! container delete "$temp_name" >/dev/null 2>&1; then
+      if container ls --quiet 2>/dev/null | grep -qx "$temp_name"; then
+        warn "Probe temp container '${temp_name}' still exists after the run; it may be leaking."
+      fi
+    fi
 
     if [[ "$status" -eq 0 ]]; then
       info "Keychain bridge: reachable from Apple Container"
