@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/preflight.sh
 source "${SCRIPT_DIR}/lib/preflight.sh"
+# shellcheck source=lib/container-json.sh
+source "${SCRIPT_DIR}/lib/container-json.sh"
 
 OPENCLAW_HOME="${HOME:-}"
 OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-${OPENCLAW_HOME}/.openclaw}"
@@ -171,7 +173,7 @@ BRIDGE_TOKEN_FILE_PATH="/home/node/.openclaw/bridge-token"
 
 copy_gateway_token() {
   local token
-  token="$(/usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$KEYCHAIN_SERVICE" -w 2>/dev/null || true)"
+  token="$(read_keychain_token "$KEYCHAIN_SERVICE" "$KEYCHAIN_ACCOUNT")"
   if [[ -z "$token" ]]; then
     fail "Keychain has no gateway token for ${KEYCHAIN_SERVICE} / ${KEYCHAIN_ACCOUNT}."
   fi
@@ -187,7 +189,7 @@ copy_gateway_token() {
 dashboard_url() {
   local token=""
   local base_url="${OPENCLAW_DASHBOARD_URL:-}"
-  token="$(/usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$KEYCHAIN_SERVICE" -w)"
+  token="$(read_keychain_token "$KEYCHAIN_SERVICE" "$KEYCHAIN_ACCOUNT")"
   if [[ -z "$base_url" ]]; then
     local tailscale_origin=""
     if command -v tailscale >/dev/null 2>&1; then
@@ -284,9 +286,7 @@ require_tailscale() {
     return 0
   fi
   local backend_state=""
-  backend_state="$(tailscale status --json 2>/dev/null \
-    | node -e 'let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(j.BackendState||"unknown")}catch{process.stdout.write("unknown")}})' \
-    2>/dev/null)" || true
+  backend_state="$(parse_tailscale_backend_state)"
   if [[ "$backend_state" != "Running" ]]; then
     fail "Tailscale is not running (state: ${backend_state}). Start it with: tailscale up"
   fi
@@ -304,40 +304,17 @@ require_tailscale() {
 # Detect the container's IPv4 gateway CIDR (e.g. 192.168.64.0/24) from
 # the running container's network configuration via `container inspect`.
 detect_container_gateway_cidr() {
-  local cidr=""
-  cidr="$(container inspect "$OPENCLAW_CONTAINER_NAME" 2>/dev/null \
-    | node -e '
-let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{
-  try {
-    const arr = JSON.parse(d);
-    const nets = arr && arr[0] && arr[0].networks;
-    if (Array.isArray(nets) && nets.length > 0 && nets[0].ipv4Address) {
-      const addr = nets[0].ipv4Address; // e.g. "192.168.64.5/24"
-      const parts = addr.split(".");
-      const mask = addr.split("/")[1] || "24";
-      if (parts.length >= 3) process.stdout.write(parts[0]+"."+parts[1]+"."+parts[2]+".0/"+mask);
-    }
-  } catch {}
-})' \
-    2>/dev/null)" || true
-  printf '%s' "$cidr"
+  parse_container_gateway_cidr "$OPENCLAW_CONTAINER_NAME"
 }
 
 # Detect the Tailscale Serve origin (e.g. https://machine.tail12345.ts.net)
-# from `tailscale serve status` output.
+# from `tailscale serve status` output. Bounded by watchdog_kill_after because
+# `tailscale serve status` can hang when the local daemon is wedged.
 detect_tailscale_origin() {
-  local origin=""
-  local tmpfile
+  local origin="" tmpfile=""
   tmpfile="$(mktemp "${TMPDIR:-/tmp}/openclaw-ts-origin.XXXXXX")"
   (
-    tailscale serve status 2>/dev/null | node -e '
-let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{
-  const lines = d.split("\n");
-  for (const line of lines) {
-    const m = line.match(/^(https?:\/\/[^\s/]+)/);
-    if (m) { process.stdout.write(m[1]); return; }
-  }
-})' >"$tmpfile"
+    parse_tailscale_origin >"$tmpfile"
   ) &
   local serve_pid=$!
   watchdog_kill_after "$serve_pid" 5
@@ -483,7 +460,7 @@ fi
 if ! container system dns list --quiet 2>/dev/null | grep -qx "$HOST_DOMAIN"; then
   fail "Missing host bridge DNS '${HOST_DOMAIN}'. Run: scripts/apple-container/setup.sh"
 fi
-if ! /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$KEYCHAIN_SERVICE" -w >/dev/null 2>&1; then
+if ! keychain_token_exists "$KEYCHAIN_SERVICE" "$KEYCHAIN_ACCOUNT"; then
   fail "Missing macOS Keychain gateway token '${KEYCHAIN_SERVICE}' for account '${KEYCHAIN_ACCOUNT}'. Run: scripts/apple-container/setup.sh"
 fi
 
@@ -532,7 +509,9 @@ BRIDGE_ENV
       -e "$BRIDGE_LOG_FILE" \
       -- /bin/sh -c 'set -a; . "$1"; set +a; exec "$2" "$3"' \
         bridge-env "$BRIDGE_ENV_FILE" "$NODE_BIN" "$KEYCHAIN_BRIDGE_SCRIPT" || true
-    for _ in {1..20}; do
+    # launchd can take a few seconds to spawn the bridge on first call. Wait
+    # up to 5s for the pid/port file before falling through to the nohup path.
+    for _ in {1..50}; do
       [[ -s "$BRIDGE_PID_FILE" || -s "$BRIDGE_PORT_FILE" ]] && break
       sleep 0.1
     done
@@ -706,21 +685,10 @@ fi
 # fails so the user can override OPENCLAW_APPLE_CONTAINER_HOST_DOMAIN.
 BRIDGE_HOST_IP="$(
   if [[ "${#NETWORK_ARGS[@]}" -gt 0 ]]; then
-    container network inspect "${NETWORK_ARGS[1]}" 2>/dev/null
+    parse_container_network_gateway "${NETWORK_ARGS[1]}"
   else
-    container network inspect default 2>/dev/null
-  fi | node -e '
-let d="";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (c) => d += c);
-process.stdin.on("end", () => {
-  try {
-    const arr = JSON.parse(d);
-    const gw = arr && arr[0] && arr[0].status && arr[0].status.ipv4Gateway;
-    if (typeof gw === "string" && /^[0-9.]+$/.test(gw)) process.stdout.write(gw);
-  } catch {}
-});
-'
+    parse_container_network_gateway default
+  fi
 )"
 [[ -z "$BRIDGE_HOST_IP" ]] && BRIDGE_HOST_IP="$HOST_DOMAIN"
 

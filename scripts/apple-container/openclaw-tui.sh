@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/preflight.sh
 source "${SCRIPT_DIR}/lib/preflight.sh"
+# shellcheck source=lib/container-json.sh
+source "${SCRIPT_DIR}/lib/container-json.sh"
 
 OPENCLAW_HOME="${HOME:-}"
 OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-${OPENCLAW_HOME}/.openclaw}"
@@ -69,12 +71,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 chmod 600 "$tmp_env"
-printf 'OPENCLAW_GATEWAY_TOKEN=%s\n' "$(
-  /usr/bin/security find-generic-password \
-    -a "$KEYCHAIN_ACCOUNT" \
-    -s "$KEYCHAIN_SERVICE" \
-    -w
-)" >"$tmp_env"
+local tui_token
+tui_token="$(read_keychain_token "$KEYCHAIN_SERVICE" "$KEYCHAIN_ACCOUNT")"
+[[ -n "$tui_token" ]] || fail "Keychain has no gateway token for ${KEYCHAIN_SERVICE} / ${KEYCHAIN_ACCOUNT}."
+printf 'OPENCLAW_GATEWAY_TOKEN=%s\n' "$tui_token" >"$tmp_env"
 
 exec_args=(exec -i)
 if [[ -t 0 && -t 1 ]]; then

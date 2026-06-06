@@ -460,7 +460,9 @@ container delete "$STAGE_CONTAINER" >/dev/null 2>&1 || true
 
 if ! $VOLUME_EXISTS; then
   info "Creating code volume '${CODE_VOLUME_NAME}' (first sync — seeding from image)..."
-  container volume create "$CODE_VOLUME_NAME" >/dev/null
+  if ! container volume create "$CODE_VOLUME_NAME" >/dev/null 2>&1; then
+    fail "Failed to create code volume '${CODE_VOLUME_NAME}'."
+  fi
   FULL_SEED=true
 fi
 
