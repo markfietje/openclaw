@@ -36,6 +36,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/preflight.sh
+source "${SCRIPT_DIR}/lib/preflight.sh"
+
 # ── Config ──────────────────────────────────────────────────────
 IMAGE="ghcr.io/markfietje/openclaw:apple-arm64"
 CONTAINER_NAME="${OPENCLAW_CONTAINER_NAME:-openclaw}"
@@ -80,15 +84,10 @@ require_cmd() {
 
 # ── Checks ──────────────────────────────────────────────────────
 preflight() {
-  if [[ "$(uname)" != "Darwin" ]]; then
-    fail "Apple Container only runs on macOS."
-  fi
+  preflight_check_macos || return 1
+  preflight_check_arm64 || return 1
+  preflight_check_security || return 1
 
-  if ! sysctl -n hw.optional.arm64 >/dev/null 2>&1; then
-    fail "Apple Silicon (M1/M2/M3/M4) is required."
-  fi
-
-  # Check if container CLI is installed
   if ! command -v container >/dev/null 2>&1; then
     echo ""
     step "Apple Container is not installed"
@@ -105,20 +104,21 @@ preflight() {
   fi
   ok "Apple Container CLI found"
 
-  require_cmd security
-
-  # Ensure the container runtime is running
-  if ! container system status 2>/dev/null | grep -q "running"; then
+  # Use JSON status to avoid the "is not running" substring-match bug.
+  local _state=""
+  _state="$(container system status --format json 2>/dev/null \
+    | node -e 'let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(j.status||"")}catch{}})' 2>/dev/null || true)"
+  if [[ "$_state" != "running" ]]; then
     step "Starting Apple Container runtime..."
     container system start 2>/dev/null || {
-      # Retry with sudo if needed
       warn "Need admin privileges to start the runtime."
       sudo container system start 2>/dev/null || fail "Could not start Apple Container runtime."
     }
-    # Wait for builder to be ready
     local retries=0
-    while [ $retries -lt 30 ]; do
-      if container system status 2>/dev/null | grep -q "running"; then
+    while (( retries < 30 )); do
+      _state="$(container system status --format json 2>/dev/null \
+        | node -e 'let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(j.status||"")}catch{}})' 2>/dev/null || true)"
+      if [[ "$_state" == "running" ]]; then
         ok "Apple Container runtime started"
         return 0
       fi
@@ -128,6 +128,10 @@ preflight() {
     fail "Apple Container runtime did not start in time. Try: container system start"
   fi
   ok "Apple Container runtime is running"
+
+  preflight_check_curl
+  preflight_check_token_source
+  require_cmd curl
 }
 
 # ── Generate token ──────────────────────────────────────────────
@@ -290,14 +294,20 @@ cmd_install() {
       else
         echo 'Gateway not found in image.' && exit 1
       fi
-    " 2>/dev/null || true
+    " 2>&1 | sed -e 's/^/    /' || true
+  if ! container list --quiet --all 2>/dev/null | grep -qx "$CONTAINER_NAME"; then
+    fail "Container '$CONTAINER_NAME' was not created. See output above."
+  fi
 
   # Store token in volume too
   local staging
   staging="$(mktemp -d)"
   echo "$token" > "$staging/token"
   chmod 400 "$staging/token"
-  container cp "$staging/token" "$CONTAINER_NAME:/token-key/token" 2>/dev/null || true
+  if ! container cp "$staging/token" "$CONTAINER_NAME:/token-key/token" 2>&1; then
+    rm -rf "$staging"
+    fail "Failed to copy gateway token into container volume."
+  fi
   rm -rf "$staging"
 
   ok "Container created (runtime: $CONTAINER_RUNTIME)"
@@ -340,7 +350,9 @@ cmd_run() {
   fi
 
   step "Starting OpenClaw gateway..."
-  container start "$CONTAINER_NAME" 2>/dev/null || true
+  if ! container start "$CONTAINER_NAME"; then
+    fail "Failed to start container '$CONTAINER_NAME'. Run: container logs $CONTAINER_NAME"
+  fi
 
   # Wait for gateway
   local retries=0
@@ -428,14 +440,20 @@ cmd_upgrade() {
       else
         echo 'Gateway not found in image.' && exit 1
       fi
-    " 2>/dev/null || true
+    " 2>&1 | sed -e 's/^/    /' || true
+  if ! container list --quiet --all 2>/dev/null | grep -qx "$CONTAINER_NAME"; then
+    fail "Container '$CONTAINER_NAME' was not recreated. See output above."
+  fi
 
   # Re-store token in volume
   local staging
   staging="$(mktemp -d)"
   echo "$token" > "$staging/token"
   chmod 400 "$staging/token"
-  container cp "$staging/token" "$CONTAINER_NAME:/token-key/token" 2>/dev/null || true
+  if ! container cp "$staging/token" "$CONTAINER_NAME:/token-key/token" 2>&1; then
+    rm -rf "$staging"
+    fail "Failed to copy gateway token into container volume."
+  fi
   rm -rf "$staging"
 
   ok "Container recreated (state preserved in volumes, runtime: $CONTAINER_RUNTIME)"
