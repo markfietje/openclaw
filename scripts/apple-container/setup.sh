@@ -3,6 +3,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/preflight.sh
+source "${SCRIPT_DIR}/lib/preflight.sh"
+
 REPO_PATH="${OPENCLAW_REPO_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 OPENCLAW_USER="$(id -un)"
 OPENCLAW_HOME="${HOME:-}"
@@ -510,6 +514,13 @@ require_cmd container
 require_cmd node
 require_cmd /usr/bin/security
 
+if [[ "${OPENCLAW_SKIP_PREFLIGHT:-0}" != "1" ]]; then
+  preflight_check_macos >/dev/null || fail "This script only runs on macOS."
+  preflight_check_arm64 >/dev/null || fail "This script requires Apple Silicon (arm64)."
+  preflight_check_curl >/dev/null || true
+  preflight_check_token_source >/dev/null || true
+fi
+
 [[ -n "$OPENCLAW_HOME" ]] || fail "Unable to resolve HOME for user $OPENCLAW_USER."
 validate_absolute_path "home directory" "$OPENCLAW_HOME"
 validate_absolute_path "config directory" "$OPENCLAW_CONFIG_DIR"
@@ -609,18 +620,18 @@ upsert_env_var "$ENV_FILE" "OPENCLAW_APPLE_CONTAINER_HOST_DOMAIN" "$OPENCLAW_HOS
 sync_keychain_gateway_token_config "$CONFIG_JSON" "$OPENCLAW_HOST_PORT"
 echo "==> Configured gateway.auth.token as macOS Keychain SecretRef in ${CONFIG_JSON}"
 
-if EXISTING_NETWORK="$(container network list --quiet 2>/dev/null)"; then
-  if echo "$EXISTING_NETWORK" | grep -qx "$OPENCLAW_NETWORK_NAME"; then
-    echo "==> Network '${OPENCLAW_NETWORK_NAME}' already exists."
+  if EXISTING_NETWORK="$(container network list --quiet 2>/dev/null)"; then
+    if echo "$EXISTING_NETWORK" | grep -qx "$OPENCLAW_NETWORK_NAME"; then
+      echo "==> Network '${OPENCLAW_NETWORK_NAME}' already exists."
+    else
+      echo "==> Creating isolated network '${OPENCLAW_NETWORK_NAME}'..."
+      if ! container network create "$OPENCLAW_NETWORK_NAME" 2>&1; then
+        echo "    (network creation failed; using default network at run time)" >&2
+      fi
+    fi
   else
-    echo "==> Creating isolated network '${OPENCLAW_NETWORK_NAME}'..."
-    container network create "$OPENCLAW_NETWORK_NAME" || {
-      echo "    (network creation failed; using default network at run time)" >&2
-    }
+    echo "==> Network commands unavailable, using default network at run time."
   fi
-else
-  echo "==> Network commands unavailable, using default network at run time."
-fi
 
 echo ""
 echo "Setup complete."
