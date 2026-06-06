@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/preflight.sh
 source "${SCRIPT_DIR}/lib/preflight.sh"
+# shellcheck source=lib/container-json.sh
+source "${SCRIPT_DIR}/lib/container-json.sh"
 
 REPO_PATH="${OPENCLAW_REPO_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 OPENCLAW_USER="$(id -un)"
@@ -96,7 +98,9 @@ ensure_volume() {
     return
   fi
   echo "==> Creating volume '${volume}'..."
-  container volume create "$volume" >/dev/null
+  if ! container volume create "$volume" >/dev/null 2>&1; then
+    fail "Failed to create volume '${volume}'."
+  fi
 }
 
 validate_image_name() {
@@ -371,10 +375,7 @@ NODE
 }
 
 keychain_gateway_token_exists() {
-  /usr/bin/security find-generic-password \
-    -a "$OPENCLAW_KEYCHAIN_ACCOUNT" \
-    -s "$OPENCLAW_KEYCHAIN_SERVICE" \
-    -w >/dev/null 2>&1
+  keychain_token_exists "$OPENCLAW_KEYCHAIN_SERVICE" "$OPENCLAW_KEYCHAIN_ACCOUNT"
 }
 
 store_gateway_token_in_keychain() {
