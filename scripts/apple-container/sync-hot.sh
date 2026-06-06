@@ -47,6 +47,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/preflight.sh
+source "${SCRIPT_DIR}/lib/preflight.sh"
+
 # ── Constants ────────────────────────────────────────────────────
 STAGE_DIR_NAME="openclaw-sync-staging"
 CODE_VOLUME_NAME="${OPENCLAW_APPLE_CONTAINER_CODE_VOLUME:-openclaw-code}"
@@ -204,6 +208,13 @@ done
 require_cmd container
 require_cmd node
 require_cmd rsync
+require_cmd curl
+
+if [[ "${OPENCLAW_SKIP_PREFLIGHT:-0}" != "1" ]]; then
+  preflight_check_macos >/dev/null || fail "This script only runs on macOS."
+  preflight_check_arm64 >/dev/null || fail "This script requires Apple Silicon (arm64)."
+  preflight_check_apple_container_cli >/dev/null || fail "Apple Container CLI is missing."
+fi
 
 [[ -f "$CONFIG_JSON" ]] || fail "Missing config: $CONFIG_JSON. Run: scripts/apple-container/setup.sh"
 [[ -f "$RUN_SH" ]]      || fail "Missing run.sh: $RUN_SH"
