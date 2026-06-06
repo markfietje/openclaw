@@ -119,7 +119,7 @@ Environment:
   OPENCLAW_APPLE_CONTAINER_DOCKERFILE=FILE
   OPENCLAW_APPLE_CONTAINER_ARCH=arm64
   BUILDER_CPUS=N             Builder VM CPUs (default: 4)
-  BUILDER_MEMORY=Xg          Builder VM RAM (default: 8g)
+  BUILDER_MEMORY=Xg          Builder VM RAM (default: 10g)
   OPENCLAW_APPLE_CONTAINER_BUILDER_DNS=IP
                           Builder VM DNS server (default: 9.9.9.9)
 
@@ -127,7 +127,7 @@ Examples:
   $0
   $0 --show-context-top
   $0 --reset-builder --no-cache
-  BUILDER_CPUS=8 BUILDER_MEMORY=8g $0
+  BUILDER_CPUS=6 BUILDER_MEMORY=12g $0   # for 32 GB+ hosts; 10g caps tsdown old-space
 USAGE
 }
 
