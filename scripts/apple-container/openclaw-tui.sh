@@ -43,6 +43,24 @@ load_env_file() {
 require_cmd container
 require_cmd /usr/bin/security
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Usage: $(basename "$0") [tui-args...]"
+  echo ""
+  echo "Open the OpenClaw TUI inside the running Apple Container from macOS."
+  echo "Reads the gateway token from macOS Keychain, then exec's into the"
+  echo "container's bundled openclaw.mjs tui command."
+  echo ""
+  echo "Environment:"
+  echo "  OPENCLAW_APPLE_CONTAINER_NAME            Container name (default: openclaw)"
+  echo "  OPENCLAW_APPLE_CONTAINER_TUI_RUNTIME     Runtime inside container: auto|node|bun"
+  echo "  OPENCLAW_APPLE_CONTAINER_KEYCHAIN_SERVICE Keychain service name"
+  echo "  OPENCLAW_APPLE_CONTAINER_KEYCHAIN_ACCOUNT Keychain account name"
+  echo ""
+  echo "Prerequisite: the container must be running. Start it with:"
+  echo "  scripts/apple-container/run.sh"
+  exit 0
+fi
+
 if [[ "${OPENCLAW_SKIP_PREFLIGHT:-0}" != "1" ]]; then
   preflight_check_macos >/dev/null || fail "This script only runs on macOS."
   preflight_check_apple_container_cli >/dev/null || fail "Apple Container CLI is missing."
