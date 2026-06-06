@@ -425,7 +425,7 @@ read_legacy_encrypted_gateway_token() {
         /usr/local/bin/openclaw-gateway-token-resolver 2>/dev/null || true
   )"
   [[ -n "$output" ]] || return 0
-  node -e 'const fs=require("node:fs"); try { const p=JSON.parse(fs.readFileSync(0,"utf8")); const v=p?.values?.["gateway/token"]; if (typeof v === "string" && v.trim()) process.stdout.write(v.trim()); } catch {}' <<<"$output"
+  printf '%s' "$output" | parse_openclaw_jsonrpc_token
 }
 
 ensure_host_keychain_dns() {
