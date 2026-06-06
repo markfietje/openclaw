@@ -3,6 +3,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/preflight.sh
+source "${SCRIPT_DIR}/lib/preflight.sh"
+
 OPENCLAW_HOME="${HOME:-}"
 OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-${OPENCLAW_HOME}/.openclaw}"
 ENV_FILE="${OPENCLAW_CONFIG_DIR}/apple-container.env"
@@ -36,6 +40,11 @@ load_env_file() {
 
 require_cmd container
 require_cmd /usr/bin/security
+
+if [[ "${OPENCLAW_SKIP_PREFLIGHT:-0}" != "1" ]]; then
+  preflight_check_macos >/dev/null || fail "This script only runs on macOS."
+  preflight_check_apple_container_cli >/dev/null || fail "Apple Container CLI is missing."
+fi
 
 load_env_file "$ENV_FILE"
 
@@ -98,7 +107,7 @@ NODE
     if [ "$runtime" = auto ]; then
       if command -v bun >/dev/null 2>&1; then runtime=bun; else runtime=node; fi
     fi
-    token_file="$(mktemp /tmp/openclaw-tui-token.XXXXXX)"
+    token_file="$(mktemp "${TMPDIR:-/tmp}/openclaw-tui-token.XXXXXX")"
     cleanup_token_file() {
       rm -f "$token_file"
     }

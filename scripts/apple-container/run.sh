@@ -3,6 +3,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/preflight.sh
+source "${SCRIPT_DIR}/lib/preflight.sh"
+
 OPENCLAW_HOME="${HOME:-}"
 OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-${OPENCLAW_HOME}/.openclaw}"
 ENV_FILE="${OPENCLAW_CONFIG_DIR}/apple-container.env"
@@ -24,6 +28,10 @@ fail() {
 
 info() {
   echo "==> $*"
+}
+
+warn() {
+  echo "WARN: $*" >&2
 }
 
 load_env_file() {
@@ -125,8 +133,12 @@ require_cmd /usr/bin/security
 require_cmd curl
 NODE_BIN="$(command -v node)"
 
-if ! container system status --format json >/dev/null 2>&1; then
-  fail "Apple Container is not running. Run: container system start"
+if [[ "${OPENCLAW_SKIP_PREFLIGHT:-0}" != "1" ]]; then
+  preflight_check_macos >/dev/null || fail "This script only runs on macOS."
+  preflight_check_arm64 >/dev/null || fail "This script requires Apple Silicon (arm64)."
+  preflight_check_apple_container_cli >/dev/null || fail "Apple Container CLI is missing."
+  preflight_check_apple_container_runtime >/dev/null || fail "Apple Container runtime is not running. Run: container system start"
+  preflight_check_security >/dev/null || fail "/usr/bin/security is missing."
 fi
 
 load_env_file "$ENV_FILE"
@@ -158,10 +170,18 @@ BRIDGE_TIMEOUT_MS="${OPENCLAW_APPLE_CONTAINER_KEYCHAIN_BRIDGE_TIMEOUT_MS:-15000}
 BRIDGE_TOKEN_FILE_PATH="/home/node/.openclaw/bridge-token"
 
 copy_gateway_token() {
-  require_cmd pbcopy
-  /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$KEYCHAIN_SERVICE" -w |
-    pbcopy
-  info "Copied gateway token from macOS Keychain to the clipboard."
+  local token
+  token="$(/usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$KEYCHAIN_SERVICE" -w 2>/dev/null || true)"
+  if [[ -z "$token" ]]; then
+    fail "Keychain has no gateway token for ${KEYCHAIN_SERVICE} / ${KEYCHAIN_ACCOUNT}."
+  fi
+  if command -v pbcopy >/dev/null 2>&1; then
+    printf '%s' "$token" | pbcopy
+    info "Copied gateway token from macOS Keychain to the clipboard."
+  else
+    printf '%s\n' "$token"
+    warn "pbcopy not found; printed token to stdout instead."
+  fi
 }
 
 dashboard_url() {
@@ -203,27 +223,39 @@ process.stdin.on("end", () => {
 }
 
 copy_dashboard_url() {
-  require_cmd pbcopy
-  dashboard_url | pbcopy
-  info "Copied tokenized dashboard URL to the clipboard."
+  local url
+  url="$(dashboard_url || true)"
+  if [[ -z "$url" ]]; then
+    fail "Could not build dashboard URL (Keychain token missing?)."
+  fi
+  if command -v pbcopy >/dev/null 2>&1; then
+    printf '%s' "$url" | pbcopy
+    info "Copied tokenized dashboard URL to the clipboard."
+  else
+    printf '%s\n' "$url"
+    warn "pbcopy not found; printed dashboard URL to stdout instead."
+  fi
 }
 
 open_dashboard() {
-  require_cmd open
   local url=""
-  url="$(dashboard_url)"
+  url="$(dashboard_url || true)"
   if [[ -z "$url" ]]; then
     return 1
   fi
-  open "$url"
-  info "Opened Control UI in the default browser."
+  if command -v open >/dev/null 2>&1; then
+    open "$url"
+    info "Opened Control UI in the default browser."
+  else
+    printf '%s\n' "$url"
+    warn "'open' not found; printed dashboard URL to stdout instead."
+  fi
 }
 
 stop_keychain_bridge() {
   local pid=""
   if command -v launchctl >/dev/null 2>&1; then
     launchctl remove "$BRIDGE_LAUNCH_LABEL" >/dev/null 2>&1 || true
-    launchctl remove "ai.openclaw.apple-container.keychain-bridge" >/dev/null 2>&1 || true
   fi
   if [[ -f "$BRIDGE_PID_FILE" ]]; then
     pid="$(<"$BRIDGE_PID_FILE")"
@@ -295,16 +327,24 @@ let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);proc
 # from `tailscale serve status` output.
 detect_tailscale_origin() {
   local origin=""
-  origin="$(timeout 5 tailscale serve status 2>/dev/null \
-    | node -e '
+  local tmpfile
+  tmpfile="$(mktemp "${TMPDIR:-/tmp}/openclaw-ts-origin.XXXXXX")"
+  (
+    tailscale serve status 2>/dev/null | node -e '
 let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{
   const lines = d.split("\n");
   for (const line of lines) {
     const m = line.match(/^(https?:\/\/[^\s/]+)/);
     if (m) { process.stdout.write(m[1]); return; }
   }
-})' \
-    2>/dev/null)" || true
+})' >"$tmpfile"
+  ) &
+  local serve_pid=$!
+  watchdog_kill_after "$serve_pid" 5
+  wait "$serve_pid" 2>/dev/null || true
+  watchdog_cancel
+  origin="$(<"$tmpfile")"
+  rm -f "$tmpfile"
   printf '%s' "$origin"
 }
 
@@ -582,7 +622,7 @@ require_keychain_bridge_container_reachable() {
 stage_runtime_volumes() {
   local temp_name="${OPENCLAW_CONTAINER_NAME}-stage"
   local config_stage_dir=""
-  config_stage_dir="$(mktemp -d "${OPENCLAW_CONFIG_DIR}/.apple-container-config.XXXXXX")"
+  config_stage_dir="$(mktemp -d "${OPENCLAW_CONFIG_DIR:-${TMPDIR:-/tmp}}/.apple-container-config.XXXXXX")"
   chmod 700 "$config_stage_dir"
   cp "$CONFIG_JSON" "$config_stage_dir/openclaw.json"
   chmod 600 "$config_stage_dir/openclaw.json"
@@ -808,11 +848,16 @@ do_run() {
 
   if is_container_running "$OPENCLAW_CONTAINER_NAME"; then
     info "Stopping existing container '${OPENCLAW_CONTAINER_NAME}'..."
-    container stop "$OPENCLAW_CONTAINER_NAME" 2>/dev/null || true
-    sleep 1
+    container stop "$OPENCLAW_CONTAINER_NAME" >/dev/null 2>&1 || true
+    # Apple Container can take a few seconds to fully release a VM.
+    local stop_wait=0
+    while is_container_running "$OPENCLAW_CONTAINER_NAME" && (( stop_wait < 10 )); do
+      sleep 1
+      stop_wait=$((stop_wait + 1))
+    done
   fi
 
-  container delete "$OPENCLAW_CONTAINER_NAME" 2>/dev/null || true
+  container delete "$OPENCLAW_CONTAINER_NAME" >/dev/null 2>&1 || true
 
   require_tailscale
 
