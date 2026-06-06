@@ -39,10 +39,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/preflight.sh
 source "${SCRIPT_DIR}/lib/preflight.sh"
+# shellcheck source=lib/container-json.sh
+source "${SCRIPT_DIR}/lib/container-json.sh"
 
 # ── Config ──────────────────────────────────────────────────────
 IMAGE="ghcr.io/markfietje/openclaw:apple-arm64"
-CONTAINER_NAME="${OPENCLAW_CONTAINER_NAME:-openclaw}"
+# Accept both OPENCLAW_APPLE_CONTAINER_NAME (written to the env file by setup.sh)
+# and the legacy OPENCLAW_CONTAINER_NAME for back-compat with manual exports.
+CONTAINER_NAME="${OPENCLAW_APPLE_CONTAINER_NAME:-${OPENCLAW_CONTAINER_NAME:-openclaw}}"
 HOST_PORT="${OPENCLAW_HOST_PORT:-18789}"
 CONFIG_DIR="${HOME}/.openclaw"
 ENV_FILE="${CONFIG_DIR}/apple-container.env"
@@ -63,12 +67,16 @@ LOCAL_SCRIPT="${LOCAL_SCRIPT_DIR}/openclaw-container.sh"
 SCRIPT_URL="https://raw.githubusercontent.com/markfietje/openclaw/main/scripts/apple-container/bootstrap.sh"
 
 # ── Helpers ─────────────────────────────────────────────────────
-BOLD='\033[1m'
-GREEN='\033[32m'
-RED='\033[31m'
-YELLOW='\033[33m'
-DIM='\033[2m'
-RESET='\033[0m'
+if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]; then
+  BOLD=$'\033[1m'
+  GREEN=$'\033[32m'
+  RED=$'\033[31m'
+  YELLOW=$'\033[33m'
+  DIM=$'\033[2m'
+  RESET=$'\033[0m'
+else
+  BOLD="" GREEN="" RED="" YELLOW="" DIM="" RESET=""
+fi
 
 step()   { echo "${BOLD}==> $*${RESET}"; }
 ok()     { echo "${GREEN}  ✓ $*${RESET}"; }
@@ -106,8 +114,7 @@ preflight() {
 
   # Use JSON status to avoid the "is not running" substring-match bug.
   local _state=""
-  _state="$(container system status --format json 2>/dev/null \
-    | node -e 'let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(j.status||"")}catch{}})' 2>/dev/null || true)"
+  _state="$(parse_container_system_status)"
   if [[ "$_state" != "running" ]]; then
     step "Starting Apple Container runtime..."
     container system start 2>/dev/null || {
@@ -116,8 +123,7 @@ preflight() {
     }
     local retries=0
     while (( retries < 30 )); do
-      _state="$(container system status --format json 2>/dev/null \
-        | node -e 'let d="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);process.stdout.write(j.status||"")}catch{}})' 2>/dev/null || true)"
+      _state="$(parse_container_system_status)"
       if [[ "$_state" == "running" ]]; then
         ok "Apple Container runtime started"
         return 0
@@ -156,7 +162,7 @@ store_token() {
 }
 
 read_token() {
-  security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w 2>/dev/null || echo ""
+  read_keychain_token "$KEYCHAIN_SERVICE" "$KEYCHAIN_ACCOUNT"
 }
 
 # ── Validate runtime ────────────────────────────────────────────
@@ -173,7 +179,9 @@ ensure_volume() {
   if container volume list --quiet 2>/dev/null | grep -qx "$name"; then
     return
   fi
-  container volume create "$name" >/dev/null
+  if ! container volume create "$name" >/dev/null 2>&1; then
+    fail "Failed to create volume '${name}'."
+  fi
 }
 
 # ── Write env file ──────────────────────────────────────────────
@@ -256,7 +264,9 @@ cmd_install() {
   # 5. Create network
   step "Creating network..."
   if ! container network list --quiet 2>/dev/null | grep -qx "$NETWORK_NAME"; then
-    container network create "$NETWORK_NAME" >/dev/null 2>&1 || true
+    if ! container network create "$NETWORK_NAME" >/dev/null 2>&1; then
+      fail "Failed to create network '${NETWORK_NAME}'."
+    fi
   fi
   ok "Network ready"
 
@@ -294,14 +304,14 @@ cmd_install() {
       else
         echo 'Gateway not found in image.' && exit 1
       fi
-    " 2>&1 | sed -e 's/^/    /' || true
+    " 2>&1 | sed -e 's/^/    /'
   if ! container list --quiet --all 2>/dev/null | grep -qx "$CONTAINER_NAME"; then
     fail "Container '$CONTAINER_NAME' was not created. See output above."
   fi
 
   # Store token in volume too
   local staging
-  staging="$(mktemp -d)"
+  staging="$(mktemp -d "${TMPDIR:-/tmp}/openclaw-bootstrap-staging.XXXXXX")"
   echo "$token" > "$staging/token"
   chmod 400 "$staging/token"
   if ! container cp "$staging/token" "$CONTAINER_NAME:/token-key/token" 2>&1; then
@@ -440,14 +450,14 @@ cmd_upgrade() {
       else
         echo 'Gateway not found in image.' && exit 1
       fi
-    " 2>&1 | sed -e 's/^/    /' || true
+    " 2>&1 | sed -e 's/^/    /'
   if ! container list --quiet --all 2>/dev/null | grep -qx "$CONTAINER_NAME"; then
     fail "Container '$CONTAINER_NAME' was not recreated. See output above."
   fi
 
   # Re-store token in volume
   local staging
-  staging="$(mktemp -d)"
+  staging="$(mktemp -d "${TMPDIR:-/tmp}/openclaw-bootstrap-staging.XXXXXX")"
   echo "$token" > "$staging/token"
   chmod 400 "$staging/token"
   if ! container cp "$staging/token" "$CONTAINER_NAME:/token-key/token" 2>&1; then
@@ -469,9 +479,16 @@ cmd_uninstall() {
   step "Uninstalling OpenClaw..."
   echo ""
 
+  if [[ ! -t 0 ]]; then
+    fail "Refusing to uninstall non-interactively. Re-run from a terminal."
+  fi
+  local confirm=""
   read -rp "  Delete container, volumes, and config? This removes ALL data. [y/N] " confirm
   shopt -s nocasematch
-  [[ "$confirm" == "y" ]] || { echo "  Cancelled."; return 0; }
+  case "${confirm:-n}" in
+    y|yes) ;;
+    *) echo "  Cancelled."; return 0 ;;
+  esac
 
   container kill "$CONTAINER_NAME" 2>/dev/null || true
   container delete "$CONTAINER_NAME" 2>/dev/null || true
