@@ -154,8 +154,8 @@
   <h2>Before you start</h2>
   <ul>
     <li>A Mac with an <strong>Apple Silicon</strong> chip (M1, M2, M3, or M4)</li>
-    <li><strong>macOS 15</strong> (Sequoia) or later</li>
-    <li>About <strong>5 minutes</strong></li>
+    <li><strong>macOS 26</strong> or later (Apple Container requirement)</li>
+    <li>About <strong>3 minutes</strong></li>
   </ul>
 
   <h2>1. Open Terminal</h2>
@@ -175,22 +175,33 @@
   </div>
 
   <div class="note">
-    <strong>What this does:</strong> downloads the OpenClaw installer, pulls the container image, sets up a secure token in your Mac's Keychain, and starts the gateway. Nothing touches your personal files.
+    <strong>What this does:</strong> downloads the OpenClaw installer, pulls the container image, creates a few small files inside <code>~/.openclaw/</code>, and stores a secure random token in your Mac's Keychain. The gateway is <em>not</em> started yet — that's the next step.
   </div>
 
   <h2>4. Start the gateway</h2>
   <p>When the installer finishes, run:</p>
   <div class="code-wrap">
-<pre><code id="cmd2">~/.openclaw/bin/openclaw run</code></pre>
+<pre><code id="cmd2">~/.openclaw/bin/openclaw-container.sh run</code></pre>
     <button class="copy" type="button" data-target="cmd2" aria-label="Copy command">Copy</button>
   </div>
 
   <h2>After that</h2>
   <ul>
     <li>Open <a href="http://localhost:18789" target="_blank" rel="noopener">http://localhost:18789</a> in your browser to use the dashboard.</li>
-    <li>Run <code>~/.openclaw/bin/openclaw upgrade</code> later to get the latest version.</li>
-    <li>Run <code>~/.openclaw/bin/openclaw stop</code> to stop the gateway.</li>
+    <li>Run <code>~/.openclaw/bin/openclaw-container.sh upgrade</code> to get the latest version later.</li>
+    <li>Run <code>~/.openclaw/bin/openclaw-container.sh stop</code> to stop the gateway.</li>
+    <li>Run <code>~/.openclaw/bin/openclaw-container.sh status</code> any time to check whether it's running.</li>
   </ul>
+
+  <details>
+    <summary>Make the commands shorter</summary>
+    <p>Add these to your shell (Terminal → <em>Settings → Profiles → Shell → Startup → Run command</em>, or paste into <code>~/.zshrc</code>):</p>
+    <div class="code-wrap">
+<pre><code id="cmd-alias">alias oc='~/.openclaw/bin/openclaw-container.sh'</code></pre>
+    <button class="copy" type="button" data-target="cmd-alias" aria-label="Copy command">Copy</button>
+    </div>
+    <p>Then you can just type <code>oc run</code>, <code>oc stop</code>, <code>oc upgrade</code>.</p>
+  </details>
 
   <details>
     <summary>I get a "command not found" error</summary>
@@ -202,7 +213,7 @@
   </details>
   <details>
     <summary>How do I uninstall?</summary>
-    <p>Run <code>~/.openclaw/bin/openclaw uninstall</code>. It removes the container, volumes, and the saved script. Your configuration files in <code>~/.openclaw/</code> are kept unless you also delete that folder.</p>
+    <p>Run <code>~/.openclaw/bin/openclaw-container.sh uninstall</code>. It removes the container and the saved script. Your configuration in <code>~/.openclaw/</code> is kept unless you also delete that folder.</p>
   </details>
 </main>
 <script>
