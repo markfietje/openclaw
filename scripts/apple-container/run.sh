@@ -145,6 +145,20 @@ fi
 
 load_env_file "$ENV_FILE"
 
+SKIP_CLIPBOARD="${OPENCLAW_RUN_NO_CLIPBOARD:-}"
+SKIP_DASHBOARD="${OPENCLAW_RUN_NO_DASHBOARD:-}"
+SKIP_TAILSCALE="${OPENCLAW_RUN_NO_TAILSCALE:-}"
+for arg in "$@"; do
+  case "$arg" in
+    --no-clipboard) SKIP_CLIPBOARD=1 ;;
+    --no-dashboard) SKIP_DASHBOARD=1 ;;
+    --no-tailscale) SKIP_TAILSCALE=1 ;;
+  esac
+done
+if [[ -n "$SKIP_TAILSCALE" ]]; then
+  export OPENCLAW_SKIP_TAILSCALE_CHECK=1
+fi
+
 OPENCLAW_IMAGE="${OPENCLAW_APPLE_CONTAINER_IMAGE:-openclaw:apple-arm64}"
 OPENCLAW_CONTAINER_NAME="${OPENCLAW_APPLE_CONTAINER_NAME:-openclaw}"
 BRIDGE_LAUNCH_LABEL="${OPENCLAW_APPLE_CONTAINER_KEYCHAIN_BRIDGE_LABEL:-ai.openclaw.apple-container.keychain-bridge.${OPENCLAW_CONTAINER_NAME}}"
@@ -177,6 +191,11 @@ copy_gateway_token() {
   if [[ -z "$token" ]]; then
     fail "Keychain has no gateway token for ${KEYCHAIN_SERVICE} / ${KEYCHAIN_ACCOUNT}."
   fi
+  if [[ -n "$SKIP_CLIPBOARD" ]]; then
+    printf '%s\n' "$token"
+    info "Clipboard skipped (--no-clipboard); printed token to stdout."
+    return 0
+  fi
   if command -v pbcopy >/dev/null 2>&1; then
     printf '%s' "$token" | pbcopy
     info "Copied gateway token from macOS Keychain to the clipboard."
@@ -189,10 +208,11 @@ copy_gateway_token() {
 dashboard_url() {
   local token=""
   local base_url="${OPENCLAW_DASHBOARD_URL:-}"
+  [[ -n "$SKIP_DASHBOARD" ]] && return 0
   token="$(read_keychain_token "$KEYCHAIN_SERVICE" "$KEYCHAIN_ACCOUNT")"
   if [[ -z "$base_url" ]]; then
     local tailscale_origin=""
-    if command -v tailscale >/dev/null 2>&1; then
+    if [[ -z "$SKIP_TAILSCALE" ]] && command -v tailscale >/dev/null 2>&1; then
       tailscale_origin="$(detect_tailscale_origin)"
     fi
     if [[ -n "$tailscale_origin" ]]; then
@@ -226,9 +246,15 @@ process.stdin.on("end", () => {
 
 copy_dashboard_url() {
   local url
+  [[ -n "$SKIP_DASHBOARD" ]] && fail "Dashboard URL skipped (--no-dashboard)."
   url="$(dashboard_url || true)"
   if [[ -z "$url" ]]; then
     fail "Could not build dashboard URL (Keychain token missing?)."
+  fi
+  if [[ -n "$SKIP_CLIPBOARD" ]]; then
+    printf '%s\n' "$url"
+    info "Clipboard skipped (--no-clipboard); printed dashboard URL to stdout."
+    return 0
   fi
   if command -v pbcopy >/dev/null 2>&1; then
     printf '%s' "$url" | pbcopy
@@ -241,6 +267,7 @@ copy_dashboard_url() {
 
 open_dashboard() {
   local url=""
+  [[ -n "$SKIP_DASHBOARD" ]] && fail "Dashboard skipped (--no-dashboard)."
   url="$(dashboard_url || true)"
   if [[ -z "$url" ]]; then
     return 1
