@@ -2,10 +2,8 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocketServer } from "ws";
-import type { ResolvedGatewayAuth } from "../auth.js";
 import { MAX_BUFFERED_BYTES } from "../server-constants.js";
 import {
-  attachGatewayWsForTest,
   createGatewayWsTestLogger,
   createGatewayWsTestRequestContext,
   createGatewayWsTestSocket,
@@ -56,25 +54,6 @@ import {
 
 const REQUIRED_SUBPROTOCOL = GATEWAY_WS_SUBPROTOCOL;
 
-function createLogger() {
-  return {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  };
-}
-
-function createResolvedAuth(token: string): ResolvedGatewayAuth {
-  return {
-    mode: "token",
-    allowTailscale: false,
-    allowLocalDirectNoAuth: true,
-    toolsInvokeMaxBodyBytes: 256 * 1024,
-    token,
-  };
-}
-
 async function waitForLazyMessageHandler() {
   await vi.dynamicImportSettled();
 }
@@ -87,31 +66,12 @@ function firstAttachedWorkerHandlerParams(): unknown {
   return attachWorkerWsMessageHandlerMock.mock.calls[0]?.[0];
 }
 
-type TestSocket = EventEmitter & {
-  _socket: {
-    remoteAddress: string;
-    remotePort: number;
-    localAddress: string;
-    localPort: number;
-  };
-  send: ReturnType<typeof vi.fn>;
-  ping?: ReturnType<typeof vi.fn>;
-  protocol: string;
-  close: ReturnType<typeof vi.fn>;
-};
+type TestSocket = GatewayWsTestSocket;
 
 function createTestSocket(params: { ping?: boolean } = {}): TestSocket {
-  return Object.assign(new EventEmitter(), {
-    _socket: {
-      remoteAddress: "127.0.0.1",
-      remotePort: 1234,
-      localAddress: "127.0.0.1",
-      localPort: 5678,
-    },
-    send: vi.fn(),
-    ...(params.ping ? { ping: vi.fn() } : {}),
+  return createGatewayWsTestSocket({
+    ...(params.ping ? { ping: true } : {}),
     protocol: REQUIRED_SUBPROTOCOL,
-    close: vi.fn(),
   });
 }
 
@@ -133,14 +93,42 @@ async function connectTestWs(
     options?: Partial<Parameters<typeof attachGatewayWsConnectionHandler>[0]>;
   } = {},
 ) {
-  const logWsControl = createGatewayWsTestLogger();
-  const connected = attachGatewayWsForTest({
-    attach: attachGatewayWsConnectionHandler,
-    clients: params.clients,
-    headers: params.headers,
-    host: params.host,
-    options: { ...params.options, logWsControl: logWsControl as never },
-    socket: params.socket,
+  const listeners = new Map<string, (...args: unknown[]) => void>();
+  const wss = {
+    on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+      listeners.set(event, handler);
+    }),
+  } as unknown as WebSocketServer;
+  const socket = params.socket ?? createTestSocket();
+  const upgradeReq = {
+    headers: { host: params.host ?? "127.0.0.1:19001", ...params.headers },
+    socket: { localAddress: "127.0.0.1" },
+  };
+  const clients = params.clients ?? new Set<unknown>();
+
+  attachGatewayWsConnectionHandler({
+    wss,
+    clients: clients as never,
+    preauthConnectionBudget: { release: vi.fn() } as never,
+    authenticatedConnectionBudget: createAuthenticatedConnectionBudgetMock() as never,
+    port: 19001,
+    resolvedAuth: createResolvedGatewayTokenAuth("token"),
+    preauthHandshakeTimeoutMs: 60_000,
+    gatewayMethods: [],
+    events: [],
+    refreshHealthSnapshot: vi.fn(async () => ({}) as never),
+    logGateway: createGatewayWsTestLogger() as never,
+    logHealth: createGatewayWsTestLogger() as never,
+    logWsControl: createGatewayWsTestLogger() as never,
+    extraHandlers: {},
+    broadcast: vi.fn(),
+    buildRequestContext: () =>
+      ({
+        unsubscribeAllSessionEvents: vi.fn(),
+        nodeRegistry: { unregister: vi.fn() },
+        nodeUnsubscribeAll: vi.fn(),
+      }) as never,
+    ...params.options,
   });
 
   const onConnection = listeners.get("connection");
@@ -219,7 +207,7 @@ describe("attachGatewayWsConnectionHandler", () => {
   });
 
   it("threads current auth getters into the handshake handler instead of a stale snapshot", async () => {
-    const initialAuth = createResolvedAuth("token-before");
+    const initialAuth = createResolvedGatewayTokenAuth("token-before");
     let currentAuth = initialAuth;
 
     const { passed } = await connectTestWs({
@@ -235,7 +223,7 @@ describe("attachGatewayWsConnectionHandler", () => {
       getRequiredSharedGatewaySessionGeneration?: () => string | undefined;
     };
 
-    currentAuth = createResolvedAuth("token-after");
+    currentAuth = createResolvedGatewayTokenAuth("token-after");
 
     expect(handlerParams.getResolvedAuth().token).toBe("token-after");
     expect(handlerParams.getRequiredSharedGatewaySessionGeneration?.()).toBe(
@@ -576,13 +564,13 @@ describe("attachGatewayWsConnectionHandler", () => {
       preauthConnectionBudget: { release: vi.fn() } as never,
       authenticatedConnectionBudget: createAuthenticatedConnectionBudgetMock() as never,
       port: 19001,
-      resolvedAuth: createResolvedAuth("token"),
+      resolvedAuth: createResolvedGatewayTokenAuth("token"),
       gatewayMethods: [],
       events: [],
       refreshHealthSnapshot: vi.fn(),
-      logGateway: createLogger() as never,
-      logHealth: createLogger() as never,
-      logWsControl: createLogger() as never,
+      logGateway: createGatewayWsTestLogger() as never,
+      logHealth: createGatewayWsTestLogger() as never,
+      logWsControl: createGatewayWsTestLogger() as never,
       extraHandlers: {},
       broadcast: vi.fn(),
       buildRequestContext: () =>
