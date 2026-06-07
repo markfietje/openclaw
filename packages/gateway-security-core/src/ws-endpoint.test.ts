@@ -69,7 +69,13 @@ describe("ws-endpoint", () => {
 
       const legacy = getEndpointSecurity(WS_ENDPOINT.LEGACY);
       expect(legacy.requireOrigin).toBe(true);
-      expect(legacy.allowedCapabilities).toEqual(["agent:read", "agent:write", "agent:execute"]);
+      expect(legacy.allowedCapabilities).toEqual([
+        "agent:read",
+        "agent:write",
+        "agent:execute",
+        "admin:read",
+        "admin:write",
+      ]);
     });
   });
 });
