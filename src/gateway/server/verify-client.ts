@@ -4,6 +4,7 @@ import {
   isIpAllowed,
   type IpRestrictionConfig,
 } from "@openclaw/gateway-security-core/ip-restriction-policy";
+import { isKnownWsEndpoint } from "@openclaw/gateway-security-core/ws-endpoint";
 import { hasGatewayWsSubprotocol } from "@openclaw/gateway-security-core/ws-protocol";
 import { loadConfig } from "../../config/io.js";
 import type { OpenClawConfig } from "../../config/types.js";
@@ -154,6 +155,28 @@ export function createGatewayVerifyClient(
     const forwardedHost = firstHeader(req.headers["x-forwarded-host"]);
     const xForwardedProto = firstHeader(req.headers["x-forwarded-proto"]);
     const forwarded = firstHeader(req.headers.forwarded);
+
+    // 0a. Endpoint path classification — reject unknown WS paths at the HTTP
+    // upgrade boundary to prevent endpoint confusion attacks where unrecognized
+    // paths fall through to LEGACY with non-trivial capabilities. Gated by
+    // security.dangerouslyAllowLegacyEndpointFallback for legacy opt-in
+    // (FORK_SECURITY.md § test_13). ws-connection.ts applies a second-layer
+    // reject after the handshake completes; this layer returns a clean 404
+    // before the HTTP 101 response.
+    const upgradeUrl = info.req.url;
+    if (upgradeUrl) {
+      const pathOnly = upgradeUrl.split("?", 1)[0] ?? upgradeUrl;
+      if (!isKnownWsEndpoint(pathOnly)) {
+        if (!securityConfig.dangerouslyAllowLegacyEndpointFallback) {
+          log.warn(`verifyClient: unknown ws path: ${pathOnly}`);
+          callback(false, 404, "unknown endpoint");
+          return;
+        }
+        log.warn(
+          `verifyClient: unknown ws path allowed via dangerouslyAllowLegacyEndpointFallback: ${pathOnly}`,
+        );
+      }
+    }
 
     // 0. Connection limits — prevent resource exhaustion before any auth work
     if (maxConnections !== undefined && maxConnections > 0 && activeConnectionCount) {

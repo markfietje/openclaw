@@ -2,7 +2,11 @@
 import { randomUUID } from "node:crypto";
 import type { Socket } from "node:net";
 import type { DeviceSessionAuthorityTracker } from "@openclaw/gateway-security-core/device-session-authority";
-import { isKnownWsEndpoint } from "@openclaw/gateway-security-core/ws-endpoint";
+import {
+  isKnownWsEndpoint,
+  classifyWsEndpoint,
+  getEndpointSecurity,
+} from "@openclaw/gateway-security-core/ws-endpoint";
 import { createWsKeepalive } from "@openclaw/gateway-security-core/ws-keepalive";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { RawData, WebSocket, WebSocketServer } from "ws";
@@ -269,6 +273,8 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       socket.close(1008, "unknown websocket endpoint");
       return;
     }
+    const endpointSecurity = getEndpointSecurity(classifyWsEndpoint(wsPath));
+    const endpointAllowedCapabilities = endpointSecurity.allowedCapabilities;
 
     let client: GatewayWsClient | null = null;
     let closed = false;
@@ -555,6 +561,8 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       forwardedFor,
       realIp,
       requestHost,
+      wsPath,
+      endpointAllowedCapabilities,
       requestOrigin,
       requestUserAgent,
       pluginSurfaceBaseUrl,
