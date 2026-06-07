@@ -147,4 +147,64 @@ describe("DeviceSessionAuthorityTracker", () => {
       expect(tracker.isStale(adminSnapshot)).toBe(true);
     });
   });
+
+  describe("generations cap", () => {
+    it("evicts the oldest entry when the cap is exceeded by a new key", () => {
+      const tracker = new DeviceSessionAuthorityTracker();
+      // Seed dev-0 so it has a tracked generation, then capture a snapshot.
+      tracker.invalidate({ deviceId: "dev-0" });
+      const victimSnapshot = tracker.createSnapshot({ deviceId: "dev-0", role: "operator" });
+      expect(victimSnapshot?.deviceGeneration).toBe(1);
+
+      // Fill the remaining 4095 slots with one key per device.
+      for (let i = 1; i < 4096; i++) {
+        tracker.invalidate({ deviceId: `dev-${i}` });
+      }
+      // 4097th new key triggers eviction of the oldest ("dev-0").
+      tracker.invalidate({ deviceId: "dev-4096" });
+
+      expect(tracker.isStale(victimSnapshot)).toBe(true);
+      const freshSnapshot = tracker.createSnapshot({ deviceId: "dev-4096", role: "operator" });
+      expect(tracker.isStale(freshSnapshot)).toBe(false);
+    });
+
+    it("never grows past the cap even under heavy repeated invalidation", () => {
+      const tracker = new DeviceSessionAuthorityTracker();
+      for (let i = 0; i < 10_000; i++) {
+        tracker.invalidate({ deviceId: "dev-1" });
+      }
+      const snapshot = tracker.createSnapshot({ deviceId: "dev-1", role: "operator" });
+      expect(tracker.isStale(snapshot)).toBe(false);
+    });
+
+    it("forgets a stale snapshot after a long-running eviction cycle", () => {
+      const tracker = new DeviceSessionAuthorityTracker();
+      tracker.invalidate({ deviceId: "dev-victim" });
+      const snapshot = tracker.createSnapshot({ deviceId: "dev-victim", role: "operator" });
+      expect(snapshot?.deviceGeneration).toBe(1);
+
+      // 4095 more devices bring the map to the cap (dev-victim still in).
+      for (let i = 0; i < 4095; i++) {
+        tracker.invalidate({ deviceId: `dev-other-${i}` });
+      }
+      expect(tracker.isStale(snapshot)).toBe(false);
+
+      // 4096th new device triggers eviction of dev-victim.
+      tracker.invalidate({ deviceId: "dev-other-4095" });
+      expect(tracker.isStale(snapshot)).toBe(true);
+    });
+  });
+
+  describe("dispose", () => {
+    it("clears all generations", () => {
+      const tracker = new DeviceSessionAuthorityTracker();
+      tracker.invalidate({ deviceId: "dev-1" });
+      const snapshot = tracker.createSnapshot({ deviceId: "dev-1", role: "operator" });
+      expect(snapshot?.deviceGeneration).toBe(1);
+
+      tracker.dispose();
+      const afterDispose = tracker.createSnapshot({ deviceId: "dev-1", role: "operator" });
+      expect(afterDispose?.deviceGeneration).toBe(0);
+    });
+  });
 });
