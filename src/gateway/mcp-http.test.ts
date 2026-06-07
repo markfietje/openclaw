@@ -1203,6 +1203,50 @@ describe("mcp loopback server", () => {
     }
   });
 
+  it("survives a client that closes the request mid-body without writing headers", async () => {
+    server = await startMcpLoopbackServer(0);
+    const runtime = getActiveMcpLoopbackRuntime();
+    if (!runtime) {
+      throw new Error("expected active MCP loopback runtime");
+    }
+
+    const result = await new Promise<{ wroteHeaders: boolean; closed: boolean }>((resolve) => {
+      let wroteHeaders = false;
+      let closed = false;
+      const req = request(
+        {
+          hostname: "127.0.0.1",
+          port: server.port,
+          path: "/mcp",
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${runtime.ownerToken}`,
+            "content-type": "application/json",
+            "transfer-encoding": "chunked",
+          },
+        },
+        (res) => {
+          wroteHeaders = res.headersSent === true;
+        },
+      );
+      req.on("close", () => {
+        closed = true;
+        resolve({ wroteHeaders, closed: true });
+      });
+      req.on("error", () => {
+        // ECONNRESET is the expected outcome; ignore and let close resolve.
+      });
+      req.write("{");
+      // Destroy the socket mid-body so the server's read errors with ECONNRESET.
+      setTimeout(() => req.destroy(), 25);
+      setTimeout(() => resolve({ wroteHeaders, closed }), 500).unref();
+    });
+
+    expect(result.closed).toBe(true);
+    // Server must not have written a response — there is nothing to send back.
+    expect(result.wroteHeaders).toBe(false);
+  });
+
   it("rejects cross-origin browser requests before auth", async () => {
     await expectBrowserToolsListStatus({
       origin: "https://evil.example",
