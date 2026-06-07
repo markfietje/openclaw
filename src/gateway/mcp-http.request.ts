@@ -384,6 +384,14 @@ export function isMcpHttpBodyTimeoutError(error: unknown): error is Error & { co
   );
 }
 
+export function isMcpHttpBodyClosedError(error: unknown): error is Error & { code: string } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === MCP_HTTP_BODY_CLOSED_CODE
+  );
+}
+
 export function resolveMcpHttpBodyTimeoutMs(): number {
   return readPositiveIntEnv("OPENCLAW_MCP_LOOPBACK_BODY_TIMEOUT_MS", DEFAULT_MCP_BODY_TIMEOUT_MS);
 }
