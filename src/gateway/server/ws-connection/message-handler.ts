@@ -2854,12 +2854,25 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           return;
         }
       }
+      // Tracks whether the request handler produced a successful response.
+      // Read by the DEVICE_CREDENTIAL_INVALIDATING_METHODS barrier after the
+      // dispatch promise settles, so we only invalidate authority when the
+      // mutation actually applied (see respond()).
+      let dispatchSucceeded = false;
       const respond = (
         ok: boolean,
         payload?: unknown,
         error?: ErrorShape,
         meta?: Record<string, unknown>,
       ) => {
+        // Mark dispatch as successful so the credential-mutation barrier can
+        // decide whether to invalidate authority. We only count real success
+        // (`ok === true`); error responses do not trigger invalidation to
+        // avoid a DoS where an attacker could bump the authority generation
+        // for arbitrary deviceIds via params that fail validation.
+        if (ok) {
+          dispatchSucceeded = true;
+        }
         send({ type: "res", id: req.id, ok, payload, error });
         const unauthorizedRoleError = isUnauthorizedRoleError(error);
         let logMeta = meta;
@@ -2922,6 +2935,17 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         const barrier = dispatch.finally(() => {
           if (deviceCredentialMutationBarrier === barrier) {
             deviceCredentialMutationBarrier = undefined;
+          }
+          if (
+            shouldInvalidateDeviceAuthority({
+              dispatchSucceeded,
+              deviceSessionAuthorityTracker,
+              params: req.params,
+            })
+          ) {
+            deviceSessionAuthorityTracker?.invalidate({
+              deviceId: (req.params as { deviceId: string }).deviceId,
+            });
           }
         });
         deviceCredentialMutationBarrier = barrier;
@@ -3049,8 +3073,34 @@ function matchesEndpointCapabilities(
   return allowed.some((cap) => hasMessageCapability(ctx, cap));
 }
 
+/**
+ * Decide whether the credential-mutation barrier should call
+ * `invalidate({ deviceId })` after a device.* method completes. Skipped on
+ * error responses (dispatchSucceeded === false) so an attacker without
+ * operator.pairing scope cannot bump authority for arbitrary deviceIds by
+ * sending invalid params.
+ */
+function shouldInvalidateDeviceAuthority(params: {
+  dispatchSucceeded: boolean;
+  deviceSessionAuthorityTracker: DeviceSessionAuthorityTracker | undefined;
+  params: unknown;
+}): boolean {
+  if (!params.dispatchSucceeded) {
+    return false;
+  }
+  if (!params.deviceSessionAuthorityTracker) {
+    return false;
+  }
+  if (!params.params || typeof params.params !== "object") {
+    return false;
+  }
+  const deviceId = (params.params as { deviceId?: unknown }).deviceId;
+  return typeof deviceId === "string" && deviceId.length > 0;
+}
+
 export const testing = {
   resolvePinnedClientMetadata,
   matchesEndpointCapabilities,
+  shouldInvalidateDeviceAuthority,
 };
 export { testing as __testing };
