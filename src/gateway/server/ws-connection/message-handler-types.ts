@@ -44,6 +44,8 @@ export type GatewayWsMessageHandlerParams = {
   requestHost?: string;
   requestOrigin?: string;
   requestUserAgent?: string;
+  wsPath?: string;
+  endpointAllowedCapabilities?: readonly string[];
   pluginSurfaceBaseUrl?: string;
   pluginNodeCapabilities?: PluginNodeCapabilitySurface[];
   connectNonce: string;
