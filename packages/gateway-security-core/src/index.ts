@@ -14,3 +14,4 @@ export * from "./ws-keepalive.js";
 export * from "./security-config.js";
 export * from "./ws-frame-validator.js";
 export * from "./sliding-window-store.js";
+export * from "./ipv6-subnet.js";
