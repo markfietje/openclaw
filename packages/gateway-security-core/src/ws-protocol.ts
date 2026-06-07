@@ -10,7 +10,7 @@ export interface FrameLimits {
 
 export const GATEWAY_WS_SUBPROTOCOL = "openclaw-gateway-v1";
 
-export function parseGatewayWsSubprotocolHeader(header: string | string[] | undefined): string[] {
+function parseGatewayWsSubprotocolHeader(header: string | string[] | undefined): string[] {
   const values = Array.isArray(header) ? header : header === undefined ? [] : [header];
   return values
     .flatMap((value) => value.split(","))
@@ -20,15 +20,6 @@ export function parseGatewayWsSubprotocolHeader(header: string | string[] | unde
 
 export function hasGatewayWsSubprotocol(header: string | string[] | undefined): boolean {
   return parseGatewayWsSubprotocolHeader(header).includes(GATEWAY_WS_SUBPROTOCOL);
-}
-
-export function selectGatewayWsSubprotocol(protocols: Iterable<string>): string | false {
-  for (const protocol of protocols) {
-    if (protocol === GATEWAY_WS_SUBPROTOCOL) {
-      return GATEWAY_WS_SUBPROTOCOL;
-    }
-  }
-  return false;
 }
 
 export const DEFAULT_FRAME_LIMITS: FrameLimits = {
