@@ -17,6 +17,7 @@
 
 import { normalizeIpAddress } from "@openclaw/net-policy/ip";
 import { isLoopbackAddress } from "./ip.js";
+import { applyIpv6SubnetMask } from "./ipv6-subnet.js";
 import { createSlidingWindowStore, type SlidingWindowBucket } from "./sliding-window-store.js";
 
 // ---------------------------------------------------------------------------
@@ -72,52 +73,6 @@ const DEFAULT_WINDOW_MS = 10_000; // 10 seconds
 const DEFAULT_LOCKOUT_MS = 60_000; // 1 minute
 const DEFAULT_PRUNE_INTERVAL_MS = 30_000; // prune stale entries every 30 seconds
 const DEFAULT_IPV6_SUBNET = 56; // OWASP recommended /56 for IPv6 rate limiting
-
-// ---------------------------------------------------------------------------
-// IPv6 subnet masking (connection-specific OWASP policy)
-// ---------------------------------------------------------------------------
-
-// Expand :: compression to a full 8-block IPv6 address so masking
-// operates on a predictable number of blocks.
-function expandIPv6(address: string): string {
-  if (!address.includes("::")) {
-    return address;
-  }
-  const halves = address.split("::");
-  const left = halves[0] ? halves[0].split(":") : [];
-  const right = halves[1] ? halves[1].split(":") : [];
-  const missing = 8 - left.length - right.length;
-  const expanded = [...left, ...Array(missing).fill("0"), ...right];
-  return expanded.map((p) => p.padStart(4, "0")).join(":");
-}
-
-// Apply a bitwise subnet mask to an IPv6 address.
-// For example /56 keeps 3 full 16-bit blocks and masks the 4th to
-// the first 8 bits (e.g. "abcd" → "ab00").
-function applyIpv6SubnetMask(address: string, maskBits: number): string {
-  const expanded = expandIPv6(address);
-  const parts = expanded.split(":");
-  const fullBlocks = Math.floor(maskBits / 16);
-  const remainingBits = maskBits % 16;
-
-  const result: string[] = [];
-
-  for (let i = 0; i < fullBlocks && i < parts.length; i++) {
-    result.push(parts[i]);
-  }
-
-  if (remainingBits > 0 && fullBlocks < parts.length) {
-    const blockValue = Number.parseInt(parts[fullBlocks], 16);
-    const mask = 0xffff << (16 - remainingBits);
-    result.push((blockValue & mask).toString(16).padStart(4, "0"));
-  }
-
-  while (result.length < 8) {
-    result.push("0");
-  }
-
-  return result.join(":");
-}
 
 // ---------------------------------------------------------------------------
 // Implementation
