@@ -133,6 +133,7 @@ import { pruneSupersededSilentPairingsAfterApproval } from "../../device-pairing
 import {
   authorizeMessage,
   createMessageAuthContext,
+  hasMessageCapability,
   resolveMessageAuthorizationDecision,
   type MessageAuthorizationContext,
 } from "../../message-auth.js";
@@ -549,6 +550,8 @@ export type GatewayWsMessageHandlerParams = {
   requestHost?: string;
   requestOrigin?: string;
   requestUserAgent?: string;
+  wsPath?: string;
+  endpointAllowedCapabilities?: readonly string[];
   pluginSurfaceBaseUrl?: string;
   pluginNodeCapabilities?: PluginNodeCapabilitySurface[];
   connectNonce: string;
@@ -613,6 +616,8 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     requestHost,
     requestOrigin,
     requestUserAgent,
+    wsPath,
+    endpointAllowedCapabilities,
     pluginSurfaceBaseUrl,
     pluginNodeCapabilities = [],
     connectNonce,
@@ -2443,6 +2448,26 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           scopes,
           endpoint: "ws-message",
         });
+        // Endpoint capability gate: reject connections whose resolved caps
+        // do not include any of the endpoint's allowed capabilities. Defense
+        // against role/scope confusion across endpoints (e.g. an agent-only
+        // scope attempting to use the admin endpoint). The endpoint is
+        // determined by the WS path the client connected to; it cannot be
+        // re-graded per request.
+        if (!matchesEndpointCapabilities(messageAuthContext, endpointAllowedCapabilities)) {
+          const required = endpointAllowedCapabilities ?? [];
+          setCloseCause("endpoint-capability-mismatch", {
+            ...clientMeta,
+            auth: authMethod,
+            wsPath,
+            required,
+          });
+          logWsControl.warn(
+            `endpoint capability mismatch conn=${connId} path=${wsPath ?? "?"} required=${required.join(",")}`,
+          );
+          close(1008, "endpoint capability mismatch");
+          return;
+        }
         setHandshakeState("connected");
         advanceHandshakePhase("session_attached");
         logWs("in", "connect", {
@@ -3009,7 +3034,23 @@ function setSocketMaxPayload(socket: WebSocket, maxPayload: number): void {
   }
 }
 
+/**
+ * True when the auth context has at least one capability matching the
+ * endpoint's allowed list. An empty / undefined allowed list is treated as
+ * "no gate" so legacy callers can opt out.
+ */
+function matchesEndpointCapabilities(
+  ctx: MessageAuthorizationContext,
+  allowed: readonly string[] | undefined,
+): boolean {
+  if (!allowed || allowed.length === 0) {
+    return true;
+  }
+  return allowed.some((cap) => hasMessageCapability(ctx, cap));
+}
+
 export const testing = {
   resolvePinnedClientMetadata,
+  matchesEndpointCapabilities,
 };
 export { testing as __testing };
