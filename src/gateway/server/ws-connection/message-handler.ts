@@ -53,6 +53,7 @@ import {
 import { getRuntimeConfig } from "../../../config/io.js";
 import { resolveStateDir } from "../../../config/paths.js";
 import { sha256HexPrefix } from "../../../infra/crypto-digest.js";
+import type { OpenClawConfig } from "../../../config/types.js";
 import {
   getBoundDeviceBootstrapProfile,
   getDeviceBootstrapTokenProfile,
@@ -2773,20 +2774,42 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
       }
       const req = parsed;
       logWs("in", "req", { connId, id: req.id, method: req.method });
-      if (
-        messageAuthContext !== undefined &&
-        configSnapshot.gateway?.security?.messageAuth?.enabled !== false
-      ) {
+      if (messageAuthContext !== undefined && isMessageAuthorizationEnabled(configSnapshot)) {
         const messageType = `gateway.method.${req.method}`;
         const methodRegistry = getMethodRegistry?.();
         const decision = resolveMessageAuthorizationDecision(messageType, {
           ...(methodRegistry !== undefined && { methodRegistry }),
         });
-        // Defense-in-depth (opt-in via gateway.security.messageAuth.enabled): enforce EXTRA
-        // capability checks (secrets, config-protected) and node-role gating. Standard operator
-        // scope checks (read/write/admin) are already enforced by server-methods with proper
+        // Defense-in-depth (opt-in via security.enableMessageAuthorization or the legacy
+        // security.messageAuth.enabled): enforce EXTRA capability checks (secrets,
+        // config-protected) and node-role gating. Standard operator scope checks
+        // (read/write/admin) are already enforced by server-methods with proper
         // "missing scope" errors, and a few methods (e.g. "health") intentionally bypass scope.
-        if (decision !== undefined) {
+        //
+        // Methods with no authorization decision (i.e. not in the registry, no core
+        // descriptor, no required operator scope) fail closed with INVALID_REQUEST
+        // unless security.dangerouslyAllowUnmappedMethods === true. Unmapped methods
+        // silently falling through to the dispatcher weakens authorization.
+        if (decision === undefined) {
+          if (!isUnmappedMethodAllowed(configSnapshot)) {
+            logWsControl.warn(
+              `unmapped method blocked conn=${connId} method=${req.method} remote=${remoteAddr ?? "?"}`,
+            );
+            send({
+              type: "res",
+              id: req.id,
+              ok: false,
+              error: errorShape(ErrorCodes.INVALID_REQUEST, `unmapped rpc method: ${req.method}`, {
+                details: {
+                  code: "method-not-authorized",
+                  method: req.method,
+                  reason: "unmapped",
+                },
+              }),
+            });
+            return;
+          }
+        } else {
           let requiresExtraCheck = false;
           if (decision.kind === "role" && decision.role === "node") {
             requiresExtraCheck = true;
@@ -3098,9 +3121,40 @@ function shouldInvalidateDeviceAuthority(params: {
   return typeof deviceId === "string" && deviceId.length > 0;
 }
 
+/**
+ * Top-level gate for the per-request authorization block. Returns true
+ * (gate runs) when either the new `enableMessageAuthorization` flag is not
+ * explicitly false, or the legacy `messageAuth.enabled` flag is not
+ * explicitly false. Both default to true; the gate runs by default.
+ */
+function isMessageAuthorizationEnabled(configSnapshot: OpenClawConfig | undefined): boolean {
+  const security = configSnapshot?.gateway?.security;
+  if (!security) {
+    return true;
+  }
+  if (security.enableMessageAuthorization === false) {
+    return false;
+  }
+  if (security.messageAuth?.enabled === false) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * True when an unmapped RPC method (no authorization decision in the
+ * registry) is allowed to execute without a capability check. Defaults to
+ * false; set `security.dangerouslyAllowUnmappedMethods === true` to opt in.
+ */
+function isUnmappedMethodAllowed(configSnapshot: OpenClawConfig | undefined): boolean {
+  return configSnapshot?.gateway?.security?.dangerouslyAllowUnmappedMethods === true;
+}
+
 export const testing = {
   resolvePinnedClientMetadata,
   matchesEndpointCapabilities,
   shouldInvalidateDeviceAuthority,
+  isMessageAuthorizationEnabled,
+  isUnmappedMethodAllowed,
 };
 export { testing as __testing };
