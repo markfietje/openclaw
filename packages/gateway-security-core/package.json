@@ -98,6 +98,11 @@
       "types": "./dist/sliding-window-store.d.mts",
       "import": "./dist/sliding-window-store.mjs",
       "default": "./dist/sliding-window-store.mjs"
+    },
+    "./ipv6-subnet": {
+      "types": "./dist/ipv6-subnet.d.mts",
+      "import": "./dist/ipv6-subnet.mjs",
+      "default": "./dist/ipv6-subnet.mjs"
     }
   },
   "dependencies": {
