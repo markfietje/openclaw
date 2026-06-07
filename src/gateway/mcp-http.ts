@@ -28,6 +28,7 @@ import { jsonRpcError, JsonRpcRequestSchema, type JsonRpcRequest } from "./mcp-h
 import {
   isMcpHttpBodyTooLargeError,
   isMcpHttpBodyTimeoutError,
+  isMcpHttpBodyClosedError,
   readMcpHttpBody,
   resolveMcpCliCaptureKey,
   resolveMcpHttpBodyTimeoutMs,
@@ -341,6 +342,11 @@ export async function startMcpLoopbackServer(port = 0): Promise<{
             res.end(JSON.stringify({ error: "request_body_timeout" }), () => {
               req.destroy();
             });
+          } else if (isMcpHttpBodyClosedError(error)) {
+            // Client disconnected mid-body. There is nothing to respond to;
+            // writing headers at this point is a no-op or error, so just
+            // end the socket cleanly.
+            res.end();
           } else if (isMcpJsonParseError(error)) {
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify(jsonRpcError(null, -32700, "Parse error")));
