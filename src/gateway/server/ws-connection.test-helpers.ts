@@ -35,6 +35,8 @@ export function createResolvedGatewayTokenAuth(token: string): ResolvedGatewayAu
   return {
     mode: "token",
     allowTailscale: false,
+    allowLocalDirectNoAuth: true,
+    toolsInvokeMaxBodyBytes: 256 * 1024,
     token,
   };
 }

@@ -20,6 +20,8 @@ export const AUTH_NONE: ResolvedGatewayAuth = {
   token: undefined,
   password: undefined,
   allowTailscale: false,
+  allowLocalDirectNoAuth: true,
+  toolsInvokeMaxBodyBytes: 256 * 1024,
 };
 
 export const AUTH_TOKEN: ResolvedGatewayAuth = {
@@ -27,6 +29,8 @@ export const AUTH_TOKEN: ResolvedGatewayAuth = {
   token: "test-token",
   password: undefined,
   allowTailscale: false,
+  allowLocalDirectNoAuth: true,
+  toolsInvokeMaxBodyBytes: 256 * 1024,
 };
 
 /** Build an IncomingMessage-like request for gateway HTTP handler tests. */
