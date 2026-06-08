@@ -68,6 +68,10 @@ type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 const LOG_HEADER_MAX_LEN = 300;
 const LOG_HEADER_FORMAT_REGEX = /\p{Cf}/gu;
 const MAX_QUEUED_MESSAGE_HANDLER_FRAMES = 16;
+// Maximum total time a frame can sit in the queue before being considered stale.
+// Combined with MAX_QUEUED_MESSAGE_HANDLER_FRAMES, this bounds queue memory to
+// ~16 frames * ~1MB each = 16MB worst-case per connection.
+const MAX_QUEUED_MESSAGE_ENTRY_AGE_MS = 60_000;
 const unauthorizedCloseBeforeConnectLogLimiter = new HandshakeAuthLogLimiter();
 
 function replaceControlChars(value: string): string {
@@ -206,8 +210,28 @@ export type AttachGatewayWsConnectionHandlerParams = GatewayWsSharedHandlerParam
 function attachGatewayWsMessageHandlerOnDemand(
   params: import("./ws-connection/message-handler.js").GatewayWsMessageHandlerParams,
 ): void {
-  const queued: RawData[] = [];
+  // OWASP A04:2021 — Security Misconfiguration. Track queue entry timestamps
+  // to detect and drop stale frames from slow consumers.
+  const queued: Array<{ data: RawData; enqueuedAt: number }> = [];
   const queueMessage = (data: RawData) => {
+    const now = Date.now();
+    // Drop stale entries before adding new ones to maintain queue freshness.
+    // This prevents memory growth from slow consumers that never drain the queue.
+    const staleCount = queued.filter(
+      (e) => now - e.enqueuedAt > MAX_QUEUED_MESSAGE_ENTRY_AGE_MS,
+    ).length;
+    if (staleCount > 0) {
+      // Remove stale entries from the front (oldest first)
+      let removed = 0;
+      while (removed < staleCount && queued.length > 0) {
+        if (now - queued[0].enqueuedAt > MAX_QUEUED_MESSAGE_ENTRY_AGE_MS) {
+          queued.shift();
+          removed++;
+        } else {
+          break;
+        }
+      }
+    }
     if (queued.length >= MAX_QUEUED_MESSAGE_HANDLER_FRAMES) {
       params.setCloseCause("message-handler-loading-overflow", {
         queuedFrames: queued.length,
@@ -215,7 +239,7 @@ function attachGatewayWsMessageHandlerOnDemand(
       params.close(1008, "gateway message handler loading");
       return;
     }
-    queued.push(data);
+    queued.push({ data, enqueuedAt: now });
   };
   params.socket.on("message", queueMessage);
   void import("./ws-connection/message-handler.js")
@@ -225,7 +249,13 @@ function attachGatewayWsMessageHandlerOnDemand(
         return;
       }
       attachGatewayWsMessageHandler(params);
-      for (const data of queued) {
+      // Drain the queue, dropping any entries that have become stale while
+      // the message handler was loading. Stale frames are already expired by TTL.
+      const now = Date.now();
+      const validEntries = queued.filter(
+        (e) => now - e.enqueuedAt <= MAX_QUEUED_MESSAGE_ENTRY_AGE_MS,
+      );
+      for (const { data } of validEntries) {
         params.socket.emit("message", data);
       }
     })
