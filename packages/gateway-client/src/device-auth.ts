@@ -1,4 +1,8 @@
 // Gateway Client module implements device auth behavior.
+// OWASP A05:2021 — Security Logging/Monitoring Failures. Enforce maximum
+// field length to prevent memory exhaustion via oversized device metadata.
+const MAX_DEVICE_METADATA_LENGTH = 128;
+
 export function normalizeDeviceMetadataForAuth(value?: string | null): string {
   if (typeof value !== "string") {
     return "";
@@ -7,7 +11,12 @@ export function normalizeDeviceMetadataForAuth(value?: string | null): string {
   if (!trimmed) {
     return "";
   }
-  return trimmed.replace(/[A-Z]/g, (char) => String.fromCharCode(char.charCodeAt(0) + 32));
+  // Truncate to maximum length to prevent memory exhaustion.
+  const truncated =
+    trimmed.length > MAX_DEVICE_METADATA_LENGTH
+      ? trimmed.slice(0, MAX_DEVICE_METADATA_LENGTH)
+      : trimmed;
+  return truncated.replace(/[A-Z]/g, (char) => String.fromCharCode(char.charCodeAt(0) + 32));
 }
 
 type DeviceAuthPayloadParams = {
