@@ -39,6 +39,9 @@ const ToolsInvokeBodySchema = z
 
 const DEFAULT_BODY_BYTES = 256 * 1024;
 
+// OWASP A01:2021 — Broken Access Control. Enforce maximum URL length.
+const MAX_TOOLS_INVOKE_URL_LENGTH = 8192;
+
 /** Handle `/tools/invoke` requests and return false when another HTTP route should handle them. */
 export async function handleToolsInvokeHttpRequest(
   req: IncomingMessage,
@@ -53,6 +56,12 @@ export async function handleToolsInvokeHttpRequest(
     toolAuditLogger?: ToolAuditLogger;
   },
 ): Promise<boolean> {
+  // Reject oversized URLs to prevent memory exhaustion.
+  if ((req.url ?? "/").length > MAX_TOOLS_INVOKE_URL_LENGTH) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "bad_request", message: "URL too long" }));
+    return true;
+  }
   let url: URL;
   try {
     url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
