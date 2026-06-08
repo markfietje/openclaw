@@ -2,8 +2,19 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import net from "node:net";
 import { isPrivateOrLoopbackIpAddress } from "@openclaw/net-policy/ip";
+import { z } from "zod";
 import { validateProtoMismatch, type ForwardedHeader } from "./forwarded-headers.js";
 import { isLoopbackHost, normalizeHostHeader, resolveHostName } from "./net.js";
+
+// OWASP LLM02 — Insecure Output Handling. Validate signed token payload with
+// Zod schema before accessing properties to prevent malformed data attacks.
+const SignedTokenPayloadSchema = z.object({
+  sub: z.string().min(1),
+  origin: z.string().min(1),
+  iat: z.number().int().positive(),
+  exp: z.number().int().positive().optional(),
+  nonce: z.string().min(1),
+});
 
 export interface SignedTokenPayload {
   sub: string;
@@ -44,7 +55,13 @@ export function verifySignedOriginToken(
       return { ok: false, reason: "invalid signature" };
     }
 
-    const payload: SignedTokenPayload = JSON.parse(Buffer.from(payloadB64, "base64url").toString());
+    // Parse and validate payload structure before accessing properties
+    const rawPayload = JSON.parse(Buffer.from(payloadB64, "base64url").toString());
+    const parseResult = SignedTokenPayloadSchema.safeParse(rawPayload);
+    if (!parseResult.success) {
+      return { ok: false, reason: "invalid token payload structure" };
+    }
+    const payload = parseResult.data;
 
     if (payload.origin.toLowerCase() !== expectedOrigin.toLowerCase()) {
       return { ok: false, reason: "origin mismatch" };
