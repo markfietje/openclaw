@@ -137,6 +137,11 @@ export function createAuditLogBase<T extends AuditLogEntry>(
   function log(entry: Omit<T, "ts">): void {
     if (pendingDepth >= MAX_PENDING_DEPTH) {
       // Drop entry to avoid unbounded promise chain growth on I/O failures.
+      // Warn once per second to alert operators without flooding logs.
+      console.warn(
+        `[audit-log] dropped entry (pending depth ${pendingDepth} >= ${MAX_PENDING_DEPTH}); ` +
+          "I/O may be blocked or disk full. Check disk space and audit log directory.",
+      );
       return;
     }
     pendingDepth++;
