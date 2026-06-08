@@ -252,11 +252,10 @@ export function authorizeOperatorScopesForMethod(
       const pluginId = normalizeSessionActionParam((params as { pluginId?: unknown }).pluginId);
       const actionId = normalizeSessionActionParam((params as { actionId?: unknown }).actionId);
       if (!pluginId || !actionId) {
-        // Malformed dynamic params cannot be matched to a plugin action. Any valid operator scope
-        // may proceed so the handler can return the precise validation error.
-        return scopes.some((scope) => isOperatorScope(scope))
-          ? { allowed: true }
-          : { allowed: false, missingScope: WRITE_SCOPE };
+        // Malformed dynamic params cannot be matched to a plugin action.
+        // Default to DENY — the handler can return precise validation errors.
+        // This prevents silent authorization bypass when params cannot be parsed.
+        return { allowed: false, missingScope: WRITE_SCOPE };
       }
     }
     const missingScope = findMissingOperatorScope(registeredScopes ?? [WRITE_SCOPE], scopes);
