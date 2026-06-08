@@ -256,6 +256,11 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
   return Array.isArray(value) ? value[0] : value;
 }
 
+// OWASP A01:2021 — Broken Access Control. Enforce maximum header length
+// and scope count to prevent memory exhaustion via oversized headers.
+const MAX_SCOPES_HEADER_LENGTH = 4096;
+const MAX_DECLARED_SCOPES = 64;
+
 function resolveTrustedProxyControlUiScopes(params: {
   requestedScopes: string[];
   upgradeReq: IncomingMessage;
@@ -264,11 +269,16 @@ function resolveTrustedProxyControlUiScopes(params: {
   if (rawHeader === undefined) {
     return params.requestedScopes;
   }
+  // Reject oversized headers to prevent memory exhaustion.
+  if (rawHeader.length > MAX_SCOPES_HEADER_LENGTH) {
+    return params.requestedScopes;
+  }
   const declaredScopes = new Set(
     rawHeader
       .split(",")
       .map((scope) => scope.trim())
-      .filter((scope) => scope.length > 0),
+      .filter((scope) => scope.length > 0)
+      .slice(0, MAX_DECLARED_SCOPES),
   );
   if (declaredScopes.size === 0) {
     return [];
@@ -681,16 +691,24 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         const frame = parsed as RequestFrame;
         const connectParams = frame.params as ConnectParams;
         const resolvedAuth = getResolvedAuth();
-        const clientLabel = connectParams.client.displayName ?? connectParams.client.id;
+        // OWASP A05:2021 — Security Logging/Monitoring Failures. Truncate client
+        // metadata fields to prevent log injection and memory exhaustion.
+        const MAX_STRING_FIELD_LENGTH = 256;
+        const truncateField = (v: unknown): string | undefined => {
+          if (typeof v !== "string") return undefined;
+          return v.length > MAX_STRING_FIELD_LENGTH ? v.slice(0, MAX_STRING_FIELD_LENGTH) + "…" : v;
+        };
+        const clientLabel =
+          truncateField(connectParams.client.displayName) ?? connectParams.client.id;
         const clientMeta = {
-          client: connectParams.client.id,
-          clientDisplayName: connectParams.client.displayName,
-          mode: connectParams.client.mode,
-          version: connectParams.client.version,
-          platform: connectParams.client.platform,
-          deviceFamily: connectParams.client.deviceFamily,
-          modelIdentifier: connectParams.client.modelIdentifier,
-          instanceId: connectParams.client.instanceId,
+          client: truncateField(connectParams.client.id) ?? "unknown",
+          clientDisplayName: truncateField(connectParams.client.displayName),
+          mode: truncateField(connectParams.client.mode),
+          version: truncateField(connectParams.client.version),
+          platform: truncateField(connectParams.client.platform),
+          deviceFamily: truncateField(connectParams.client.deviceFamily),
+          modelIdentifier: truncateField(connectParams.client.modelIdentifier),
+          instanceId: truncateField(connectParams.client.instanceId),
         };
         const markHandshakeFailure = (cause: string, meta?: Record<string, unknown>) => {
           setHandshakeState("failed");
@@ -769,7 +787,12 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         // Default-deny: scopes must be explicit. Empty/missing scopes means no permissions.
         // Note: If the client does not present a device identity, we can't bind scopes to a paired
         // device/token, so we will clear scopes after auth to avoid self-declared permissions.
-        let scopes = Array.isArray(connectParams.scopes) ? connectParams.scopes : [];
+        // OWASP A01:2021 — Broken Access Control. Enforce maximum scope array length
+        // to prevent memory exhaustion via large self-declared scope arrays.
+        const MAX_SCOPES = 64;
+        let rawScopes = Array.isArray(connectParams.scopes) ? connectParams.scopes : [];
+        // Truncate to MAX_SCOPES to prevent memory exhaustion.
+        let scopes = rawScopes.length > MAX_SCOPES ? rawScopes.slice(0, MAX_SCOPES) : rawScopes;
         connectParams.role = role;
         connectParams.scopes = scopes;
 
