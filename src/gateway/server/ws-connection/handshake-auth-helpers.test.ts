@@ -158,9 +158,10 @@ describe("handshake auth helpers", () => {
 
     expect(resolved.hasBrowserOriginHeader).toBe(true);
     expect(resolved.enforceOriginCheckForAnyClient).toBe(true);
-    expect(resolved.rateLimitClientIp).toBe(
-      `${BROWSER_ORIGIN_RATE_LIMIT_KEY_PREFIX}https://app.example`,
-    );
+    // OWASP A04:2021 — Security Misconfiguration. Origins are hashed to prevent
+    // unbounded rate limiter key growth from unique origins.
+    const expectedPattern = new RegExp(`^browser-origin:[0-9a-f]{16}$`);
+    expect(resolved.rateLimitClientIp).toMatch(expectedPattern);
     expect(resolved.authRateLimiter).toBe(browserRateLimiter);
   });
 
