@@ -79,6 +79,17 @@ type ResolveConnectAuthDecisionParams = {
   }) => Promise<VerifyDeviceTokenResult>;
 };
 
+// OWASP A01:2021 — Broken Access Control. Enforce maximum scopes length
+// at the auth decision layer as a defense-in-depth measure.
+const MAX_AUTH_SCOPES = 64;
+
+function sanitizeScopesForAuth(scopes: string[]): string[] {
+  if (!Array.isArray(scopes)) {
+    return [];
+  }
+  return scopes.length > MAX_AUTH_SCOPES ? scopes.slice(0, MAX_AUTH_SCOPES) : scopes;
+}
+
 function mapDeviceTokenAuthFailureReason(params: {
   tokenCheckReason?: string;
   candidateSource?: DeviceTokenCandidateSource;
@@ -255,7 +266,7 @@ async function resolveConnectAuthDecisionCore(
         publicKey: params.publicKey,
         token: bootstrapTokenCandidate,
         role: params.role,
-        scopes: params.scopes,
+        scopes: sanitizeScopesForAuth(params.scopes),
       });
       if (tokenCheck.ok) {
         // Prefer an explicit valid bootstrap token even when another auth path
@@ -301,7 +312,7 @@ async function resolveConnectAuthDecisionCore(
       deviceId: params.deviceId,
       token: deviceTokenCandidate,
       role: params.role,
-      scopes: params.scopes,
+      scopes: sanitizeScopesForAuth(params.scopes),
     });
     if (tokenCheck.ok) {
       authOk = true;
