@@ -52,6 +52,11 @@ export function computeInlineStyleHashes(html: string): string[] {
   return hashes;
 }
 
+// Default trusted external origins for the Control UI connect-src directive.
+// These must be updated if OpenAI API or TweakCN domains change, or replaced
+// with a configured allowlist for air-gapped deployments.
+const DEFAULT_CONNECT_SRC_EXTERNAL = "https://api.openai.com https://tweakcn.com";
+
 /** Build the CSP header applied to Gateway-served Control UI HTML. */
 export function buildControlUiCspHeader(opts?: {
   inlineScriptHashes?: string[];
@@ -63,6 +68,8 @@ export function buildControlUiCspHeader(opts?: {
    * being enabled so the baseline Control UI CSP stays tight otherwise.
    */
   allowWasm?: boolean;
+  /** Override the default connect-src external origins. Pass an empty string to allow only 'self'. */
+  connectSrcExternal?: string;
 }): string {
   const hashes = opts?.inlineScriptHashes;
   const scriptTokens = ["'self'"];
@@ -72,7 +79,16 @@ export function buildControlUiCspHeader(opts?: {
   if (opts?.allowWasm) {
     scriptTokens.push("'wasm-unsafe-eval'");
   }
-  const connectTokens = ["'self'", "ws:", "wss:", "https://api.openai.com", "https://tweakcn.com"];
+  // connect-src: always 'self' plus ws/wss (gateway WebSocket) plus optionally
+  // configured external origins. Pass empty `connectSrcExternal` to drop the
+  // external API origins (strictest CSP for air-gapped deployments).
+  const connectSrcExternal = opts?.connectSrcExternal ?? DEFAULT_CONNECT_SRC_EXTERNAL;
+  const connectTokens = [
+    "'self'",
+    "ws:",
+    "wss:",
+    ...connectSrcExternal.trim().split(/\s+/).filter((origin) => origin.length > 0),
+  ];
   if (opts?.allowWasm) {
     connectTokens.push("data:");
   }
