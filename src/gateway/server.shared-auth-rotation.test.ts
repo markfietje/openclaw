@@ -185,6 +185,8 @@ async function resolveRequiredSharedGatewayGeneration() {
     mode: "token",
     token: OLD_TOKEN,
     allowTailscale: false,
+    allowLocalDirectNoAuth: true,
+    toolsInvokeMaxBodyBytes: 262144,
   });
   expect(issuerGeneration).toBeTypeOf("string");
   if (!issuerGeneration) {
@@ -385,6 +387,112 @@ describe("gateway shared auth rotation with unchanged SecretRefs", () => {
       await expectGatewayAuthChangedClose(closed);
     } finally {
       await closeWsAndWait(ws);
+    }
+  });
+});
+
+/**
+ * Authority snapshot race integration test.
+ *
+ * Verifies the generation-based authority snapshot model through the real transport
+ * path: a device-token-authenticated WebSocket, a token rotation, and follow-up
+ * RPCs on the same socket. After rotation, every follow-up request must be rejected
+ * or force-closed before it can reach business logic.
+ *
+ * This is the proof described in the article: a transport race proven through the
+ * transport path, not just through unit test mocks.
+ */
+describe("device-token authority snapshot race", () => {
+  let server: Awaited<ReturnType<typeof startGatewayServer>>;
+  let port = 0;
+
+  beforeAll(async () => {
+    port = await getFreePort();
+    server = await startGatewayServer(port);
+  });
+
+  afterAll(async () => {
+    await server.close();
+  });
+
+  it("rejects or force-closes post-rotation RPCs on the same socket", async () => {
+    // Open a real device-token authenticated WebSocket
+    const { ws, deviceId } = await openDeviceTokenWsWithDetails();
+
+    try {
+      // Send device.token.rotate on the same socket
+      const rotateRes = await rpcReq<{
+        ok: boolean;
+        entry?: { token: string; role: string; rotatedAtMs: number };
+        error?: unknown;
+      }>(ws, "device.token.rotate", {
+        deviceId,
+        role: "operator",
+        scopes: ["operator.admin"],
+      });
+
+      expect(rotateRes.ok).toBe(true);
+      expect(rotateRes.payload?.entry?.token).toBeTypeOf("string");
+
+      // Immediately send follow-up RPCs on the same socket
+      // The generation has been bumped synchronously before the rotate response
+      // was sent. Any request that arrives after that point must be rejected
+      // or force-closed before it can reach business logic.
+      const followUpReqs = await Promise.all([
+        rpcReq<{ status?: string }>(ws, "status.summary", {}),
+        rpcReq<{ hash?: string }>(ws, "config.get", {}),
+        rpcReq<{ sessions?: unknown[] }>(ws, "sessions.list", {}),
+      ]);
+
+      // Every follow-up request must either:
+      // - Return ok=false (rejected at dispatch), OR
+      // - The connection was force-closed with 4001 before the response arrived
+      const allRejected = followUpReqs.every((res) => res.ok === false);
+      const connectionClosed = ws.readyState === WebSocket.CLOSED;
+
+      expect(
+        allRejected || connectionClosed,
+        `Expected all post-rotation requests rejected or connection closed. Got: ${JSON.stringify({
+          results: followUpReqs.map((r) => ({ ok: r.ok })),
+          readyState: ws.readyState,
+          closeCode: (ws as WebSocket & { _closeCode?: number })._closeCode,
+        })}`,
+      ).toBe(true);
+    } finally {
+      await closeWsAndWait(ws);
+    }
+  });
+
+  it("allows new connections after rotation — only the rotated session is stale", async () => {
+    // Open first device-token WebSocket
+    const { ws: ws1, deviceId } = await openDeviceTokenWsWithDetails();
+
+    try {
+      // Rotate the token — this bumps the generation for this device/role
+      const rotateRes = await rpcReq(ws1, "device.token.rotate", {
+        deviceId,
+        role: "operator",
+        scopes: ["operator.admin"],
+      });
+      expect(rotateRes.ok).toBe(true);
+
+      // ws1's session authority is now stale — subsequent RPCs should fail
+      const staleFollowUp = await rpcReq(ws1, "status.summary", {});
+      expect(staleFollowUp.ok).toBe(false);
+    } finally {
+      await closeWsAndWait(ws1);
+    }
+
+    // Open a NEW device-token WebSocket for the same device
+    // This one gets a fresh snapshot with the new generation
+    const { ws: ws2 } = await openDeviceTokenWsWithDetails();
+
+    try {
+      // ws2 should work fine — it has the new generation
+      const res = await rpcReq(ws2, "status.summary", {});
+      expect(res.ok).toBe(true);
+    } finally {
+      await closeWsAndWait(ws2);
     }
   });
 });
