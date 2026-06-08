@@ -1839,6 +1839,12 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           ...(Object.keys(pluginNodeCapabilitySurfaces).length > 0
             ? { pluginNodeCapabilitySurfaces }
             : {}),
+          // Gap G1 fix — security hardening: device-token auth requires a valid authority
+          // snapshot as a precondition. The tracker is only undefined when the feature is not
+          // configured. When it IS configured, snapshot capture MUST succeed. If deviceId
+          // and clientMode are both present but createSnapshot returns null, the device
+          // identity normalized to an empty string — a malformed state that must not
+          // proceed to business logic without staleness protection.
           ...(() => {
             const deviceId = connectParams.device?.id;
             const clientMode = connectParams.client?.mode;
@@ -1849,6 +1855,32 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
               });
               if (snap) {
                 return { deviceSessionAuthority: snap };
+              }
+              // Tracker is configured (not undefined) but snapshot capture failed.
+              // Reject the handshake — device-token auth without a valid snapshot
+              // bypasses the generation-based staleness check entirely.
+              if (deviceSessionAuthorityTracker !== undefined) {
+                // Throw a sentinel error so the outer catch block can send the
+                // handshake rejection before closing the socket.
+                const e = new Error("device session authority required") as Error & {
+                  __handshakeSnapshotFailed?: true;
+                };
+                e.__handshakeSnapshotFailed = true;
+                markHandshakeFailure("device-session-authority-required", {
+                  deviceId: String(deviceId),
+                  clientMode,
+                });
+                sendHandshakeErrorResponse(
+                  ErrorCodes.INVALID_REQUEST,
+                  "device session authority required",
+                  {
+                    details: {
+                      code: "AUTH_DEVICE_SESSION_AUTHORITY_REQUIRED",
+                    },
+                  },
+                );
+                close(4001, "device session authority required");
+                throw e;
               }
             }
             return {};
@@ -2226,6 +2258,10 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           }
         }
       }
+      // Wait for any in-flight credential mutation to complete before checking
+      // staleness. This barrier is set by DEVICE_CREDENTIAL_INVALIDATING_METHODS
+      // dispatches and ensures we don't check staleness while another mutation
+      // is still being processed (which could cause a false stale detection).
       for (;;) {
         const barrier = deviceCredentialMutationBarrier;
         if (!barrier) {
@@ -2314,6 +2350,22 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
 
       const dispatch = (async () => {
         const { handleGatewayRequest } = await import("../../server-methods.js");
+        // Pass onBeforeRespond to handleGatewayRequest so the generation is bumped
+        // SYNCHRONOUSLY before the response is sent, not in a .finally() microtask.
+        // This closes Gap G2: the race window between dispatch success and generation
+        // bump is eliminated because they happen in the same synchronous turn.
+        //
+        // The onBeforeRespond callback extracts role from req.params (Gap G3 fix)
+        // and passes it to invalidate() for role-scoped invalidation instead of
+        // always bumping the device-scoped counter.
+        // The wrapped respond in server-methods.ts calls onBeforeRespond
+        // SYNCHRONOUSLY before send() for ALL successful dispatches,
+        // bumping the generation atomically with the response.
+        const onBeforeRespond = deviceSessionAuthorityTracker
+          ? (params: { deviceId: string; role?: string }) => {
+              deviceSessionAuthorityTracker.invalidate(params);
+            }
+          : undefined;
         await handleGatewayRequest({
           req,
           respond,
@@ -2322,6 +2374,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           extraHandlers,
           methodRegistry: getMethodRegistry?.(),
           context: buildRequestContext(),
+          onBeforeRespond,
         });
       })().catch((err: unknown) => {
         logGateway.error(`request handler failed: ${formatForLog(err)}`);
@@ -2331,31 +2384,28 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           errorShape(ErrorCodes.UNAVAILABLE, "gateway request unavailable"),
         );
       });
+      // Set a barrier for DEVICE_CREDENTIAL_INVALIDATING_METHODS so that concurrent
+      // requests on the same connection wait for the mutation to complete. The barrier
+      // is the dispatch promise — subsequent requests spin on it until the dispatch
+      // settles (success or failure). This provides request-level serialization for
+      // mutations without relying on the deferred .finally() pattern that caused Gap G2.
       if (DEVICE_CREDENTIAL_INVALIDATING_METHODS.has(req.method)) {
-        const barrier = dispatch.finally(() => {
-          if (deviceCredentialMutationBarrier === barrier) {
-            deviceCredentialMutationBarrier = undefined;
-          }
-          if (
-            shouldInvalidateDeviceAuthority({
-              dispatchSucceeded,
-              deviceSessionAuthorityTracker,
-              params: req.params,
-            })
-          ) {
-            deviceSessionAuthorityTracker?.invalidate({
-              deviceId: (req.params as { deviceId: string }).deviceId,
-            });
-          }
+        deviceCredentialMutationBarrier = dispatch.then(() => {
+          deviceCredentialMutationBarrier = undefined;
         });
-        deviceCredentialMutationBarrier = barrier;
       }
       void dispatch;
     } catch (err) {
-      logGateway.error(`parse/handle error: ${String(err)}`);
-      logWs("out", "parse-error", { connId, error: formatForLog(err) });
-      if (!getClient()) {
-        close();
+      // Gap G1 fix: sentinel errors from the device-session-authority handshake
+      // check already sent a proper error response and called close(). Skip
+      // the generic error handler to avoid double-close and duplicate logs.
+      const sentinel = err as { __handshakeSnapshotFailed?: true } | undefined;
+      if (!sentinel?.__handshakeSnapshotFailed) {
+        logGateway.error(`parse/handle error: ${String(err)}`);
+        logWs("out", "parse-error", { connId, error: formatForLog(err) });
+        if (!getClient()) {
+          close();
+        }
       }
     }
   };
