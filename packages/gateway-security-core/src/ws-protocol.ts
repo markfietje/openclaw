@@ -79,6 +79,7 @@ export function checkRateLimit(
     state.byteTimestamps = state.byteTimestamps.filter((e) => e.ts > byteWindowStart);
     const totalBytes = state.byteTimestamps.reduce((sum, e) => sum + e.bytes, 0) + payloadBytes;
     if (totalBytes > limits.maxBytesPerMinute) {
+      // Roll back both entries added above (1 frame + 1 message).
       state.frameTimestamps.pop();
       state.messageTimestamps.pop();
       return { ok: false, reason: "byte budget exceeded" };
