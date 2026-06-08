@@ -201,6 +201,8 @@ function attachGatewayHarness(options: {
   const resolvedAuth: ResolvedGatewayAuth = options.resolvedAuth ?? {
     mode: "none",
     allowTailscale: false,
+    allowLocalDirectNoAuth: true,
+    toolsInvokeMaxBodyBytes: 262144,
   };
   const close = options.close ?? vi.fn();
   const setCloseCause = vi.fn();
@@ -647,6 +649,8 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
         mode: "token",
         token: "gateway-token",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 262144,
       },
       refreshHealthSnapshot,
     });
@@ -707,6 +711,8 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
     const resolvedAuth: ResolvedGatewayAuth = {
       mode: "none",
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 262144,
     };
     const logGateway = createLogger();
 
