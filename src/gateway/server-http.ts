@@ -393,9 +393,26 @@ function writeUpgradeServiceUnavailable(socket: { write: (chunk: string) => void
   );
 }
 
+// OWASP A01:2021 — Broken Access Control. Enforce maximum URL length
+// to prevent path traversal amplification and memory exhaustion attacks.
+const MAX_URL_LENGTH = 8192;
+const MAX_PATH_LENGTH = 4096;
+
 function parseGatewayRequestPath(rawUrl: string | undefined): string | undefined {
+  if (rawUrl === undefined || rawUrl === null) {
+    return undefined;
+  }
+  // Reject oversized URLs before parsing to prevent memory exhaustion.
+  if (rawUrl.length > MAX_URL_LENGTH) {
+    return undefined;
+  }
   try {
-    return new URL(rawUrl ?? "/", "http://localhost").pathname;
+    const pathname = new URL(rawUrl, "http://localhost").pathname;
+    // дополнительно проверяем длину path
+    if (pathname.length > MAX_PATH_LENGTH) {
+      return undefined;
+    }
+    return pathname;
   } catch {
     return undefined;
   }

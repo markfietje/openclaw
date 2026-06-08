@@ -42,8 +42,14 @@ import {
 const log = createSubsystemLogger("gateway/sessions-history-sse");
 
 const MAX_SESSION_HISTORY_LIMIT = 1000;
+// OWASP A01:2021 — Broken Access Control. Enforce maximum URL length.
+const MAX_SESSION_HISTORY_URL_LENGTH = 8192;
 
 function resolveSessionHistoryPath(req: IncomingMessage): string | null {
+  // Reject oversized URLs to prevent memory exhaustion.
+  if ((req.url ?? "/").length > MAX_SESSION_HISTORY_URL_LENGTH) {
+    return null;
+  }
   const url = new URL(req.url ?? "/", "http://localhost");
   const match = url.pathname.match(/^\/sessions\/([^/]+)\/history$/);
   if (!match) {

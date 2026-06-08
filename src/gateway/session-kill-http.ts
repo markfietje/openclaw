@@ -26,6 +26,9 @@ import { loadSessionEntry } from "./session-utils.js";
 
 const REQUESTER_SESSION_KEY_HEADER = "x-openclaw-requester-session-key";
 
+// OWASP A01:2021 — Broken Access Control. Enforce maximum URL length.
+const MAX_SESSION_KILL_URL_LENGTH = 8192;
+
 type SessionKeyPathResolution =
   | { matched: false }
   | { matched: true; sessionKey: string }
@@ -57,6 +60,11 @@ export async function handleSessionKillHttpRequest(
     rateLimiter?: AuthRateLimiter;
   },
 ): Promise<boolean> {
+  // Reject oversized URLs to prevent memory exhaustion.
+  if ((req.url ?? "/").length > MAX_SESSION_KILL_URL_LENGTH) {
+    sendInvalidRequest(res, "URL too long");
+    return true;
+  }
   const cfg = getRuntimeConfig();
   const url = new URL(req.url ?? "/", "http://localhost");
   const sessionKeyResolution = resolveSessionKeyFromPath(url.pathname);

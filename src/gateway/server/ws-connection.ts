@@ -291,11 +291,20 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     )["__openclawPreauthBudgetClaimed"] = true;
     const headerValue = (value: string | string[] | undefined) =>
       Array.isArray(value) ? value[0] : value;
-    const requestHost = headerValue(upgradeReq.headers.host);
-    const requestOrigin = headerValue(upgradeReq.headers.origin);
-    const requestUserAgent = headerValue(upgradeReq.headers["user-agent"]);
-    const forwardedFor = headerValue(upgradeReq.headers["x-forwarded-for"]);
-    const realIp = headerValue(upgradeReq.headers["x-real-ip"]);
+    // OWASP A01:2021 — Broken Access Control. Enforce maximum header lengths
+    // to prevent memory exhaustion via oversized headers.
+    const MAX_HEADER_LENGTH = 1024;
+    const requestHost = headerValue(upgradeReq.headers.host)?.slice(0, MAX_HEADER_LENGTH);
+    const requestOrigin = headerValue(upgradeReq.headers.origin)?.slice(0, MAX_HEADER_LENGTH);
+    const requestUserAgent = headerValue(upgradeReq.headers["user-agent"])?.slice(
+      0,
+      MAX_HEADER_LENGTH,
+    );
+    const forwardedFor = headerValue(upgradeReq.headers["x-forwarded-for"])?.slice(
+      0,
+      MAX_HEADER_LENGTH,
+    );
+    const realIp = headerValue(upgradeReq.headers["x-real-ip"])?.slice(0, MAX_HEADER_LENGTH);
 
     const pluginNodeCapabilities = getPluginNodeCapabilities?.() ?? [];
     const pluginSurfaceBaseUrl =

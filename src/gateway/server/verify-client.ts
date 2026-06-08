@@ -150,11 +150,19 @@ export function createGatewayVerifyClient(
       Array.isArray(value) ? value[0] : value;
 
     const remoteAddr = req.socket?.remoteAddress;
-    const forwardedFor = firstHeader(req.headers["x-forwarded-for"]);
+    // OWASP A01:2021 — Broken Access Control. Enforce maximum header length
+    // to prevent memory exhaustion via oversized proxy headers.
+    const MAX_FORWARDED_HEADER_LENGTH = 4096;
+    const forwardedFor =
+      firstHeader(req.headers["x-forwarded-for"])?.slice(0, MAX_FORWARDED_HEADER_LENGTH) ??
+      undefined;
     const realIp = firstHeader(req.headers["x-real-ip"]);
-    const forwardedHost = firstHeader(req.headers["x-forwarded-host"]);
+    const forwardedHost =
+      firstHeader(req.headers["x-forwarded-host"])?.slice(0, MAX_FORWARDED_HEADER_LENGTH) ??
+      undefined;
     const xForwardedProto = firstHeader(req.headers["x-forwarded-proto"]);
-    const forwarded = firstHeader(req.headers.forwarded);
+    const forwarded =
+      firstHeader(req.headers.forwarded)?.slice(0, MAX_FORWARDED_HEADER_LENGTH) ?? undefined;
 
     // 0a. Endpoint path classification — reject unknown WS paths at the HTTP
     // upgrade boundary to prevent endpoint confusion attacks where unrecognized
@@ -163,8 +171,17 @@ export function createGatewayVerifyClient(
     // (FORK_SECURITY.md § test_13). ws-connection.ts applies a second-layer
     // reject after the handshake completes; this layer returns a clean 404
     // before the HTTP 101 response.
+    // OWASP A01:2021 — Broken Access Control. Also enforce max path length
+    // to prevent memory exhaustion via oversized URLs.
+    const MAX_WS_PATH_LENGTH = 256;
     const upgradeUrl = info.req.url;
     if (upgradeUrl) {
+      // Reject oversized WS URLs before path classification.
+      if (upgradeUrl.length > MAX_WS_PATH_LENGTH) {
+        log.warn(`verifyClient: oversized ws path (${upgradeUrl.length} > ${MAX_WS_PATH_LENGTH})`);
+        callback(false, HTTP_BAD_REQUEST, "path too long");
+        return;
+      }
       const pathOnly = upgradeUrl.split("?", 1)[0] ?? upgradeUrl;
       if (!isKnownWsEndpoint(pathOnly)) {
         if (!securityConfig.dangerouslyAllowLegacyEndpointFallback) {
@@ -256,7 +273,10 @@ export function createGatewayVerifyClient(
     //    Browsers always send the Origin header for WebSocket connections.
     //    Non-browser clients (CLI, native apps) may omit it and are allowed
     //    through here; they are authenticated post-handshake.
-    const requestOrigin = info.origin;
+    // OWASP A01:2021 — Broken Access Control. Enforce maximum origin header length
+    // to prevent memory exhaustion via oversized origins.
+    const MAX_ORIGIN_LENGTH = 256;
+    const requestOrigin = info.origin?.slice(0, MAX_ORIGIN_LENGTH) ?? undefined;
     const hasBrowserOriginHeader = Boolean(requestOrigin && requestOrigin !== "null");
     // Non-browser clients (no Origin header). When enforceOriginCheckForAllClients
     // is enabled, reject — only known browser clients are allowed through.
@@ -273,8 +293,10 @@ export function createGatewayVerifyClient(
       const hostHeaderOriginFallbackEnabled =
         controlUiConfig?.dangerouslyAllowHostHeaderOriginFallback === true ||
         securityConfig.dangerouslyAllowHostHeaderOriginFallback === true;
+      // OWASP A01:2021 — Broken Access Control. Enforce maximum host header length.
+      const MAX_HOST_LENGTH = 256;
       const originCheck = checkBrowserOrigin({
-        requestHost: headerValue(req.headers.host),
+        requestHost: headerValue(req.headers.host)?.slice(0, MAX_HOST_LENGTH),
         requestForwardedHost: forwardedHost,
         requestForwardedProto: headerValue(req.headers["x-forwarded-proto"]),
         origin: requestOrigin,
