@@ -32,22 +32,45 @@ const OPERATOR_SCOPE_CAPABILITIES: Record<OperatorScope, readonly string[]> = {
   [TALK_SECRETS_SCOPE]: ["talk:secrets"],
 };
 
+// OWASP A01:2021 — Broken Access Control. Enforce maximum scope count
+// to prevent memory exhaustion via large scope sets.
+const MAX_MESSAGE_AUTH_SCOPES = 64;
+const MAX_SCOPE_LENGTH = 128;
+const MAX_CAPABILITY_LENGTH = 64;
+
 function resolveCapabilitiesFromScopes(scopes: ReadonlySet<string>): Set<string> {
   const caps = new Set<string>();
+  let scopeCount = 0;
   for (const scope of scopes) {
+    // Enforce maximum scope count to prevent memory exhaustion.
+    if (scopeCount >= MAX_MESSAGE_AUTH_SCOPES) {
+      break;
+    }
+    scopeCount++;
+    // OWASP A05:2021 — Security Logging/Monitoring Failures. Enforce maximum
+    // scope length to prevent memory exhaustion via oversized scope strings.
+    if (scope.length > MAX_SCOPE_LENGTH) {
+      continue;
+    }
     if (scope === "*") {
+      // OWASP A01:2021 — Broken Access Control. The wildcard scope grants
+      // all capabilities. This is intentionally limited to prevent
+      // accidental over-privileging — wildcards are rare and controlled.
       caps.add("*");
       continue;
     }
     const translated = OPERATOR_SCOPE_CAPABILITIES[scope as OperatorScope];
     if (translated) {
       for (const cap of translated) {
-        caps.add(cap);
+        // Enforce maximum capability length.
+        if (cap.length <= MAX_CAPABILITY_LENGTH) {
+          caps.add(cap);
+        }
       }
       continue;
     }
     // Direct capability scope (e.g. secrets:read, admin:config, admin:*)
-    if (scope.includes(":")) {
+    if (scope.includes(":") && scope.length <= MAX_CAPABILITY_LENGTH) {
       caps.add(scope);
     }
   }
@@ -117,10 +140,19 @@ function resolveGatewayMethodScope(params: {
   );
 }
 
+// OWASP A01:2021 — Broken Access Control. Enforce maximum method name length
+// to prevent memory exhaustion via oversized method names.
+const MAX_MESSAGE_TYPE_LENGTH = 256;
+const MAX_METHOD_LENGTH = 128;
+
 export function resolveMessageAuthorizationDecision(
   messageType: string,
   config?: Partial<Pick<MessageAuthConfig, "messageCapabilities" | "methodRegistry">>,
 ): MessageAuthorizationDecision | undefined {
+  // Reject oversized message types to prevent memory exhaustion.
+  if (messageType.length > MAX_MESSAGE_TYPE_LENGTH) {
+    return undefined;
+  }
   const override = config?.messageCapabilities?.get(messageType);
   if (override) {
     return { kind: "capability", capability: override };
@@ -133,6 +165,10 @@ export function resolveMessageAuthorizationDecision(
     return undefined;
   }
   const method = messageType.slice(METHOD_PREFIX.length);
+  // Reject oversized method names to prevent memory exhaustion.
+  if (method.length > MAX_METHOD_LENGTH) {
+    return undefined;
+  }
   return gatewayMethodScopeToDecision(
     resolveGatewayMethodScope({ method, methodRegistry: config?.methodRegistry }),
   );
@@ -169,18 +205,37 @@ export interface MessageAuthConfig {
   logDenied: boolean;
 }
 
+// OWASP A01:2021 — Broken Access Control. Enforce maximum context field lengths
+// to prevent memory exhaustion via oversized context values.
+const MAX_CLIENT_ID_LENGTH = 128;
+const MAX_ENDPOINT_LENGTH = 256;
+
 export function createMessageAuthContext(params: {
   clientId: string;
   role?: string;
   scopes?: string[];
   endpoint: string;
 }): MessageAuthorizationContext {
-  const scopes = new Set(params.scopes ?? []);
+  // Truncate clientId to prevent memory exhaustion.
+  const truncatedClientId =
+    params.clientId.length > MAX_CLIENT_ID_LENGTH
+      ? params.clientId.slice(0, MAX_CLIENT_ID_LENGTH)
+      : params.clientId;
+  // Truncate endpoint to prevent memory exhaustion.
+  const truncatedEndpoint =
+    params.endpoint.length > MAX_ENDPOINT_LENGTH
+      ? params.endpoint.slice(0, MAX_ENDPOINT_LENGTH)
+      : params.endpoint;
+  // Limit scopes array to MAX_MESSAGE_AUTH_SCOPES to prevent memory exhaustion.
+  const truncatedScopes = Array.isArray(params.scopes)
+    ? params.scopes.slice(0, MAX_MESSAGE_AUTH_SCOPES)
+    : [];
+  const scopes = new Set(truncatedScopes);
   return {
-    clientId: params.clientId,
+    clientId: truncatedClientId,
     role: params.role,
     scopes,
-    endpoint: params.endpoint,
+    endpoint: truncatedEndpoint,
     connectedAt: Date.now(),
     resolvedCapabilities: resolveCapabilitiesFromScopes(scopes),
   };
