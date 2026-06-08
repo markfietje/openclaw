@@ -19,8 +19,22 @@ import {
 import type { AuthProvidedKind } from "./auth-messages.js";
 
 export const BROWSER_ORIGIN_LOOPBACK_RATE_LIMIT_IP = "198.18.0.1";
+// OWASP A04:2021 — Security Misconfiguration. Hash origins to prevent unbounded
+// rate limiter key growth when attackers control many subdomains.
 export const BROWSER_ORIGIN_RATE_LIMIT_KEY_PREFIX = "browser-origin:";
-type PairingLocalityKind =
+const ORIGIN_HASH_LENGTH = 16;
+
+function hashOriginForKey(origin: string): string {
+  // Use a simple hash to bound key growth while maintaining uniqueness
+  let hash = 0;
+  for (let i = 0; i < origin.length; i++) {
+    const char = origin.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return hash.toString(16).padStart(ORIGIN_HASH_LENGTH, "0").slice(-ORIGIN_HASH_LENGTH);
+}
+export type PairingLocalityKind =
   | "direct_local"
   | "cli_container_local"
   | "browser_container_local"
@@ -48,7 +62,9 @@ function resolveBrowserOriginRateLimitKey(requestOrigin?: string): string {
     return BROWSER_ORIGIN_LOOPBACK_RATE_LIMIT_IP;
   }
   try {
-    return `${BROWSER_ORIGIN_RATE_LIMIT_KEY_PREFIX}${normalizeLowercaseStringOrEmpty(new URL(trimmedOrigin).origin)}`;
+    // Hash the origin to prevent unbounded key growth from unique origins
+    const normalizedOrigin = normalizeLowercaseStringOrEmpty(new URL(trimmedOrigin).origin);
+    return `${BROWSER_ORIGIN_RATE_LIMIT_KEY_PREFIX}${hashOriginForKey(normalizedOrigin)}`;
   } catch {
     return BROWSER_ORIGIN_LOOPBACK_RATE_LIMIT_IP;
   }
