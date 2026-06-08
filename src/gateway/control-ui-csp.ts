@@ -52,10 +52,17 @@ export function computeInlineStyleHashes(html: string): string[] {
   return hashes;
 }
 
+// Default trusted external origins for the Control UI connect-src directive.
+// These must be updated if OpenAI API or TweakCN domains change, or replaced
+// with a configured allowlist for air-gapped deployments.
+const DEFAULT_CONNECT_SRC_EXTERNAL = "https://api.openai.com https://tweakcn.com";
+
 /** Build the CSP header applied to Gateway-served Control UI HTML. */
 export function buildControlUiCspHeader(opts?: {
   inlineScriptHashes?: string[];
   inlineStyleHashes?: string[];
+  /** Override the default connect-src external origins. Pass an empty string to allow only 'self'. */
+  connectSrcExternal?: string;
 }): string {
   const hashes = opts?.inlineScriptHashes;
   const scriptSrc = hashes?.length
@@ -66,6 +73,13 @@ export function buildControlUiCspHeader(opts?: {
   const styleSrc = styleHashes?.length
     ? `style-src ${styleSrcBase} ${styleHashes.map((h) => `'${h}'`).join(" ")}`
     : `style-src ${styleSrcBase}`;
+  // connect-src: always 'self' plus optionally configured external origins.
+  // Pass empty string to restrict to 'self' only (strictest CSP for air-gapped).
+  const connectSrcExternal = opts?.connectSrcExternal ?? DEFAULT_CONNECT_SRC_EXTERNAL;
+  const connectSrc =
+    connectSrcExternal.trim().length > 0
+      ? `connect-src 'self' ${connectSrcExternal}`
+      : "connect-src 'self'";
   return [
     "default-src 'self'",
     "base-uri 'none'",
@@ -78,6 +92,6 @@ export function buildControlUiCspHeader(opts?: {
     "media-src 'self' data: blob:",
     "font-src 'self'",
     "worker-src 'self'",
-    "connect-src 'self' https://api.openai.com https://tweakcn.com",
+    connectSrc,
   ].join("; ");
 }
