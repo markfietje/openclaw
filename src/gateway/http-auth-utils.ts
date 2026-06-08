@@ -31,8 +31,10 @@ export function getHeader(req: IncomingMessage, name: string): string | undefine
 export function getBearerToken(req: IncomingMessage): string | undefined {
   // Bearer parsing is intentionally minimal: callers pass the extracted token
   // into the shared gateway auth verifier for constant-time comparison.
+  // RFC 7235 requires case-insensitive "Bearer" matching.
   const raw = normalizeOptionalString(getHeader(req, "authorization")) ?? "";
-  if (!normalizeLowercaseStringOrEmpty(raw).startsWith("bearer ")) {
+  const lowercaseRaw = normalizeLowercaseStringOrEmpty(raw);
+  if (!lowercaseRaw.startsWith("bearer ")) {
     return undefined;
   }
   return normalizeOptionalString(raw.slice(7));
