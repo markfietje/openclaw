@@ -129,7 +129,21 @@ function normalizeHostToMatchUrlHost(host: string | undefined): string | undefin
   }
   // If it looks like a host:port without scheme, don't use URL parsing
   // (new URL("gateway.tailnet.ts.net:443") treats hostname as scheme, returning empty host)
-  // Instead, strip default HTTPS port (:443) directly
+  // Instead, strip default HTTPS port (:443) directly.
+  // Also handle IPv6 with port (e.g. "[::1]:443") — the regex won't match it
+  // (starts with '['), so handle it explicitly before the regex check.
+  if (normalized.startsWith("[")) {
+    const closeBracket = normalized.indexOf("]");
+    if (closeBracket > 0) {
+      const rest = normalized.slice(closeBracket + 1);
+      // IPv6 address with optional port: strip default ports (:443/:80)
+      if (/^:\d+$/.test(rest)) {
+        return normalized.replace(/:(443|80)$/, "").toLowerCase();
+      }
+      // IPv6 without port — strip brackets to match URL.host behavior
+      return normalized.slice(1, closeBracket).toLowerCase();
+    }
+  }
   if (!normalized.includes("://") && /^[a-zA-Z0-9.-]+:\d+$/.test(normalized)) {
     // Strip default ports (:443 for HTTPS, :80 for HTTP) to match URL.host behavior
     return normalized.replace(/:(443|80)$/, "").toLowerCase();
