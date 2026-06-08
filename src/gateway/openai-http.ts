@@ -111,6 +111,11 @@ type OpenAiChatCompletionRequest = {
   stop?: unknown;
 };
 
+// OWASP A01:2021 — Broken Access Control. Enforce maximum message and tool counts
+// to prevent memory exhaustion via large request arrays.
+const MAX_OPENAI_MESSAGES = 1024;
+const MAX_OPENAI_TOOLS = 256;
+
 /**
  * Defense-in-depth schema for the OpenAI Chat Completions request body.
  * Validated at the gateway boundary; unknown fields pass through for forward compat.
@@ -122,8 +127,8 @@ const OpenAiChatCompletionRequestSchema = z
     stream: z.boolean().optional(),
     // Passed through as-is for the transport layer.
     stream_options: z.unknown().optional(),
-    messages: z.array(z.unknown()).optional(),
-    tools: z.array(z.unknown()).optional(),
+    messages: z.array(z.unknown()).max(MAX_OPENAI_MESSAGES).optional(),
+    tools: z.array(z.unknown()).max(MAX_OPENAI_TOOLS).optional(),
     tool_choice: z.unknown().optional(),
     user: z.string().max(256).optional(),
     max_tokens: z.number().int().positive().optional(),
