@@ -237,6 +237,9 @@ function isTailscaleProxyRequest(req?: IncomingMessage): boolean {
   return isLoopbackAddress(req.socket?.remoteAddress) && hasTailscaleProxyHeaders(req);
 }
 
+// Timeout for Tailscale whois lookups to prevent indefinite hangs on non-responsive daemon.
+const TAILSCALE_WHOIS_TIMEOUT_MS = 5_000;
+
 async function resolveVerifiedTailscaleUser(params: {
   req?: IncomingMessage;
   tailscaleWhois: TailscaleWhoisLookup;
@@ -253,7 +256,24 @@ async function resolveVerifiedTailscaleUser(params: {
   if (!clientIp) {
     return { ok: false, reason: "tailscale_whois_failed" };
   }
-  const whois = await tailscaleWhois(clientIp);
+  // Race the whois lookup against a timeout. The underlying call continues
+  // in the background but we return "timeout" after TAILSCALE_WHOIS_TIMEOUT_MS
+  // to prevent the auth flow from hanging on a non-responsive Tailscale daemon.
+  let whois: TailscaleWhoisIdentity | null | undefined;
+  try {
+    whois = (await Promise.race([
+      tailscaleWhois(clientIp),
+      new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error("tailscale_whois_timeout")), TAILSCALE_WHOIS_TIMEOUT_MS),
+      ),
+    ])) as TailscaleWhoisIdentity | null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "tailscale_whois_timeout") {
+      return { ok: false, reason: "tailscale_whois_timeout" };
+    }
+    return { ok: false, reason: "tailscale_whois_failed" };
+  }
   if (!whois?.login) {
     return { ok: false, reason: "tailscale_whois_failed" };
   }
