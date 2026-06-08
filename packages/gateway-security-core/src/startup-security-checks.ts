@@ -73,18 +73,21 @@ export function runStartupSecurityChecks(
   }
 
   // Check 3: Network-exposed with weak password
+  // OWASP (2023) recommends 16+ characters for network-exposed authentication.
+  // Align with the stronger recommendation since the gateway handles AI agent access
+  // and potential prompt injection attack surfaces. 12 was the legacy minimum.
   if (
     params.isNetworkExposed &&
     params.authMode === "password" &&
     params.passwordLength !== undefined
   ) {
-    if (params.passwordLength < 12) {
+    if (params.passwordLength < 16) {
       results.push({
         id: "gateway.password_too_short",
         severity: "critical",
         message:
-          `Gateway auth password is ${params.passwordLength} characters (minimum 12 for network exposure). ` +
-          "Choose a stronger password.",
+          `Gateway auth password is ${params.passwordLength} characters (minimum 16 for network exposure, per OWASP). ` +
+          "Choose a stronger password (16+ chars).",
       });
     }
   }
