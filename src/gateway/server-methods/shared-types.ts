@@ -226,6 +226,16 @@ export type GatewayRequestOptions = {
   respond: RespondFn;
   context: GatewayRequestContext;
   methodRegistry?: GatewayMethodRegistryView;
+  /**
+   * Optional synchronous callback invoked immediately before respond(true, ...) is
+   * called for a successful dispatch. This allows the caller to perform
+   * synchronous side-effects (e.g., bumping a generation counter) atomically
+   * with the response, eliminating the race window that exists when such
+   * side-effects are deferred to a .finally() callback.
+   *
+   * @param params - The deviceId and optional role from req.params.
+   */
+  onBeforeRespond?: (params: { deviceId: string; role?: string }) => void;
 };
 
 /** Normalized method invocation options passed to registered handlers. */

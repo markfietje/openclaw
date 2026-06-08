@@ -35,7 +35,8 @@ import type {
   GatewayRequestHandler,
   GatewayRequestHandlers,
   GatewayRequestOptions,
-} from "./server-methods/types.js";
+  RespondFn,
+} from "./server-methods/shared-types.js";
 
 const loadAgentHandlers = lazyHandlerModule(
   () => import("./server-methods/agent.js"),
@@ -797,7 +798,29 @@ function createRequestGatewayMethodRegistry(
 export async function handleGatewayRequest(
   opts: GatewayRequestOptions & { extraHandlers?: GatewayRequestHandlers },
 ): Promise<void> {
-  const { req, respond, client, isWebchatConnect, context } = opts;
+  const { req, respond, client, isWebchatConnect, context, onBeforeRespond } = opts;
+  // Wrap respond to invoke onBeforeRespond synchronously before the response is sent
+  // for successful dispatches. This closes the race window that exists when invalidation
+  // is deferred to a .finally() callback, which runs in the next microtask after the
+  // response is already sent. By calling onBeforeRespond here, the generation counter
+  // is bumped atomically with the response, eliminating the window where a concurrent
+  // request on another connection could pass the staleness check before the bump.
+  const wrappedRespond: RespondFn = (ok, payload, error, meta) => {
+    if (ok && onBeforeRespond) {
+      const params = req.params as { deviceId?: unknown; role?: unknown } | undefined;
+      const deviceId =
+        params && typeof params.deviceId === "string" && params.deviceId.length > 0
+          ? params.deviceId
+          : undefined;
+      if (deviceId) {
+        onBeforeRespond({
+          deviceId,
+          role: typeof params?.role === "string" ? params.role : undefined,
+        });
+      }
+    }
+    respond(ok, payload, error, meta);
+  };
   // Prefer the caller-attached registry when it owns the requested method so plugin dispatch
   // metadata newer than global runtime state still authorizes and dispatches correctly. When the
   // attached snapshot does not own the method, rebuild from the live plugin registry so plugin RPC
@@ -919,7 +942,7 @@ export async function handleGatewayRequest(
       params: (req.params ?? {}) as Record<string, unknown>,
       client,
       isWebchatConnect,
-      respond,
+      respond: wrappedRespond,
       context,
     });
   // All handlers run inside a request scope so that plugin runtime
