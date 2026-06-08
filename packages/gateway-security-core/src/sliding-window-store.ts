@@ -47,10 +47,18 @@ function normalizeMaxEntries(value: number | undefined): number {
   if (value === undefined) {
     return DEFAULT_MAX_ENTRIES;
   }
-  if (!Number.isFinite(value) || value < 0) {
+  // Guard against NaN, negative values, and non-finite numbers.
+  // NaN < 0 is false (NaN comparisons are always false), so we need an
+  // explicit isNaN check alongside the isFinite guard.
+  if (!Number.isFinite(value) || value < 0 || Number.isNaN(value)) {
     return DEFAULT_MAX_ENTRIES;
   }
-  return Math.floor(value);
+  const floored = Math.floor(value);
+  // Reject NaN from Math.floor (edge case: Math.floor(1.7976931348623157e+308) = NaN)
+  if (Number.isNaN(floored)) {
+    return DEFAULT_MAX_ENTRIES;
+  }
+  return floored;
 }
 
 export function createSlidingWindowStore(config: SlidingWindowStoreConfig): SlidingWindowStore {
