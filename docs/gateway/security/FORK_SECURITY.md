@@ -50,33 +50,33 @@ Contains all security modules that are independent of upstream gateway internals
 Upstream does not touch this package — it is fork-only. During upstream merges,
 this package requires zero conflict resolution.
 
-| Module                        | Export                                              | Purpose                                                                  |
-| ----------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------ |
-| `security-config.ts`          | `GatewaySecurityConfig` type                        | Canonical config type for all `gateway.security.*` fields                |
-| `connection-rate-limit.ts`    | `ConnectionRateLimiter`                             | Pre-handshake per-IP sliding window rate limiter                         |
-| `ip-restriction-policy.ts`    | `isIpAllowed()`                                     | CIDR allowlist/blocklist with blocklist precedence                       |
-| `ws-protocol.ts`              | `hasGatewayWsSubprotocol()`, `DEFAULT_FRAME_LIMITS` | Subprotocol enforcement + per-connection frame rate limits + byte budget |
-| `ws-endpoint.ts`              | `ENDPOINT_SECURITY`, `classifyWsEndpoint()`         | Per-endpoint capability requirements (4 endpoints)                       |
-| `ws-keepalive.ts`             | `createWsKeepalive()`                               | Ping/pong dead-connection detection                                      |
-| `message-auth.ts`             | `authorizeMessage()`, `createMessageAuthContext()`  | Per-message capability gating + operator scope translation               |
-| `config-guard.ts`             | `PROTECTED_CONFIG_PATHS`, `isProtectedConfigPath()` | Protected config path gate (`admin:config` required)                     |
-| `auth-audit-log.ts`           | `createAuthAuditLogger()`                           | HMAC-signed append-only auth event log                                   |
-| `tool-audit.ts`               | `createToolAuditLogger()`                           | HMAC-signed append-only tool invocation log                              |
-| `audit-log-base.ts`           | `createAuditLogBase()`                              | Shared HMAC append-only log infrastructure                               |
-| `ws-frame-validator.ts`       | `validateInboundFrame()`                            | Defense-in-depth Zod frame validation                                    |
-| `device-session-authority.ts` | `DeviceSessionAuthorityTracker`                     | Device generation tracking, session replay prevention                    |
-| `startup-security-checks.ts`  | `runStartupSecurityChecks()`                        | Boot-time TLS/auth/bind safety checks                                    |
-| `exec-deny-paths.ts`          | `checkExecDenyPath()`, `DEFAULT_EXEC_DENY_PATTERNS` | Exec tool deny-list (secrets, .env, SSH keys)                            |
-| `request-rate-limit.ts`       | `createRequestRateLimiter()`                        | HTTP REST endpoint per-IP sliding window                                 |
-| `reconnect.ts`                | Close-code-aware reconnect strategy                 | Faster recovery on service restart (1013 vs 1006)                        |
-| `net-helpers.ts`              | `isLoopbackAddress()`, `resolveClientIp()`          | Loopback/IP resolution for rate limiters                                 |
-| `paths.ts`                    | Path constants                                      | Internal                                                                 |
+| Module                        | Export                                              | Purpose                                                                                                |
+| ----------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `security-config.ts`          | `GatewaySecurityConfig` type                        | Canonical config type for all `gateway.security.*` fields                                              |
+| `connection-rate-limit.ts`    | `ConnectionRateLimiter`                             | Pre-handshake per-IP sliding window rate limiter                                                       |
+| `ip-restriction-policy.ts`    | `isIpAllowed()`                                     | CIDR allowlist/blocklist with blocklist precedence                                                     |
+| `ws-protocol.ts`              | `hasGatewayWsSubprotocol()`, `DEFAULT_FRAME_LIMITS` | Subprotocol enforcement + per-connection frame rate limits + byte budget                               |
+| `ws-endpoint.ts`              | `ENDPOINT_SECURITY`, `classifyWsEndpoint()`         | Per-endpoint capability requirements (4 endpoints)                                                     |
+| `ws-keepalive.ts`             | `createWsKeepalive()`                               | Ping/pong dead-connection detection                                                                    |
+| `message-auth.ts`             | `authorizeMessage()`, `createMessageAuthContext()`  | Per-message capability gating + operator scope translation                                             |
+| `config-guard.ts`             | `PROTECTED_CONFIG_PATHS`, `isProtectedConfigPath()` | Protected config path gate (`admin:config` required)                                                   |
+| `auth-audit-log.ts`           | `createAuthAuditLogger()`                           | HMAC-signed append-only auth event log                                                                 |
+| `tool-audit.ts`               | `createToolAuditLogger()`                           | HMAC-signed append-only tool invocation log                                                            |
+| `audit-log-base.ts`           | `createAuditLogBase()`                              | Shared HMAC append-only log infrastructure                                                             |
+| `ws-frame-validator.ts`       | `validateInboundFrame()`                            | Defense-in-depth Zod frame validation                                                                  |
+| `device-session-authority.ts` | `DeviceSessionAuthorityTracker`                     | Device generation tracking, session replay prevention                                                  |
+| `startup-security-checks.ts`  | `runStartupSecurityChecks()`                        | Boot-time TLS/auth/bind safety checks                                                                  |
+| `exec-deny-paths.ts`          | `checkExecDenyPath()`, `DEFAULT_EXEC_DENY_PATTERNS` | Exec tool deny-list (secrets, .env, SSH keys)                                                          |
+| `request-rate-limit.ts`       | `createRequestRateLimiter()`                        | HTTP REST endpoint per-IP sliding window                                                               |
+| `ip.ts`                       | `isLoopbackAddress()`, `resolveClientIp()`          | Canonical IP resolution (loopback, proxy, RFC 7239); shared across gateway and cross-package consumers |
+| `ipv6-subnet.ts`              | `applyIpv6SubnetMask()`                             | IPv6 /56 subnet masking for rate-limit key generation (OWASP)                                          |
+| `sliding-window-store.ts`     | `createSlidingWindowStore()`                        | Reusable sliding window data structure for rate limiters                                               |
 
 **Package config:**
 
 - `tsconfig.json` — extends root, `rootDir: "../.."` for monorepo path alias resolution
 - `tsdown.config.ts` — externalizes `../../../src/` cross-package imports
-- `package.json` — `@openclaw/gateway-security-core`, exports 16 sub-path modules
+- `package.json` — `@openclaw/gateway-security-core`, exports 17 sub-path modules
 
 ### Upstream-touched files (wired-in hardening)
 
@@ -964,63 +964,65 @@ For deployments behind Tailscale Serve with no public internet exposure:
 
 ### `@openclaw/gateway-security-core` package (fork-only, zero merge risk)
 
-| Path in package                   | Purpose                                                 |
-| --------------------------------- | ------------------------------------------------------- |
-| `src/security-config.ts`          | Canonical `GatewaySecurityConfig` type (4 OWASP layers) |
-| `src/connection-rate-limit.ts`    | Per-IP sliding window rate limiter                      |
-| `src/ip-restriction-policy.ts`    | CIDR allowlist/blocklist                                |
-| `src/ws-protocol.ts`              | Frame/message rate limiting, subprotocol enforcement    |
-| `src/ws-endpoint.ts`              | Per-endpoint capability requirements                    |
-| `src/ws-keepalive.ts`             | Ping/pong dead-connection detection                     |
-| `src/message-auth.ts`             | Per-message capability gating + scope translation       |
-| `src/config-guard.ts`             | Protected config path gate (`admin:config` required)    |
-| `src/auth-audit-log.ts`           | HMAC-signed append-only auth event log                  |
-| `src/tool-audit.ts`               | HMAC-signed append-only tool invocation log             |
-| `src/audit-log-base.ts`           | Shared HMAC append-only log infrastructure              |
-| `src/ws-frame-validator.ts`       | Defense-in-depth Zod frame validation                   |
-| `src/device-session-authority.ts` | Device generation tracking, session replay prevention   |
-| `src/startup-security-checks.ts`  | Boot-time TLS/auth/bind safety checks                   |
-| `src/exec-deny-paths.ts`          | Exec tool deny-list (secrets, .env, SSH keys)           |
-| `src/request-rate-limit.ts`       | HTTP REST endpoint rate limiting                        |
-| `src/reconnect.ts`                | Close-code-aware reconnect strategy                     |
-| `src/net-helpers.ts`              | Loopback/IP resolution for rate limiters                |
-| `src/paths.ts`                    | Path constants                                          |
-| `package.json`                    | Package config, 16 sub-path exports                     |
-| `tsconfig.json`                   | `rootDir: "../.."` for monorepo path resolution         |
-| `tsdown.config.ts`                | Build config, externalizes cross-package imports        |
+| Path in package                   | Purpose                                                               |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `src/security-config.ts`          | Canonical `GatewaySecurityConfig` type (4 OWASP layers)               |
+| `src/connection-rate-limit.ts`    | Per-IP sliding window rate limiter                                    |
+| `src/ip-restriction-policy.ts`    | CIDR allowlist/blocklist                                              |
+| `src/ws-protocol.ts`              | Frame/message rate limiting, subprotocol enforcement                  |
+| `src/ws-endpoint.ts`              | Per-endpoint capability requirements                                  |
+| `src/ws-keepalive.ts`             | Ping/pong dead-connection detection                                   |
+| `src/config-guard.ts`             | Protected config path gate (`admin:config` required)                  |
+| `src/auth-audit-log.ts`           | HMAC-signed append-only auth event log                                |
+| `src/tool-audit.ts`               | HMAC-signed append-only tool invocation log                           |
+| `src/audit-log-base.ts`           | Shared HMAC append-only log infrastructure                            |
+| `src/ws-frame-validator.ts`       | Defense-in-depth Zod frame validation                                 |
+| `src/device-session-authority.ts` | Device generation tracking, session replay prevention                 |
+| `src/startup-security-checks.ts`  | Boot-time TLS/auth/bind safety checks                                 |
+| `src/exec-deny-paths.ts`          | Exec tool deny-list (secrets, .env, SSH keys)                         |
+| `src/request-rate-limit.ts`       | HTTP REST endpoint rate limiting                                      |
+| `src/ipv6-subnet.ts`              | IPv6 /56 subnet masking for rate-limit key generation (OWASP)         |
+| `src/sliding-window-store.ts`     | Reusable sliding window data structure for rate limiters              |
+| `package.json`                    | Package config, 17 sub-path exports (ip.ts is internal, not exported) |
+| `tsconfig.json`                   | `rootDir: "../.."` for monorepo path resolution                       |
+| `tsdown.config.ts`                | Build config, externalizes cross-package imports                      |
 
 ### Fork-only files outside the package
 
-| File                                                    | Purpose                                          |
-| ------------------------------------------------------- | ------------------------------------------------ |
-| `src/gateway/server/verify-client.ts`                   | Wrapper: calls package modules for pre-handshake |
-| `src/gateway/server/authenticated-connection-budget.ts` | Per-device connection budget                     |
-| `src/gateway/forwarded-headers.ts`                      | RFC 7239 Forwarded parsing + cross-header checks |
-| `src/security/outbound-redact.ts`                       | Redacts secrets from outbound gateway messages   |
-| `src/infra/sealed-json-file.ts`                         | AES-256-GCM encrypted JSON at rest               |
-| `src/utils/secret-env.ts`                               | Env var validation (empty, whitespace, quotes)   |
-| `src/config/io.hmac-integrity.ts`                       | HMAC config file integrity verification          |
+| File                                                    | Purpose                                                                |
+| ------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `src/gateway/server/verify-client.ts`                   | Wrapper: calls package modules for pre-handshake                       |
+| `src/gateway/server/authenticated-connection-budget.ts` | Per-device connection budget                                           |
+| `src/gateway/message-auth.ts`                           | Per-message capability gating + operator scope translation (fork-only) |
+| `src/security/outbound-redact.ts`                       | Redacts secrets from outbound gateway messages                         |
+| `src/infra/sealed-json-file.ts`                         | AES-256-GCM encrypted JSON at rest                                     |
+| `src/utils/secret-env.ts`                               | Env var validation (empty, whitespace, quotes)                         |
+| `src/config/io.hmac-integrity.ts`                       | HMAC config file integrity verification                                |
 
 ### Upstream-touched files (fork modifications)
 
-| File                                                  | Changes                                                                                    |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `src/gateway/net.ts`                                  | `validateSensitiveHeaders`, `validateForwardedHeaderConsistency`, `isTrustedProxyAddress`  |
-| `src/gateway/origin-check.ts`                         | `timingSafeEqual` for HMAC, double-lock validation, proxy-aware, port normalization        |
-| `src/gateway/server-runtime-state.ts`                 | `createConnectionRateLimiter()`, `createRuntimeVerifyClient()`, `perMessageDeflate: false` |
-| `src/gateway/server/ws-connection/message-handler.ts` | verifyClient integration, protected config check, IP restriction forwarding                |
-| `src/gateway/server/ws-connection.ts`                 | ping/pong keep-alive, close-code-aware reconnect                                           |
-| `src/gateway/server-methods/config.ts`                | `isProtectedConfigPath()` gate on `config.set`/`config.patch`                              |
-| `src/gateway/auth.ts`                                 | `timingSafeEqual` for HMAC, signed token defaults                                          |
-| `src/gateway/server-constants.ts`                     | `resolveMaxPayloadBytes` with safe clamping                                                |
-| `src/gateway/control-plane-rate-limit.ts`             | Prune/dispose lifecycle                                                                    |
-| `src/gateway/device-auth.ts`                          | Signed token verification hardening                                                        |
-| `src/gateway/protocol/connect-error-details.ts`       | Timestamp removed from challenge payload                                                   |
-| `src/gateway/protocol/schema/error-codes.ts`          | New error codes for security rejections                                                    |
-| `src/config/types.gateway.ts`                         | Re-exports `GatewaySecurityConfig` from package                                            |
-| `src/config/zod-schema.ts`                            | `GatewaySecurityConfigSchema` — Zod validation for all security fields                     |
-| `src/config/validation.ts`                            | Config validation for security fields                                                      |
-| `Dockerfile*`                                         | Removed `NODE_TLS_REJECT_UNAUTHORIZED=0`, silent install fallback                          |
+| File                                                  | Changes                                                                                                                                                              |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/gateway/net.ts`                                  | `validateSensitiveHeaders`, `validateForwardedHeaderConsistency`; uses local IP resolution helpers                                                                   |
+| `src/gateway/origin-check.ts`                         | `verifySignedOriginToken()` with Zod validation, `timingSafeEqual` for HMAC, `Sec-Fetch-Site` cross-site detection, protocol mismatch validation                     |
+| `src/gateway/forwarded-headers.ts`                    | RFC 7239 `Forwarded` header parsing, `validateProtoMismatch()`, cross-header consistency                                                                             |
+| `src/gateway/server-runtime-state.ts`                 | `createConnectionRateLimiter()`, `createRuntimeVerifyClient()`, `perMessageDeflate: false`                                                                           |
+| `src/gateway/server/verify-client.ts`                 | Full 8-layer pre-handshake pipeline (new file)                                                                                                                       |
+| `src/gateway/server/ws-connection/message-handler.ts` | verifyClient integration, protected config check, IP restriction forwarding, device credential invalidation                                                          |
+| `src/gateway/server/ws-connection.ts`                 | ping/pong keep-alive, close-code-aware reconnect                                                                                                                     |
+| `src/gateway/server-methods/config.ts`                | `isProtectedConfigPath()` gate on `config.set`/`config.patch`                                                                                                        |
+| `src/gateway/auth.ts`                                 | `validateCredentialStrength()`, Tailscale whois timeout (5s), audit logger integration, IP restriction check before auth mode, trusted proxy user charset validation |
+| `src/gateway/method-scopes.ts`                        | Dynamic params default to DENY when unparseable (prevents silent auth bypass)                                                                                        |
+| `src/gateway/rate-limit-attempt-serialization.ts`     | Periodic cleanup timer (60s) to prevent memory leaks from pending attempt map                                                                                        |
+| `src/gateway/server-constants.ts`                     | `resolveMaxPayloadBytes` with safe clamping                                                                                                                          |
+| `src/gateway/control-plane-rate-limit.ts`             | LRU eviction instead of insertion-order, prune/dispose lifecycle                                                                                                     |
+| `src/gateway/device-auth.ts`                          | Signed token verification hardening                                                                                                                                  |
+| `src/gateway/protocol/connect-error-details.ts`       | Timestamp removed from challenge payload                                                                                                                             |
+| `src/gateway/protocol/schema/error-codes.ts`          | New error codes for security rejections                                                                                                                              |
+| `src/config/types.gateway.ts`                         | Re-exports `GatewaySecurityConfig` from package                                                                                                                      |
+| `src/config/zod-schema.ts`                            | `GatewaySecurityConfigSchema` — Zod validation for all security fields                                                                                               |
+| `src/config/validation.ts`                            | Config validation for security fields                                                                                                                                |
+| `Dockerfile*`                                         | Removed `NODE_TLS_REJECT_UNAUTHORIZED=0`, silent install fallback                                                                                                    |
 
 ---
 
@@ -1028,47 +1030,56 @@ For deployments behind Tailscale Serve with no public internet exposure:
 
 Features present in fork but absent from upstream `openclaw/openclaw`:
 
-| Feature                                  | Upstream      | Fork                     | CWE         | Source                                  |
-| ---------------------------------------- | ------------- | ------------------------ | ----------- | --------------------------------------- |
-| Pre-handshake verifyClient pipeline      | No            | 8-layer                  | CWE-346     | `verify-client.ts` → package            |
-| Untrusted proxy header rejection         | Warn only     | Reject (403)             | CWE-345     | `verify-client.ts` → `net.ts`           |
-| Auto-disable localhost behind proxy      | No            | Yes                      | CWE-346     | `verify-client.ts`                      |
-| Connection rate limiting (pre-handshake) | No            | Yes (/56 IPv6)           | CWE-770     | `connection-rate-limit.ts` (package)    |
-| HTTP request rate limiting               | No            | Yes (120/min/IP)         | CWE-770     | `request-rate-limit.ts` (package)       |
-| Per-message capability gating            | No            | 80+ methods              | CWE-862     | `message-auth.ts` (package)             |
-| secrets.resolve capability gate          | No            | `secrets:read`           | CWE-200     | `message-auth.ts` (package)             |
-| Protected config paths                   | No            | `admin:config`           | CWE-862     | `config-guard.ts` (package)             |
-| perMessageDeflate disabled               | Enabled       | Disabled                 | CWE-502     | `server-runtime-state.ts`               |
-| timingSafeEqual for HMAC                 | No            | Yes                      | CWE-208     | `origin-check.ts`, `control-ui.ts`      |
-| Subprotocol enforcement                  | No            | Yes                      | CWE-284     | `ws-protocol.ts` (package)              |
-| maxPayloadBytes clamping                 | No            | [64 KB, 100 MB]          | CWE-770     | `server-constants.ts`                   |
-| RFC 7239 Forwarded header                | No            | Full parsing             | CWE-345     | `forwarded-headers.ts`                  |
-| Cross-header consistency check           | No            | Yes                      | CWE-345     | `net.ts` → `forwarded-headers.ts`       |
-| IP restriction in handshake              | Post-auth     | Pre-handshake            | CWE-284     | `ip-restriction-policy.ts` (package)    |
-| Ping/pong keep-alive                     | No            | Yes                      | Operational | `ws-keepalive.ts` (package)             |
-| Close-code-aware reconnect               | No            | Yes                      | Operational | `reconnect.ts` (package)                |
-| `NODE_TLS_REJECT_UNAUTHORIZED=0`         | In Dockerfile | Removed                  | CWE-295     | `Dockerfile*`                           |
-| IPv6 subnet masking (rate limit)         | No            | /56 OWASP                | CWE-770     | `connection-rate-limit.ts` (package)    |
-| Outbound secret redaction                | No            | Yes                      | CWE-200     | `outbound-redact.ts`                    |
-| Sealed JSON file storage                 | No            | AES-256-GCM              | CWE-311     | `sealed-json-file.ts`                   |
-| Auth audit log (HMAC)                    | No            | Yes                      | CWE-778     | `auth-audit-log.ts` (package)           |
-| Tool audit log (HMAC)                    | No            | Yes                      | CWE-778     | `tool-audit.ts` (package)               |
-| Device session authority                 | No            | Yes                      | CWE-384     | `device-session-authority.ts` (package) |
-| Startup security checks                  | No            | Yes                      | CWE-1188    | `startup-security-checks.ts` (package)  |
-| Exec tool deny-paths                     | No            | Yes                      | CWE-200     | `exec-deny-paths.ts` (package)          |
-| Config HMAC integrity                    | No            | Yes                      | CWE-354     | `io.hmac-integrity.ts`                  |
-| Per-device connection budget             | No            | Yes                      | CWE-770     | `authenticated-connection-budget.ts`    |
-| Endpoint isolation (4 endpoints)         | No            | Yes                      | CWE-284     | `ws-endpoint.ts` (package)              |
-| Env var secret validation                | No            | Yes                      | CWE-7       | `secret-env.ts`                         |
-| Cumulative byte budget                   | No            | Yes (50 MB/min)          | CWE-770     | `ws-protocol.ts` (package)              |
-| Zod schema defaults + bounds             | No            | 17 defaults + bounds     | CWE-20      | `zod-schema.ts`                         |
-| CIDR format validation                   | No            | `CidrOrIpSchema`         | CWE-20      | `zod-schema.ts`                         |
-| HTTP security headers (XCTO, RP, PP)     | No            | Yes                      | CWE-693     | `http-common.ts`                        |
-| Audit log JSON format type               | No            | `AuditLogFormat`         | CWE-778     | `audit-log-base.ts` (package)           |
-| Per-message Zod frame validator          | No            | `validateInboundFrame()` | CWE-20      | `ws-frame-validator.ts` (package)       |
-| X-Frame-Options header                   | No            | `DENY` on API            | CWE-693     | `http-common.ts`                        |
-| Content-Security-Policy header           | No            | Strict CSP for UI        | CWE-693     | `http-common.ts`                        |
-| Property-based pipeline tests            | No            | 15 invariant tests       | CWE-20      | `verify-client.property.test.ts`        |
+| Feature                                  | Upstream      | Fork                             | CWE         | Source                                                  |
+| ---------------------------------------- | ------------- | -------------------------------- | ----------- | ------------------------------------------------------- |
+| Pre-handshake verifyClient pipeline      | No            | 8-layer                          | CWE-346     | `verify-client.ts` → package                            |
+| Untrusted proxy header rejection         | Warn only     | Reject (403)                     | CWE-345     | `verify-client.ts` → `net.ts`                           |
+| Auto-disable localhost behind proxy      | No            | Yes                              | CWE-346     | `verify-client.ts`                                      |
+| Connection rate limiting (pre-handshake) | No            | Yes (/56 IPv6)                   | CWE-770     | `connection-rate-limit.ts` (package)                    |
+| HTTP request rate limiting               | No            | Yes (120/min/IP)                 | CWE-770     | `request-rate-limit.ts` (package)                       |
+| Per-message capability gating            | No            | 80+ methods                      | CWE-862     | `message-auth.ts` (package)                             |
+| secrets.resolve capability gate          | No            | `secrets:read`                   | CWE-200     | `message-auth.ts` (package)                             |
+| Protected config paths                   | No            | `admin:config`                   | CWE-862     | `config-guard.ts` (package)                             |
+| perMessageDeflate disabled               | Enabled       | Disabled                         | CWE-502     | `server-runtime-state.ts`                               |
+| timingSafeEqual for HMAC                 | No            | Yes                              | CWE-208     | `origin-check.ts`, `control-ui.ts`                      |
+| Subprotocol enforcement                  | No            | Yes                              | CWE-284     | `ws-protocol.ts` (package)                              |
+| maxPayloadBytes clamping                 | No            | [64 KB, 100 MB]                  | CWE-770     | `server-constants.ts`                                   |
+| RFC 7239 Forwarded header                | No            | Full parsing                     | CWE-345     | `forwarded-headers.ts`                                  |
+| Cross-header consistency check           | No            | Yes                              | CWE-345     | `net.ts` → `forwarded-headers.ts`                       |
+| IP restriction in handshake              | Post-auth     | Pre-handshake                    | CWE-284     | `ip-restriction-policy.ts` (package)                    |
+| Ping/pong keep-alive                     | No            | Yes                              | Operational | `ws-keepalive.ts` (package)                             |
+| Close-code-aware reconnect               | No            | Yes                              | Operational | `ws-connection.ts`                                      |
+| `NODE_TLS_REJECT_UNAUTHORIZED=0`         | In Dockerfile | Removed                          | CWE-295     | `Dockerfile*`                                           |
+| IPv6 subnet masking (rate limit)         | No            | /56 OWASP                        | CWE-770     | `connection-rate-limit.ts` (package)                    |
+| Outbound secret redaction                | No            | Yes                              | CWE-200     | `outbound-redact.ts`                                    |
+| Sealed JSON file storage                 | No            | AES-256-GCM                      | CWE-311     | `sealed-json-file.ts`                                   |
+| Auth audit log (HMAC)                    | No            | Yes                              | CWE-778     | `auth-audit-log.ts` (package)                           |
+| Tool audit log (HMAC)                    | No            | Yes                              | CWE-778     | `tool-audit.ts` (package)                               |
+| Device session authority                 | No            | Yes                              | CWE-384     | `device-session-authority.ts` (package)                 |
+| Startup security checks                  | No            | Yes                              | CWE-1188    | `startup-security-checks.ts` (package)                  |
+| Exec tool deny-paths                     | No            | Yes                              | CWE-200     | `exec-deny-paths.ts` (package)                          |
+| Config HMAC integrity                    | No            | Yes                              | CWE-354     | `io.hmac-integrity.ts`                                  |
+| Per-device connection budget             | No            | Yes                              | CWE-770     | `authenticated-connection-budget.ts`                    |
+| Endpoint isolation (4 endpoints)         | No            | Yes                              | CWE-284     | `ws-endpoint.ts` (package)                              |
+| Env var secret validation                | No            | Yes                              | CWE-7       | `secret-env.ts`                                         |
+| Cumulative byte budget                   | No            | Yes (50 MB/min)                  | CWE-770     | `ws-protocol.ts` (package)                              |
+| Zod schema defaults + bounds             | No            | 17 defaults + bounds             | CWE-20      | `zod-schema.ts`                                         |
+| CIDR format validation                   | No            | `CidrOrIpSchema`                 | CWE-20      | `zod-schema.ts`                                         |
+| HTTP security headers (XCTO, RP, PP)     | No            | Yes                              | CWE-693     | `http-common.ts`                                        |
+| Audit log JSON format type               | No            | `AuditLogFormat`                 | CWE-778     | `audit-log-base.ts` (package)                           |
+| Per-message Zod frame validator          | No            | `validateInboundFrame()`         | CWE-20      | `ws-frame-validator.ts` (package)                       |
+| X-Frame-Options header                   | No            | `DENY` on API                    | CWE-693     | `http-common.ts`                                        |
+| Content-Security-Policy header           | No            | Strict CSP for UI                | CWE-693     | `http-common.ts`                                        |
+| Property-based pipeline tests            | No            | 15 invariant tests               | CWE-20      | `verify-client.property.test.ts`                        |
+| Credential strength validation           | No            | Network-exposed hard-reject      | CWE-336     | `auth.ts` `validateCredentialStrength()`                |
+| Tailscale whois timeout (5s)             | No            | Prevents indefinite hang         | CWE-835     | `auth.ts` `resolveVerifiedTailscaleUser()`              |
+| Auth audit logging (all modes)           | No            | HMAC-signed connect attempts     | CWE-778     | `auth.ts` → `auth-audit-log.ts` (package)               |
+| Dynamic method params default DENY       | No            | Prevents silent auth bypass      | CWE-285     | `method-scopes.ts` `authorizeOperatorScopesForMethod()` |
+| Rate limit attempt map periodic cleanup  | No            | Prevents memory leaks            | CWE-400     | `rate-limit-attempt-serialization.ts`                   |
+| Control-plane rate limit LRU eviction    | No            | Active clients not evicted       | CWE-770     | `control-plane-rate-limit.ts`                           |
+| Signed origin token with Zod validation  | No            | `verifySignedOriginToken()`      | CWE-208     | `origin-check.ts` `verifySignedOriginToken()`           |
+| `Sec-Fetch-Site` cross-site detection    | No            | OWASP defense-in-depth           | CWE-346     | `origin-check.ts` `checkBrowserOrigin()`                |
+| Trusted proxy user charset validation    | No            | Prevents oversized/invalid users | CWE-20      | `auth.ts` `authorizeTrustedProxy()`                     |
 
 ---
 
@@ -1079,18 +1090,22 @@ clients are expected to negotiate the gateway subprotocol. Legacy direct-local
 clients that cannot do that must explicitly opt out with
 `gateway.security.requireSubprotocol = false`.
 
-| Change                            | Breaking?                                    | Opt-out          |
-| --------------------------------- | -------------------------------------------- | ---------------- |
-| `rejectUntrustedProxyHeaders`     | Only if proxy headers sent from untrusted IP | `false`          |
-| `autoDisableLocalhostBehindProxy` | Only if proxy headers present                | `false`          |
-| `enforceOriginCheckForAllClients` | No (default `false`)                         | N/A — opt-in     |
-| `strictHeaderValidation`          | Only if duplicate/chained headers sent       | `false`          |
-| `requireSubprotocol`              | Yes for legacy clients without subprotocol   | `false`          |
-| `perMessageDeflate` disabled      | Slightly higher bandwidth                    | Cannot re-enable |
-| `secrets:read` capability         | Only if client lacks `*` scope               | N/A              |
-| `admin:config` capability         | Only if client lacks `*` scope               | N/A              |
-| `maxPayloadBytes` clamping        | Only if set outside [64 KB, 100 MB]          | N/A              |
-| `timingSafeEqual`                 | No (transparent)                             | N/A              |
+| Change                            | Breaking?                                     | Opt-out                             |
+| --------------------------------- | --------------------------------------------- | ----------------------------------- |
+| `rejectUntrustedProxyHeaders`     | Only if proxy headers sent from untrusted IP  | `false`                             |
+| `autoDisableLocalhostBehindProxy` | Only if proxy headers present                 | `false`                             |
+| `enforceOriginCheckForAllClients` | No (default `false`)                          | N/A — opt-in                        |
+| `strictHeaderValidation`          | Only if duplicate/chained headers sent        | `false`                             |
+| `requireSubprotocol`              | Yes for legacy clients without subprotocol    | `false`                             |
+| `perMessageDeflate` disabled      | Slightly higher bandwidth                     | Cannot re-enable                    |
+| `secrets:read` capability         | Only if client lacks `*` scope                | N/A                                 |
+| `admin:config` capability         | Only if client lacks `*` scope                | N/A                                 |
+| `maxPayloadBytes` clamping        | Only if set outside [64 KB, 100 MB]           | N/A                                 |
+| `timingSafeEqual`                 | No (transparent)                              | N/A                                 |
+| `validateCredentialStrength`      | Network-exposed: rejects weak creds at boot   | `auth.mode=none` or loopback bind   |
+| `TAILSCALE_WHOIS_TIMEOUT_MS`      | No (transparent timeout, fail-closed)         | N/A                                 |
+| Dynamic method params → DENY      | Only if dynamic params cannot be parsed       | N/A (handler returns precise error) |
+| Rate limit attempt map cleanup    | No (background timer, no user-visible effect) | N/A                                 |
 
 ---
 
