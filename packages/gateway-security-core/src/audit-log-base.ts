@@ -91,9 +91,18 @@ export function verifyAuditLine<T extends AuditLogEntry>(
   const reconstructed = JSON.stringify(rest);
   const expectedHmac = computeHmac(reconstructed, token);
 
+  // OWASP A05:2021 — Cryptographic Failures. Use constant-time comparison
+  // to prevent timing side-channel attacks that could leak HMAC validity.
+  // The length check is safe here because sha256 hex is always 64 characters;
+  // we validate the hex charset first to ensure the claimedHmac is well-formed.
+  if (!/^[0-9a-f]{64}$/i.test(claimedHmac)) {
+    return { valid: false };
+  }
+  const claimedBuf = Buffer.from(claimedHmac, "hex");
+  const expectedBuf = Buffer.from(expectedHmac, "hex");
   if (
-    claimedHmac.length !== expectedHmac.length ||
-    !crypto.timingSafeEqual(Buffer.from(claimedHmac, "hex"), Buffer.from(expectedHmac, "hex"))
+    claimedBuf.length !== expectedBuf.length ||
+    !crypto.timingSafeEqual(claimedBuf, expectedBuf)
   ) {
     return { valid: false };
   }
