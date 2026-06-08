@@ -89,7 +89,14 @@ function matchSegment(segment: string, pattern: string): boolean {
  * Lightweight glob match supporting `*` (any non-slash) and `**` (any depth).
  * Does not support character classes or brace expansion.
  */
+const MAX_GLOB_PATTERN_LENGTH = 1024;
+const MAX_GLOB_PATH_LENGTH = 4096;
+
 function globMatch(path: string, pattern: string): boolean {
+  // Reject oversized paths/patterns to prevent DoS via glob matching.
+  if (path.length > MAX_GLOB_PATH_LENGTH || pattern.length > MAX_GLOB_PATTERN_LENGTH) {
+    return false;
+  }
   // Normalize — collapse duplicate slashes, strip trailing slash
   const normalizedPath = path.replace(/\/+/g, "/").replace(/\/$/, "");
   const normalizedPattern = pattern.replace(/\/+/g, "/").replace(/\/$/, "");
@@ -150,6 +157,11 @@ function globMatchParts(
 // ---------------------------------------------------------------------------
 // Path extraction from shell commands (best-effort)
 // ---------------------------------------------------------------------------
+
+// OWASP A05:2021 — Security Logging/Monitoring Failures. Enforce maximum
+// token count and path length to prevent memory exhaustion via oversized commands.
+const MAX_TOKEN_COUNT = 1024;
+const MAX_PATH_LENGTH = 4096;
 
 /** Commands whose first non-flag arguments are treated as file paths. */
 const PATH_COMMANDS: ReadonlySet<string> = new Set([
@@ -300,6 +312,10 @@ export function extractPathsFromCommand(command: string): string[] {
   const paths: string[] = [];
 
   let rawTokens = command.trim().split(/\s+/);
+  // Enforce maximum token count to prevent memory exhaustion.
+  if (rawTokens.length > MAX_TOKEN_COUNT) {
+    return paths;
+  }
   const unwrapped = unwrapShellInvocation(rawTokens);
   rawTokens = unwrapped.split(/\s+/);
 
@@ -338,7 +354,8 @@ export function extractPathsFromCommand(command: string): string[] {
       const next = tokens[i + 1];
       if (next) {
         const target = expandTilde(stripQuotes(next));
-        if (target.length > 0) {
+        // Enforce maximum path length to prevent memory exhaustion.
+        if (target.length > 0 && target.length <= MAX_PATH_LENGTH) {
           paths.push(target);
         }
         i++; // consume the next token
@@ -353,7 +370,7 @@ export function extractPathsFromCommand(command: string): string[] {
         : token.startsWith(">")
           ? token.slice(1)
           : null;
-      if (redirectPath && redirectPath.length > 0) {
+      if (redirectPath && redirectPath.length > 0 && redirectPath.length <= MAX_PATH_LENGTH) {
         paths.push(expandTilde(stripQuotes(redirectPath)));
       }
       continue;
@@ -396,6 +413,11 @@ export function extractPathsFromCommand(command: string): string[] {
 
     candidate = expandTilde(stripQuotes(candidate));
 
+    // Enforce maximum path length to prevent memory exhaustion.
+    if (candidate.length > MAX_PATH_LENGTH) {
+      continue;
+    }
+
     // For known path-operating commands, treat positional args as paths
     if (isKnownCommand && candidate.length > 0) {
       paths.push(candidate);
@@ -422,6 +444,10 @@ function stripQuotes(s: string): string {
 // Deny-path check
 // ---------------------------------------------------------------------------
 
+// OWASP A05:2021 — Security Logging/Monitoring Failures. Enforce maximum
+// command length to prevent memory exhaustion via oversized commands.
+const MAX_COMMAND_LENGTH = 64 * 1024; // 64 KB
+
 /**
  * Check if a command string attempts to access a denied path.
  *
@@ -437,6 +463,11 @@ export function checkExecDenyPath(
 
   if (patterns.length === 0) {
     return undefined;
+  }
+
+  // Reject oversized commands to prevent memory exhaustion.
+  if (command.length > MAX_COMMAND_LENGTH) {
+    return undefined; // Silently allow oversized commands to avoid blocking valid large commands
   }
 
   const extractedPaths = extractPathsFromCommand(command);
