@@ -8,6 +8,11 @@ const CONTROL_PLANE_RATE_LIMIT_WINDOW_MS = 60_000;
 const CONTROL_PLANE_BUCKET_MAX_STALE_MS = 5 * 60_000;
 /** Hard cap to prevent memory DoS from rapid unique-key injection (CWE-400). */
 const CONTROL_PLANE_BUCKET_MAX_ENTRIES = 10_000;
+// OWASP A04:2021 — Security Misconfiguration. Safety net: prune on every
+// Nth access to prevent stale bucket accumulation if the maintenance timer
+// fails or is delayed. This is belt-and-suspenders alongside the timer.
+const PRUNE_STALE_SAFETY_NET_INTERVAL = 100;
+const PRUNE_STALE_SAFETY_NET_MAX_STALE_MS = 5 * 60_000;
 
 /** Sliding-window counter keyed by device/IP identity for write-side control RPCs. */
 type Bucket = {
@@ -16,6 +21,8 @@ type Bucket = {
 };
 
 const controlPlaneBuckets = new Map<string, Bucket>();
+// Access counter for safety-net pruning. Resets on prune.
+let accessSinceLastPrune = 0;
 
 /** Builds a stable throttle key while avoiding shared fallback buckets for anonymous clients. */
 function resolveControlPlaneRateLimitKey(client: GatewayClient | null): string {
@@ -31,6 +38,25 @@ function resolveControlPlaneRateLimitKey(client: GatewayClient | null): string {
   return `${deviceId}|${clientIp}`;
 }
 
+/**
+ * Safety-net pruning for stale control plane buckets.
+ * Called periodically and also on every Nth consumeAccess to prevent
+ * stale bucket accumulation if the maintenance timer fails.
+ */
+function pruneStaleBucketsSafetyNet(nowMs: number): void {
+  let pruned = 0;
+  for (const [key, bucket] of controlPlaneBuckets) {
+    if (nowMs - bucket.windowStartMs > PRUNE_STALE_SAFETY_NET_MAX_STALE_MS) {
+      controlPlaneBuckets.delete(key);
+      pruned++;
+    }
+  }
+  // Reset access counter after safety net prune
+  if (pruned > 0) {
+    accessSinceLastPrune = 0;
+  }
+}
+
 /** Consumes one write budget unit and reports retry state for gateway error responses. */
 export function consumeControlPlaneWriteBudget(params: {
   client: GatewayClient | null;
@@ -42,6 +68,11 @@ export function consumeControlPlaneWriteBudget(params: {
   key: string;
 } {
   const nowMs = params.nowMs ?? Date.now();
+  // Safety net: prune stale buckets on every Nth access
+  accessSinceLastPrune++;
+  if (accessSinceLastPrune >= PRUNE_STALE_SAFETY_NET_INTERVAL) {
+    pruneStaleBucketsSafetyNet(nowMs);
+  }
   const key = resolveControlPlaneRateLimitKey(params.client);
   const bucket = controlPlaneBuckets.get(key);
 

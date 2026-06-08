@@ -12,8 +12,22 @@ type SecurityPathCanonicalization = {
 };
 
 const MAX_PATH_DECODE_PASSES = 32;
+// OWASP A04:2021 — Security Misconfiguration. Maximum path length to prevent
+// ReDoS via regex on extremely long paths. Modern regex engines handle simple
+// patterns like /{2,}/ well, but this bound prevents edge cases.
+const MAX_PATH_LENGTH = 8192;
 
 function normalizePathSeparators(pathname: string): string {
+  // Simple regex /{2,}/ is safe from catastrophic backtracking because:
+  // 1. It requires at least 2 characters to match
+  // 2. No nested quantifiers or alternation
+  // 3. No possibility of exponential backtracking
+  // The only edge case is extremely long strings, mitigated by MAX_PATH_LENGTH.
+  if (pathname.length > MAX_PATH_LENGTH) {
+    // Fail closed: truncate to max length. This is safe because we only
+    // care about path normalization, not the full content.
+    pathname = pathname.slice(0, MAX_PATH_LENGTH);
+  }
   const collapsed = pathname.replace(/\/{2,}/g, "/");
   if (collapsed.length <= 1) {
     return collapsed;
@@ -53,11 +67,15 @@ function buildCanonicalPathCandidates(
   decodePassLimitReached: boolean;
   malformedEncoding: boolean;
 } {
+  // OWASP A04:2021 — Security Misconfiguration. Enforce max path length
+  // before any processing to prevent memory exhaustion attacks.
+  const truncatedPath =
+    pathname.length > MAX_PATH_LENGTH ? pathname.slice(0, MAX_PATH_LENGTH) : pathname;
   const candidates: string[] = [];
   const seen = new Set<string>();
-  pushNormalizedCandidate(candidates, seen, pathname);
+  pushNormalizedCandidate(candidates, seen, truncatedPath);
 
-  let decoded = pathname;
+  let decoded = truncatedPath;
   let malformedEncoding = false;
   let decodePasses = 0;
   for (let pass = 0; pass < maxDecodePasses; pass++) {
@@ -69,6 +87,12 @@ function buildCanonicalPathCandidates(
       break;
     }
     if (nextDecoded === decoded) {
+      break;
+    }
+    // OWASP A04:2021 — Security Misconfiguration. Truncate decoded result
+    // to prevent memory exhaustion from deeply encoded paths.
+    if (nextDecoded.length > MAX_PATH_LENGTH) {
+      malformedEncoding = true;
       break;
     }
     decodePasses += 1;
