@@ -87,7 +87,12 @@ function sanitizeScopesForAuth(scopes: string[]): string[] {
   if (!Array.isArray(scopes)) {
     return [];
   }
-  return scopes.length > MAX_AUTH_SCOPES ? scopes.slice(0, MAX_AUTH_SCOPES) : scopes;
+  // Deduplicate scopes to prevent scope pollution attacks where an attacker
+  // submits the same scope multiple times to bypass authorization checks.
+  const uniqueScopes = [...new Set(scopes)];
+  return uniqueScopes.length > MAX_AUTH_SCOPES
+    ? uniqueScopes.slice(0, MAX_AUTH_SCOPES)
+    : uniqueScopes;
 }
 
 function mapDeviceTokenAuthFailureReason(params: {
