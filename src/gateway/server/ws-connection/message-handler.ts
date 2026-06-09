@@ -6,12 +6,6 @@ import path from "node:path";
 import type { DeviceSessionAuthorityTracker } from "@openclaw/gateway-security-core/device-session-authority";
 import { validateInboundFrame } from "@openclaw/gateway-security-core/ws-frame-validator";
 import {
-  authorizeMessage,
-  createMessageAuthContext,
-  resolveMessageAuthorizationDecision,
-  type MessageAuthorizationContext,
-} from "@openclaw/gateway-security-core/message-auth";
-import {
   checkRateLimit,
   createRateLimiterState,
   DEFAULT_FRAME_LIMITS,
