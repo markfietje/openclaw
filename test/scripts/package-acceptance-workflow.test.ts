@@ -28,6 +28,7 @@ type WorkflowStep = {
   if?: string;
   name?: string;
   run?: string;
+  shell?: string;
   uses?: string;
   with?: Record<string, string>;
 };
@@ -37,6 +38,7 @@ type WorkflowJob = {
     group?: string;
     "cancel-in-progress"?: boolean | string;
   };
+  "continue-on-error"?: boolean | string;
   env?: Record<string, string>;
   if?: string;
   name?: string;
