@@ -293,13 +293,13 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
   const originCheckMetrics: WsOriginCheckMetrics = { hostHeaderFallbackAccepted: 0 };
 
   wss.on("connection", (socket, upgradeReq) => {
+    const { remoteAddr, remotePort, localAddr, localPort, endpoint } = resolveSocketAddress(socket);
+
     // Reject unknown WebSocket paths to prevent endpoint confusion attacks.
     // Known paths: /gateway, /gateway/ws-agent, /gateway/ws-admin, /gateway/ws-internal.
     const wsPath = (upgradeReq.url ?? "/gateway").replace(/\/$/, "").split("?")[0]!;
     if (!isKnownWsEndpoint(wsPath)) {
-      logWsControl.warn(
-        `rejected unknown WS path conn path=${wsPath} remote=${socket.remoteAddress ?? "?"}`,
-      );
+      logWsControl.warn(`rejected unknown WS path conn path=${wsPath} remote=${remoteAddr ?? "?"}`);
       socket.close(1008, "unknown websocket endpoint");
       return;
     }
@@ -310,7 +310,6 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     let closed = false;
     const openedAt = Date.now();
     const connId = randomUUID();
-    const { remoteAddr, remotePort, localAddr, localPort, endpoint } = resolveSocketAddress(socket);
     const preauthBudgetKey = (
       socket as WebSocket & {
         __openclawPreauthBudgetClaimed?: boolean;
