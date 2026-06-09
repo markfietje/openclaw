@@ -112,9 +112,4 @@ export class DeviceSessionAuthorityTracker {
   dispose(): void {
     this.generations.clear();
   }
-
-  /** Clear all tracked generations. Call on gateway shutdown. */
-  dispose(): void {
-    this.generations.clear();
-  }
 }
