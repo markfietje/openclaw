@@ -71,6 +71,9 @@
         "./packages/gateway-security-core/src/audit-log-base.ts"
       ],
 
+      "@openclaw/gateway-security-core/config-guard": [
+        "./packages/gateway-security-core/src/config-guard.ts"
+      ],
       "@openclaw/gateway-security-core/connection-rate-limit": [
         "./packages/gateway-security-core/src/connection-rate-limit.ts"
       ],
