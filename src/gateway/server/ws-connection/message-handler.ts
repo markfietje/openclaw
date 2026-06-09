@@ -6,12 +6,6 @@ import path from "node:path";
 import type { DeviceSessionAuthorityTracker } from "@openclaw/gateway-security-core/device-session-authority";
 import { validateInboundFrame } from "@openclaw/gateway-security-core/ws-frame-validator";
 import {
-  authorizeMessage,
-  createMessageAuthContext,
-  resolveMessageAuthorizationDecision,
-  type MessageAuthorizationContext,
-} from "@openclaw/gateway-security-core/message-auth";
-import {
   checkRateLimit,
   createRateLimiterState,
   DEFAULT_FRAME_LIMITS,
@@ -112,6 +106,12 @@ import { AUTH_RATE_LIMIT_SCOPE_NODE_PAIRING, type AuthRateLimiter } from "../../
 import type { GatewayAuthResult, ResolvedGatewayAuth } from "../../auth.js";
 import { hasForwardedRequestHeaders, isLocalDirectRequest } from "../../auth.js";
 import { normalizeDeviceMetadataForAuth } from "../../device-auth.js";
+import {
+  authorizeMessage,
+  createMessageAuthContext,
+  resolveMessageAuthorizationDecision,
+  type MessageAuthorizationContext,
+} from "../../message-auth.js";
 import { hasMessageCapability } from "../../message-auth.js";
 import { ADMIN_SCOPE, APPROVALS_SCOPE } from "../../method-scopes.js";
 import type { GatewayMethodRegistry } from "../../methods/registry.js";
