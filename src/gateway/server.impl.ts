@@ -1294,6 +1294,7 @@ export async function startGatewayServer(
     getWorkerIngressEndpoint,
     getMcpAppSandboxPort,
     deviceSessionAuthorityTracker,
+    clearChildProcessRegistry,
   } = await startupTrace.measure("runtime.state", () =>
     createGatewayRuntimeState({
       cfg: cfgAtStart,
@@ -1595,6 +1596,7 @@ export async function startGatewayServer(
       httpServer,
       httpServers,
       drainActiveSessionsForShutdown,
+      clearChildProcessRegistry,
     })(optsValue);
   };
   let clearFallbackGatewayContextForServer = () => {};
