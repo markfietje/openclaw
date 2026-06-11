@@ -20,7 +20,7 @@ describe("createPreauthConnectionBudget", () => {
   it("uses the default cap for non-finite direct limits", () => {
     const budget = createPreauthConnectionBudget(Number.NaN);
 
-    for (let i = 0; i < 32; i += 1) {
+    for (let i = 0; i < 8; i += 1) {
       expect(budget.acquire("127.0.0.1")).toBe(true);
     }
     expect(budget.acquire("127.0.0.1")).toBe(false);
@@ -29,7 +29,7 @@ describe("createPreauthConnectionBudget", () => {
   it("shares one capped bucket for missing client IPs", () => {
     const budget = createPreauthConnectionBudget(Number.POSITIVE_INFINITY);
 
-    for (let i = 0; i < 32; i += 1) {
+    for (let i = 0; i < 8; i += 1) {
       expect(budget.acquire(i % 2 === 0 ? undefined : "  ")).toBe(true);
     }
     expect(budget.acquire(undefined)).toBe(false);
@@ -49,10 +49,20 @@ describe("createPreauthConnectionBudget", () => {
     withEnv({ OPENCLAW_MAX_PREAUTH_CONNECTIONS_PER_IP: "0x2" }, () => {
       const budget = createPreauthConnectionBudget();
 
-      for (let i = 0; i < 32; i += 1) {
+      for (let i = 0; i < 8; i += 1) {
         expect(budget.acquire("127.0.0.1")).toBe(true);
       }
       expect(budget.acquire("127.0.0.1")).toBe(false);
     });
+  });
+
+  // Fix 3.6: default preauth budget reduced from 32 to 8
+  it("enforces the reduced default preauth budget of 8", () => {
+    const budget = createPreauthConnectionBudget();
+
+    for (let i = 0; i < 8; i += 1) {
+      expect(budget.acquire("127.0.0.1")).toBe(true);
+    }
+    expect(budget.acquire("127.0.0.1")).toBe(false);
   });
 });
