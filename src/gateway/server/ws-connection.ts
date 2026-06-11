@@ -41,6 +41,9 @@ import { formatError } from "../server-utils.js";
 import { logWs } from "../ws-log.js";
 import type { AuthenticatedConnectionBudget } from "./authenticated-connection-budget.js";
 import { getHealthVersion, incrementPresenceVersion } from "./health-state.js";
+import { MAX_CONNECTION_AGE_MS, MAX_IDLE_MS } from "./lifecycle/connection-limits.js";
+import { safeWsJsonStringify } from "./lifecycle/safe-ws-json.js";
+import { registerInterval } from "./lifecycle/timer-registry.js";
 import type { PreauthConnectionBudget } from "./preauth-connection-budget.js";
 import { broadcastPresenceSnapshot } from "./presence-events.js";
 import {
@@ -305,6 +308,28 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
   } = params;
   const originCheckMetrics: WsOriginCheckMetrics = { hostHeaderFallbackAccepted: 0 };
 
+  registerInterval(
+    "gateway.connection-cull",
+    () => {
+      const now = Date.now();
+      for (const client of clients) {
+        const connectedAt = client.connectedAt;
+        if (!connectedAt) continue;
+        const lastActivity = client.lastActivityAt;
+        const age = now - connectedAt;
+        const idle = lastActivity !== undefined ? now - lastActivity : age;
+        if (age > MAX_CONNECTION_AGE_MS || idle > MAX_IDLE_MS) {
+          try {
+            client.socket.close(4000, "connection lifecycle: age/idle limit");
+          } catch {
+            /* already closing */
+          }
+        }
+      }
+    },
+    60_000,
+  );
+
   wss.on("connection", (socket, upgradeReq) => {
     const { remoteAddr, remotePort, localAddr, localPort, endpoint } = resolveSocketAddress(socket);
 
@@ -415,6 +440,9 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
         lastFrameMethod = meta.method ?? lastFrameMethod;
         lastFrameId = meta.id ?? lastFrameId;
       }
+      if (client) {
+        client.lastActivityAt = Date.now();
+      }
     };
 
     let cleanupWorkerConnection: (() => void) | undefined;
@@ -489,7 +517,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
         return;
       }
       try {
-        socket.send(JSON.stringify(obj));
+        socket.send(safeWsJsonStringify(obj));
       } catch {
         /* ignore */
       }
@@ -769,6 +797,8 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
         }
         releasePreauthBudget();
         client = next;
+        next.connectedAt = openedAt;
+        next.lastActivityAt = Date.now();
         clients.add(next);
         const keepalive = createWsKeepalive(
           {
