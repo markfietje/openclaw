@@ -24,6 +24,7 @@ import {
 } from "./restart-trace.js";
 import type { ChatRunEntry, ChatRunState } from "./server-chat-state.js";
 import type { GatewayPostReadySidecarHandle } from "./server-startup-post-attach.js";
+import { clearConfigReloadBarrier } from "./server/lifecycle/config-reload-barrier.js";
 import { clearAllTimers } from "./server/lifecycle/timer-registry.js";
 
 const shutdownLog = createSubsystemLogger("gateway/shutdown");
@@ -650,6 +651,7 @@ export function createGatewayCloseHandler(
     postReadySidecars?: readonly GatewayPostReadySidecarHandle[];
     disposeSessionMcpRuntimes?: () => Promise<void>;
     disposeBundleLspRuntimes?: () => Promise<void>;
+    clearChildProcessRegistry?: () => void;
     cron: { stop: () => void };
     heartbeatRunner: HeartbeatRunner;
     updateCheckStop?: (() => void) | null;
@@ -680,6 +682,9 @@ export function createGatewayCloseHandler(
     restartExpectedMs?: number | null;
     drainTimeoutMs?: number | null;
   }): Promise<ShutdownResult> => {
+    // Unblock any dispatches waiting on the config-reload barrier immediately so
+    // they fail fast rather than hanging while shutdown proceeds.
+    clearConfigReloadBarrier();
     const start = Date.now();
     const warnings: string[] = [];
     const reasonRaw = normalizeOptionalString(opts?.reason) ?? "";
@@ -835,6 +840,9 @@ export function createGatewayCloseHandler(
           }),
         ]);
       });
+      // Clear the child process registry after MCP runtimes are disposed so all
+      // registered PIDs are cleaned up before the state DB is closed.
+      params.clearChildProcessRegistry?.();
       await shutdownStep("plugin-state-store", () => closePluginStateSqliteStore(), warnings);
       await measureCloseStep("config-reloader", () =>
         shutdownStep("config-reloader", () => params.configReloader.stop(), warnings),
