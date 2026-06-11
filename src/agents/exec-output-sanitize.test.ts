@@ -33,4 +33,25 @@ describe("sanitizeExecOutput", () => {
     expect(result).toContain("[REDACTED]");
     expect(result).toContain("done");
   });
+
+  describe("expanded secret key redaction", () => {
+    it("redacts OPENAI_API_KEY values", () => {
+      expect(sanitizeExecOutput("OPENAI_API_KEY=sk-abc123xyz")).toBe("OPENAI_API_KEY=[REDACTED]");
+    });
+    it("redacts DATABASE_URL values", () => {
+      expect(sanitizeExecOutput("DATABASE_URL=postgres://user:pass@host/db")).toBe(
+        "DATABASE_URL=[REDACTED]",
+      );
+    });
+    it("redacts AWS_ACCESS_KEY_ID values", () => {
+      expect(sanitizeExecOutput("AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE")).toBe(
+        "AWS_ACCESS_KEY_ID=[REDACTED]",
+      );
+    });
+    it("redacts AWS_SECRET_ACCESS_KEY values", () => {
+      expect(
+        sanitizeExecOutput("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
+      ).toBe("AWS_SECRET_ACCESS_KEY=[REDACTED]");
+    });
+  });
 });
