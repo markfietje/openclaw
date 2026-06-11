@@ -97,6 +97,8 @@ export function createTelegramMessageDispatchReplayGuard(
     onDiskError?: (error: unknown) => void;
   } = {},
 ): TelegramMessageDispatchReplayGuard {
+  // pluginId is only present on PersistentDedupePluginStateOptions variant.
+  // The stale dist doesn't export this variant, so we cast through unknown.
   return createClaimableDedupe({
     ttlMs: TELEGRAM_MESSAGE_DISPATCH_DEDUPE_TTL_MS,
     memoryMaxSize: TELEGRAM_MESSAGE_DISPATCH_DEDUPE_MEMORY_MAX_ENTRIES,
@@ -104,7 +106,7 @@ export function createTelegramMessageDispatchReplayGuard(
     namespacePrefix: TELEGRAM_MESSAGE_DISPATCH_DEDUPE_NAMESPACE_PREFIX,
     stateMaxEntries: TELEGRAM_MESSAGE_DISPATCH_DEDUPE_STATE_MAX_ENTRIES,
     ...(params.onDiskError ? { onDiskError: params.onDiskError } : {}),
-  });
+  } as unknown as Parameters<typeof createClaimableDedupe>[0]);
 }
 
 export async function claimTelegramMessageDispatchReplay(params: {

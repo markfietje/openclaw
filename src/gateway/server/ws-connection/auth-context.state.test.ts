@@ -39,6 +39,8 @@ async function resolveTokenAuthState(params: {
       mode: "token",
       token: "correct-secret",
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
     } satisfies ResolvedGatewayAuth,
     connectAuth: params.connectAuth,
     hasDeviceIdentity: params.hasDeviceIdentity,
@@ -93,6 +95,8 @@ describe("resolveConnectAuthDecision", () => {
       resolvedAuth: {
         mode: "none",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
       } satisfies ResolvedGatewayAuth,
       connectAuth: {},
       hasDeviceIdentity: false,
