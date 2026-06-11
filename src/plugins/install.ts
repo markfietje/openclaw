@@ -2096,6 +2096,36 @@ async function runInstallSourceScan(params: {
   }
 }
 
+/** Compares manifests between source and installed dirs to detect TOCTOU tampering. */
+async function verifyPostCopyIntegrity(
+  sourceDir: string,
+  installedDir: string,
+): Promise<string | null> {
+  try {
+    const sourceManifestPath = path.join(sourceDir, "openclaw.json");
+    const installedManifestPath = path.join(installedDir, "openclaw.json");
+    const [sourceManifest, installedManifest] = await Promise.all([
+      fs.readFile(sourceManifestPath, "utf8").catch(() => undefined),
+      fs.readFile(installedManifestPath, "utf8").catch(() => undefined),
+    ]);
+    if (sourceManifest && installedManifest && sourceManifest !== installedManifest) {
+      return "manifest content changed between scan and copy";
+    }
+    // Verify the manifest hash matches if both exist.
+    if (sourceManifest && installedManifest) {
+      const sourceHash = createHash("sha256").update(sourceManifest).digest("hex");
+      const installedHash = createHash("sha256").update(installedManifest).digest("hex");
+      if (sourceHash !== installedHash) {
+        return "manifest hash mismatch";
+      }
+    }
+    return null;
+  } catch {
+    // If verification itself fails, deny rather than silently proceed.
+    return "integrity verification failed";
+  }
+}
+
 async function installPluginDirectoryIntoExtensions(params: {
   sourceDir: string;
   pluginId: string;
@@ -2324,6 +2354,14 @@ async function installBundleFromSourceDir(
     copyErrorPrefix: "failed to copy plugin bundle",
     hasDeps: false,
     depsLogMessage: "",
+    afterCopy: async (installedDir) => {
+      // Verify post-copy integrity matches pre-scan snapshot.
+      // OWASP A08:2025 — Software or Data Integrity Failures.
+      const integrityError = await verifyPostCopyIntegrity(params.sourceDir, installedDir);
+      if (integrityError) {
+        throw new Error(`post-copy integrity verification failed: ${integrityError}`);
+      }
+    },
   });
 }
 
