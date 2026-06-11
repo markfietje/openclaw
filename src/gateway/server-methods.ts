@@ -711,6 +711,16 @@ export async function handleGatewayRequest(
     );
     return;
   }
+  const REQUEST_DEADLINE_MS = 30_000;
+  let responded = false;
+  const deadline = AbortSignal.timeout(REQUEST_DEADLINE_MS);
+  const onDeadline = () => {
+    if (!responded) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "request deadline exceeded"));
+    }
+  };
+  deadline.addEventListener("abort", onDeadline, { once: true });
+
   const invokeHandler = () =>
     handler({
       req,
@@ -720,9 +730,19 @@ export async function handleGatewayRequest(
       respond: wrappedRespond,
       context,
     });
-  // All handlers run inside a request scope so that plugin runtime
-  // subagent methods (e.g. context engine tools spawning sub-agents
-  // during tool execution) can dispatch back into the gateway.
-  // The scope also carries caller identity into plugin-owned gateway methods.
-  await withPluginRuntimeGatewayRequestScope({ context, client, isWebchatConnect }, invokeHandler);
+
+  try {
+    await withPluginRuntimeGatewayRequestScope(
+      { context, client, isWebchatConnect },
+      invokeHandler,
+    );
+  } catch (error: unknown) {
+    if (!responded) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "internal error"));
+    }
+    context.logGateway.warn(`rpc dispatch failed method=${req.method}: ${String(error)}`);
+  } finally {
+    responded = true;
+    deadline.removeEventListener("abort", onDeadline);
+  }
 }
