@@ -2623,6 +2623,53 @@ describe("normalizeRpcAttachmentsToChatAttachments", () => {
   });
 });
 
+describe("sanitizeChatSendMessageInput", () => {
+  it.each([
+    {
+      name: "rejects null bytes",
+      input: "before\u0000after",
+      expected: { ok: false as const, error: "message must not contain null bytes" },
+    },
+    {
+      name: "strips unsafe control characters while preserving tab/newline/carriage return",
+      input: "a\u0001b\tc\nd\re\u0007f\u007f",
+      expected: { ok: true as const, message: "ab\tc\nd\ref" },
+    },
+    {
+      name: "normalizes unicode to NFC",
+      input: "Cafe\u0301",
+      expected: { ok: true as const, message: "Caf\u00e9" },
+    },
+    {
+      name: "strips zero-width space characters",
+      input: "hello\u200Bworld",
+      expected: { ok: true as const, message: "helloworld" },
+    },
+    {
+      name: "strips zero-width joiner characters",
+      input: "test\u200Ding",
+      expected: { ok: true as const, message: "testing" },
+    },
+    {
+      name: "preserves normal Unicode emoji",
+      input: "hello \uD83E\uDD80 world",
+      expected: { ok: true as const, message: "hello \uD83E\uDD80 world" },
+    },
+    {
+      name: "strips BOM characters",
+      input: "\uFEFFtext",
+      expected: { ok: true as const, message: "text" },
+    },
+    {
+      name: "strips directional override characters",
+      input: "hello\u202Eworld",
+      expected: { ok: true as const, message: "helloworld" },
+    },
+  ])("$name", ({ input, expected }) => {
+    expect(sanitizeChatSendMessageInput(input)).toEqual(expected);
+  });
+});
+
 describe("gateway chat transcript writes (guardrail)", () => {
   it("routes transcript writes through helper and async parentId append", () => {
     const chatTs = fileURLToPath(new URL("./chat.ts", import.meta.url));
