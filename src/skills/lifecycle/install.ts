@@ -145,6 +145,16 @@ async function buildNodeInstallEnv(prefs: SkillsInstallPreferences): Promise<Nod
 // Strict allowlist patterns to prevent option injection and malicious package names.
 const SAFE_BREW_FORMULA = /^[a-z0-9][a-z0-9+._@-]*(\/[a-z0-9][a-z0-9+._@-]*){0,2}$/;
 const SAFE_NODE_PACKAGE = /^(@[a-z0-9._-]+\/)?[a-z0-9._-]+(@[a-z0-9^~>=<.*|-]+)?$/;
+
+function isSafeNodePackageVersion(value: string): boolean {
+  const trimmed = value.trim();
+  // Reject npm: alias specs that could redirect to arbitrary packages.
+  if (trimmed.includes("npm:")) {
+    return false;
+  }
+  return SAFE_NODE_PACKAGE.test(trimmed);
+}
+
 const SAFE_GO_MODULE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*@[a-z0-9v._-]+$/;
 const SAFE_UV_PACKAGE =
   /^[a-z0-9][a-z0-9._-]*(\[[a-z0-9,._-]+\])?(([><=!~]=?|===?)[a-z0-9.*_-]+)?$/i;
@@ -181,6 +191,12 @@ function buildInstallCommand(
     case "node": {
       if (!spec.package) {
         return { argv: null, error: "missing node package" };
+      }
+      if (!isSafeNodePackageVersion(spec.package)) {
+        return {
+          argv: null,
+          error: `node package contains disallowed npm: alias: ${spec.package.trim()}`,
+        };
       }
       const err = assertSafeInstallerValue(spec.package, "node package", SAFE_NODE_PACKAGE);
       if (err) {
