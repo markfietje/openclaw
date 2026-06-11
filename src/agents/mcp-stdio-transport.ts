@@ -11,7 +11,32 @@ import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { killProcessTree, signalProcessTree } from "../process/kill-tree.js";
 import { prepareOomScoreAdjustedSpawn } from "../process/linux-oom-score.js";
 
-type OpenClawStdioServerParameters = {
+// MCP server command allowlist. Only these commands may be spawned from config.
+// Operators can extend via OPENCLAW_MCP_ALLOWED_COMMANDS env var (comma-separated).
+const DEFAULT_MCP_ALLOWED_COMMANDS: ReadonlySet<string> = new Set([
+  "npx",
+  "node",
+  "python3",
+  "python",
+  "uvx",
+]);
+
+function getAllowedMcpCommands(): ReadonlySet<string> {
+  const extra = process.env.OPENCLAW_MCP_ALLOWED_COMMANDS?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!extra || extra.length === 0) {
+    return DEFAULT_MCP_ALLOWED_COMMANDS;
+  }
+  return new Set([...DEFAULT_MCP_ALLOWED_COMMANDS, ...extra]);
+}
+
+function validateMcpCommand(command: string): boolean {
+  const baseName = command.split("/").pop() ?? command;
+  return getAllowedMcpCommands().has(baseName);
+}
+
+export type OpenClawStdioServerParameters = {
   command: string;
   args?: string[];
   env?: Record<string, string>;
@@ -47,6 +72,12 @@ export class OpenClawStdioClientTransport implements Transport {
     if (this.process) {
       throw new Error(
         "OpenClawStdioClientTransport already started; Client.connect() starts transports automatically.",
+      );
+    }
+    if (!validateMcpCommand(this.serverParams.command)) {
+      throw new Error(
+        `MCP server command not allowed: ${this.serverParams.command}. ` +
+          "Add to OPENCLAW_MCP_ALLOWED_COMMANDS to permit.",
       );
     }
 
