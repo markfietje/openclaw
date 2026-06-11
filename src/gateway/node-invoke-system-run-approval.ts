@@ -412,21 +412,14 @@ export function sanitizeSystemRunParamsForForwarding(opts: {
     return { ok: true, params: next };
   }
 
-  // If the approval request timed out (decision=null), allow askFallback-driven
-  // "allow-once" ONLY for clients that are allowed to use exec approvals.
+  // Fail-closed: timeout = denied, not approved.
+  // OWASP A06:2025 — Insecure Design.
   const timedOut =
     snapshot.resolvedAtMs !== undefined &&
     snapshot.decision === undefined &&
     snapshot.resolvedBy === null;
-  if (
-    timedOut &&
-    approved &&
-    requestedDecision === "allow-once" &&
-    clientHasApprovals(opts.client)
-  ) {
-    next.approved = true;
-    next.approvalDecision = "allow-once";
-    return { ok: true, params: next };
+  if (timedOut) {
+    return systemRunApprovalRequired(runId);
   }
 
   return systemRunApprovalRequired(runId);
