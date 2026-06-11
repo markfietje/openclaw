@@ -46,14 +46,13 @@ export function formatGatewayAuthFailureMessage(params: {
       return `unauthorized: gateway token missing (${tokenHint})`;
     case "token_mismatch":
       return `unauthorized: gateway token mismatch (${tokenHint})`;
-    case "token_missing_config":
-      return "unauthorized: gateway token not configured on gateway (set gateway.auth.token)";
     case "password_missing":
       return `unauthorized: gateway password missing (${passwordHint})`;
     case "password_mismatch":
       return `unauthorized: gateway password mismatch (${passwordHint})`;
-    case "password_missing_config":
-      return "unauthorized: gateway password not configured on gateway (set gateway.auth.password)";
+    // token_missing_config and password_missing_config are now collapsed
+    // into token_missing / password_missing so the auth mode cannot be
+    // enumerated. OWASP A01:2025 — Broken Access Control.
     case "bootstrap_token_invalid":
       return "unauthorized: bootstrap token invalid or expired (scan a fresh setup code)";
     case "tailscale_user_missing":
