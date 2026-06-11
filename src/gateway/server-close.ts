@@ -24,6 +24,7 @@ import {
 } from "./restart-trace.js";
 import type { ChatRunEntry, ChatRunState } from "./server-chat-state.js";
 import type { GatewayPostReadySidecarHandle } from "./server-startup-post-attach.js";
+import { clearAllTimers } from "./server/lifecycle/timer-registry.js";
 
 const shutdownLog = createSubsystemLogger("gateway/shutdown");
 const GATEWAY_SHUTDOWN_HOOK_TIMEOUT_MS = 5_000;
@@ -863,6 +864,7 @@ export function createGatewayCloseHandler(
       if (params.mediaCleanup) {
         clearInterval(params.mediaCleanup);
       }
+      clearAllTimers();
       if (params.agentUnsub) {
         await shutdownStep("agent-unsub", () => params.agentUnsub!(), warnings);
       }
