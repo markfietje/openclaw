@@ -16,6 +16,9 @@ export interface ParsedForwardedChain {
 }
 
 const MAX_PROXY_CHAIN_DEPTH = 5;
+const MAX_XFF_CHAIN_DEPTH = 10;
+// OWASP DoS Cheat Sheet — bound XFF total header size to prevent memory exhaustion.
+const MAX_XFF_TOTAL_LENGTH = 4096;
 
 export function parseForwardedHeader(header: string | string[] | undefined): ForwardedHeader[] {
   const raw = Array.isArray(header) ? header.join(",") : header;
@@ -102,12 +105,19 @@ export function parseForwardedChain(params: {
   }
 
   if (!clientIp && params.xForwardedFor && trustedProxies.length > 0) {
-    const raw = Array.isArray(params.xForwardedFor)
+    const xffRaw = Array.isArray(params.xForwardedFor)
       ? params.xForwardedFor.join(",")
       : params.xForwardedFor;
+    // OWASP DoS — short-circuit oversized XFF headers to prevent memory exhaustion.
+    if (xffRaw.length > MAX_XFF_TOTAL_LENGTH) {
+      return { entries: forwardedEntries, clientIp: undefined, originalHost, originalProto };
+    }
 
     const chain: string[] = [];
-    for (const entry of raw.split(",")) {
+    for (const entry of xffRaw.split(",")) {
+      if (chain.length >= MAX_XFF_CHAIN_DEPTH) {
+        break;
+      }
       const normalized = extractIpFromForwardedFor(entry);
       if (normalized) {
         chain.push(normalized);
