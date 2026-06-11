@@ -40,6 +40,16 @@ import {
   getConfigReloadBarrier,
   isConfigReloadBarrierActive,
 } from "./server/lifecycle/config-reload-barrier.js";
+
+// Per-method deadline overrides. Shorter deadlines for low-latency methods reduce
+// the window for resource exhaustion (OWASP LLM04). Longer deadlines for methods
+// that involve external model calls.
+const METHOD_DEADLINE_MS: ReadonlyMap<string, number> = new Map([
+  ["health", 5_000],
+  ["chat.send", 120_000],
+  ["chat.abort", 10_000],
+  ["connect", 15_000],
+]);
 import {
   isMethodAllowedForConnectionType,
   resolveConnectionType,
@@ -1034,9 +1044,16 @@ export async function handleGatewayRequest(
     return;
   }
 
-  const REQUEST_DEADLINE_MS = 30_000;
+  // Resolve per-method deadline, falling back to 30s default.
+  let deadlineMs = 30_000;
+  for (const [pattern, ms] of METHOD_DEADLINE_MS) {
+    if (req.method === pattern || req.method.startsWith(pattern.replace(/\.\*$/, "."))) {
+      deadlineMs = ms;
+      break;
+    }
+  }
   let responded = false;
-  const deadline = AbortSignal.timeout(REQUEST_DEADLINE_MS);
+  const deadline = AbortSignal.timeout(deadlineMs);
   const onDeadline = () => {
     if (!responded) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "request deadline exceeded"));
