@@ -27,4 +27,6 @@ export type GatewayWsClient = PluginNodeCapabilityClient & {
   canvasHostUrl?: string;
   canvasCapability?: string;
   canvasCapabilityExpiresAtMs?: number;
+  /** Number of RPC dispatches currently in-flight on this connection. */
+  inflightRpcCount: number;
 };
