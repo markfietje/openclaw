@@ -1,16 +1,30 @@
 // Chat send input sanitizer for Gateway message payloads.
 
-// Built at runtime so the source stays free of literal control characters and
-// the no-control-regex lint rule cannot statically detect them. Tab/LF/CR survive.
-const DISALLOWED_CHAT_CONTROL_RANGE = `${String.fromCharCode(0x00)}-${String.fromCharCode(0x08)}${String.fromCharCode(0x0b)}${String.fromCharCode(0x0c)}${String.fromCharCode(0x0e)}-${String.fromCharCode(0x1f)}${String.fromCharCode(0x7f)}`;
-const DISALLOWED_CHAT_CONTROL_RE = new RegExp(`[${DISALLOWED_CHAT_CONTROL_RANGE}]`, "g");
-
-/** Drop disallowed control characters while preserving tab, line breaks, and Unicode. */
+/** Drop disallowed control characters while preserving tab and line breaks.
+ *  Also strips Unicode zero-width characters that enable homoglyph attacks. */
 function stripDisallowedChatControlChars(message: string): string {
   const chars: string[] = [];
   for (const char of message) {
-    const code = char.charCodeAt(0);
-    if (code === 9 || code === 10 || code === 13 || (code >= 32 && code !== 127)) {
+    const code = char.codePointAt(0)!;
+    if (code === 9 || code === 10 || code === 13) {
+      chars.push(char);
+      continue;
+    }
+    if (code >= 32 && code !== 127 && code < 0x80) {
+      chars.push(char);
+      continue;
+    }
+    if (code >= 0x80) {
+      // Strip zero-width characters: ZW space/joiner/non-joiner, BOM,
+      // directional overrides, and word-joiner ranges.
+      if (
+        (code >= 0x200b && code <= 0x200f) ||
+        code === 0xfeff ||
+        (code >= 0x202a && code <= 0x202e) ||
+        (code >= 0x2060 && code <= 0x2069)
+      ) {
+        continue;
+      }
       chars.push(char);
     }
   }
