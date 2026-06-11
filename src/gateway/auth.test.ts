@@ -300,7 +300,7 @@ describe("gateway auth", () => {
     expect(mismatch.reason).toBe("token_mismatch");
   });
 
-  it("reports missing token config reason", async () => {
+  it("reports missing token reason when token not configured", async () => {
     const res = await authorizeGatewayConnect({
       auth: {
         mode: "token",
@@ -311,7 +311,9 @@ describe("gateway auth", () => {
       connectAuth: { token: "anything" },
     });
     expect(res.ok).toBe(false);
-    expect(res.reason).toBe("token_missing_config");
+    // token_missing_config is now collapsed into token_missing to prevent
+    // auth-mode enumeration. OWASP A01:2025 — Broken Access Control.
+    expect(res.reason).toBe("token_missing");
   });
 
   it("allows explicit auth mode none", async () => {
@@ -476,7 +478,7 @@ describe("gateway auth", () => {
     expect(mismatch.reason).toBe("password_mismatch");
   });
 
-  it("reports missing password config reason", async () => {
+  it("reports missing password reason when password not configured", async () => {
     const res = await authorizeGatewayConnect({
       auth: {
         mode: "password",
@@ -487,7 +489,9 @@ describe("gateway auth", () => {
       connectAuth: { password: "secret" },
     });
     expect(res.ok).toBe(false);
-    expect(res.reason).toBe("password_missing_config");
+    // password_missing_config is now collapsed into password_missing to prevent
+    // auth-mode enumeration. OWASP A01:2025 — Broken Access Control.
+    expect(res.reason).toBe("password_missing");
   });
 
   it("treats local tailscale serve hostnames as direct", async () => {

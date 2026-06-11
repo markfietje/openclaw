@@ -174,14 +174,13 @@ export function resolveAuthConnectErrorDetailCode(
       return ConnectErrorDetailCodes.AUTH_TOKEN_MISSING;
     case "token_mismatch":
       return ConnectErrorDetailCodes.AUTH_TOKEN_MISMATCH;
-    case "token_missing_config":
-      return ConnectErrorDetailCodes.AUTH_TOKEN_NOT_CONFIGURED;
+    // token_missing_config is now collapsed into token_missing so the auth
+    // mode cannot be enumerated by an attacker.
     case "password_missing":
       return ConnectErrorDetailCodes.AUTH_PASSWORD_MISSING;
     case "password_mismatch":
       return ConnectErrorDetailCodes.AUTH_PASSWORD_MISMATCH;
-    case "password_missing_config":
-      return ConnectErrorDetailCodes.AUTH_PASSWORD_NOT_CONFIGURED;
+    // password_missing_config is now collapsed into password_missing.
     case "bootstrap_token_invalid":
       return ConnectErrorDetailCodes.AUTH_BOOTSTRAP_TOKEN_INVALID;
     case "tailscale_user_missing":
