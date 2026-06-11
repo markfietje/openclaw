@@ -203,6 +203,16 @@ export function createHooksRequestHandler(
       return true;
     }
 
+    // OWASP A01:2025 — Broken Access Control. Reject non-JSON content types
+    // before parsing to prevent content-sniffing attacks on downstream consumers.
+    const contentType = req.headers["content-type"];
+    if (!contentType || !contentType.includes("application/json")) {
+      res.statusCode = 415;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Content-Type must be application/json" }));
+      return true;
+    }
+
     const token = extractHookToken(req);
     const clientKey = resolveHookClientKey(req);
     if (!safeEqualSecret(token, hooksConfig.token)) {
