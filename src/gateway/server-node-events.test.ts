@@ -275,6 +275,7 @@ function makeNodeClient(connId: string, nodeId: string, sent: string[] = []): Ga
   return {
     connId,
     usesSharedGatewayAuth: false,
+    inflightRpcCount: 0,
     socket: {
       send(frame: unknown) {
         if (typeof frame === "string") {

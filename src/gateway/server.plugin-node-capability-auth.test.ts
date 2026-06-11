@@ -271,6 +271,7 @@ function makeWsClient(params: {
     } as GatewayWsClient["connect"],
     connId: params.connId,
     usesSharedGatewayAuth: false,
+    inflightRpcCount: 0,
     clientIp: params.clientIp,
     ...(pluginNodeCapabilities ? { pluginNodeCapabilities } : {}),
   };
@@ -391,6 +392,8 @@ describe("gateway plugin node capability auth", () => {
     token: "test-token",
     password: undefined,
     allowTailscale: false,
+    allowLocalDirectNoAuth: true,
+    toolsInvokeMaxBodyBytes: 256 * 1024,
   };
 
   const withLoopbackTrustedProxy = async (run: () => Promise<void>, prefix?: string) => {
