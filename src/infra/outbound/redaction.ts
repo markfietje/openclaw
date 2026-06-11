@@ -24,7 +24,29 @@ function collectPlaintextGatewaySecrets(config: OpenClawConfig): string[] {
   if (typeof auth?.password === "string") {
     secrets.push(auth.password);
   }
+
+  // Channel API keys — collect non-empty string values from channel configs.
+  // Channel configs are typed but plugin-owned, so enumerate string values defensively.
+  const channels = config.channels;
+  if (channels && typeof channels === "object") {
+    for (const channelValue of Object.values(channels)) {
+      if (channelValue && typeof channelValue === "object") {
+        collectStringValues(channelValue as Record<string, unknown>, secrets);
+      }
+    }
+  }
+
   return secrets;
+}
+
+function collectStringValues(obj: Record<string, unknown>, out: string[]): void {
+  for (const value of Object.values(obj)) {
+    if (typeof value === "string" && value.length > 0) {
+      out.push(value);
+    } else if (value && typeof value === "object" && !Array.isArray(value)) {
+      collectStringValues(value as Record<string, unknown>, out);
+    }
+  }
 }
 
 function redactButton(button: MessagePresentationButton, redact: (text: string) => string) {
