@@ -149,6 +149,71 @@ describe("checkExecDenyPath", () => {
 // extractPathsFromCommand
 // ---------------------------------------------------------------------------
 
+describe("oversized command denial", () => {
+  it("denies commands exceeding MAX_COMMAND_LENGTH", () => {
+    const oversized = "cat .env " + "x".repeat(64 * 1024);
+    const result = checkExecDenyPath(oversized);
+    expect(result).toBe("<oversized-command-denied>");
+  });
+
+  it("still checks commands at exactly MAX_COMMAND_LENGTH", () => {
+    const atLimit = "cat .env " + " ".repeat(64 * 1024 - 9);
+    const result = checkExecDenyPath(atLimit);
+    expect(result).toBeDefined();
+  });
+
+  it("denies oversized commands even with empty deny patterns", () => {
+    const result = checkExecDenyPath("x".repeat(64 * 1024 + 1), { denyPathPatterns: [] });
+    expect(result).toBeUndefined();
+  });
+});
+
+describe("shell variable expansion", () => {
+  it("resolves $HOME to ~/ for deny matching", () => {
+    const paths = extractPathsFromCommand("cat $HOME/.ssh/id_rsa");
+    expect(paths).toContain("~/.ssh/id_rsa");
+  });
+
+  it("resolves ${HOME} to ~/ for deny matching", () => {
+    const paths = extractPathsFromCommand("cat ${HOME}/.env");
+    expect(paths).toContain("~/.env");
+  });
+
+  it("returns empty for unresolvable variables", () => {
+    const paths = extractPathsFromCommand("cat $MYSTERYVAR/.ssh/id_rsa");
+    expect(paths).not.toContain(expect.stringContaining(".ssh"));
+  });
+});
+
+describe("env dump command denial", () => {
+  it("denies bare 'env' command", () => {
+    expect(checkExecDenyPath("env")).toBe("<env-dump-denied>");
+  });
+  it("denies 'printenv' command", () => {
+    expect(checkExecDenyPath("printenv")).toBe("<env-dump-denied>");
+  });
+  it("denies '/usr/bin/env' with full path", () => {
+    expect(checkExecDenyPath("/usr/bin/env")).toBe("<env-dump-denied>");
+  });
+});
+
+describe("inline script interpreter denial", () => {
+  it("denies 'perl -e ...'", () => {
+    expect(checkExecDenyPath("perl -e 'print $ENV{HOME}'")).toBe("<inline-script-denied>");
+  });
+  it("denies 'python3 -c ...'", () => {
+    expect(checkExecDenyPath("python3 -c 'import os; print(os.environ)'")).toBe(
+      "<inline-script-denied>",
+    );
+  });
+  it("denies 'node -e ...'", () => {
+    expect(checkExecDenyPath("node -e 'console.log(process.env)'")).toBe("<inline-script-denied>");
+  });
+  it("allows 'node script.js' (file argument, not inline)", () => {
+    expect(checkExecDenyPath("node script.js")).toBeUndefined();
+  });
+});
+
 describe("extractPathsFromCommand", () => {
   it("extracts path from cat command", () => {
     expect(extractPathsFromCommand("cat /etc/hosts")).toEqual(["/etc/hosts"]);
