@@ -448,7 +448,11 @@ function authorizeTokenAuth(params: {
   rateLimitScope: string;
 }): GatewayAuthResult {
   if (!params.authToken) {
-    return { ok: false, reason: "token_missing_config" };
+    // Collapse "not configured" and "configured but not provided" into a single
+    // reason so the auth mode (token vs password) cannot be enumerated by an
+    // attacker probing the gateway with bare connections.
+    // OWASP A01:2025 — Broken Access Control.
+    return { ok: false, reason: "token_missing" };
   }
   if (!params.connectToken) {
     // Don't burn rate-limit slots for missing credentials — the client
@@ -472,7 +476,10 @@ function authorizePasswordAuth(params: {
   rateLimitScope: string;
 }): GatewayAuthResult {
   if (!params.authPassword) {
-    return { ok: false, reason: "password_missing_config" };
+    // Collapse "not configured" and "configured but not provided" into a single
+    // reason so the auth mode (token vs password) cannot be enumerated.
+    // OWASP A01:2025 — Broken Access Control.
+    return { ok: false, reason: "password_missing" };
   }
   if (!params.connectPassword) {
     // Same as token_missing — don't penalize absent credentials.

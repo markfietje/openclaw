@@ -94,7 +94,8 @@ describe("HandshakeAuthLogLimiter", () => {
       "password_mismatch",
       "device_token_mismatch",
       "rate_limited",
-      "token_missing_config",
+      // token_missing_config is now collapsed into token_missing,
+      // which is handled in the "should limit" branch above.
     ]) {
       expect(
         shouldLimitMissingCredentialAuthLog({
