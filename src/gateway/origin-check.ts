@@ -104,6 +104,8 @@ type OriginCheckParams = {
   disableLocalhostPrivilege?: boolean;
   validateHostHeader?: boolean;
   secFetchSite?: string;
+  /** Allow wildcard "*" origin when local or behind trusted proxy. OWASP A01:2025. */
+  allowWildcardOrigin?: boolean;
 };
 
 function normalizeOriginToMatchUrlHost(origin: string): string | null {
@@ -119,6 +121,15 @@ function normalizeOriginToMatchUrlHost(origin: string): string | null {
   }
 }
 
+// Custom schemes that new URL() rejects (tauri://, electron://, etc.).
+// OWASP A01:2025 — allow known app origins without accepting arbitrary schemes.
+const ALLOWED_CUSTOM_SCHEMES = new Set([
+  "tauri",
+  "electron",
+  "capacitor",
+  "ionic",
+]) as ReadonlySet<string>;
+
 function parseOrigin(
   originRaw?: string,
 ): { origin: string; host: string; hostname: string; protocol: string } | null {
@@ -126,10 +137,25 @@ function parseOrigin(
   if (!trimmed || trimmed === "null") {
     return null;
   }
+  // Support custom schemes that new URL() rejects (tauri://, electron://, etc.)
+  const schemeMatch = trimmed.match(/^([a-z][a-z0-9.+-]*):\/\/(.+)$/i);
+  if (schemeMatch) {
+    const scheme = schemeMatch[1]!.toLowerCase();
+    const rest = schemeMatch[2]!.toLowerCase();
+    if (ALLOWED_CUSTOM_SCHEMES.has(scheme)) {
+      return {
+        origin: trimmed.toLowerCase(),
+        host: rest,
+        hostname: rest.split("/")[0] ?? rest,
+        protocol: scheme,
+      };
+    }
+  }
   // URL parsing collapses dot segments. Reject non-origin suffixes before
   // canonicalization so a path cannot inherit its authority's grant.
   if (!/^[a-z][a-z0-9+.-]*:\/\/[^/?#\\]+\/?$/i.test(trimmed)) {
     return null;
+  }
   }
   try {
     const url = new URL(trimmed);
@@ -236,8 +262,22 @@ export function checkBrowserOrigin(params: OriginCheckParams): OriginCheckResult
     }
   }
 
+  // OWASP A01:2025 — wildcards are dangerous on public endpoints.
+  // Allow only when all three conditions are met:
+  //   1. Explicitly enabled via allowWildcardOrigin config
+  //   2. Request is local/private OR behind a trusted proxy
+  //   3. Not a cross-site request (already checked above)
   if (allowlist.has("*")) {
-    return { ok: false, reason: "wildcard origin allowlist rejected" };
+    if (params.allowWildcardOrigin !== true) {
+      return {
+        ok: false,
+        reason: "wildcard origin allowlist rejected (enable allowWildcardOrigin)",
+      };
+    }
+    if (!params.isLocalClient && params.isTrustedProxy !== true) {
+      return { ok: false, reason: "wildcard origin rejected on public connection" };
+    }
+    return { ok: true, matchedBy: "allowlist" };
   }
   const isInAllowlist =
     allowlist.has(parsedOrigin.origin) ||

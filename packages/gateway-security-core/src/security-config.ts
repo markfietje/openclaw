@@ -204,6 +204,15 @@ export type GatewaySecurityConfig = {
    */
   dangerouslyAllowHostHeaderOriginFallback?: boolean;
 
+  /**
+   * Allow wildcard "*" in allowedOrigins for local or trusted-proxy connections.
+   * OWASP A01:2025 — wildcards are dangerous on public endpoints.
+   * Only effective when the request is from a local/private network or
+   * behind a trusted proxy.
+   * @default false
+   */
+  allowWildcardOrigin?: boolean;
+
   // ─── Layer 4: Operational ──────────────────────────────────────────
 
   /**
