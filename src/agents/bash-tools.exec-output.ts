@@ -3,11 +3,13 @@
  * Keeps no-output placeholders and warning placement consistent across exec
  * progress, polling, and completion surfaces.
  */
+import { sanitizeExecOutput } from "./exec-output-sanitize.js";
+
 const EXEC_NO_OUTPUT_PLACEHOLDER = "(no output)";
 
 /** Render command output with a stable placeholder for empty output. */
 export function renderExecOutputText(value: string | undefined): string {
-  return value || EXEC_NO_OUTPUT_PLACEHOLDER;
+  return sanitizeExecOutput(value) || EXEC_NO_OUTPUT_PLACEHOLDER;
 }
 
 /** Render the text shown in exec progress updates, including warnings first. */
