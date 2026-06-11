@@ -803,12 +803,14 @@ describe("isSecureWebSocketUrl", () => {
     expect(isSecureWebSocketUrl(input), input).toBe(expected);
   });
 
-  it("allows arbitrary private-dns ws:// hostnames only when opt-in is enabled", () => {
-    const allowedWhenOptedIn = ["ws://gateway.private.example:18789"];
+  // Fix 4.1: allowPrivateWs now denies unresolvable hostnames (SSRF).
+  // Previously ANY non-IP hostname was treated as safe when opt-in was enabled.
+  it("denies ws:// non-IP hostnames even when allowPrivateWs is enabled", () => {
+    const deniedHostnames = ["ws://gateway.private.example:18789", "ws://evil.attacker.com:18789"];
 
-    for (const input of allowedWhenOptedIn) {
+    for (const input of deniedHostnames) {
       expect(isSecureWebSocketUrl(input), input).toBe(false);
-      expect(isSecureWebSocketUrl(input, { allowPrivateWs: true }), input).toBe(true);
+      expect(isSecureWebSocketUrl(input, { allowPrivateWs: true }), input).toBe(false);
     }
   });
 

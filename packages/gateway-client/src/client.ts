@@ -242,13 +242,12 @@ function isSecureWebSocketUrl(rawUrl: string, options?: { allowPrivateWs?: boole
       return true;
     }
     if (options?.allowPrivateWs === true) {
-      const hostForIpCheck =
-        url.hostname.startsWith("[") && url.hostname.endsWith("]")
-          ? url.hostname.slice(1, -1)
-          : url.hostname;
-      return (
-        isPrivateOrLoopbackHost(url.hostname) || parseGatewayIpAddress(hostForIpCheck) === undefined
-      );
+      if (isPrivateOrLoopbackHost(url.hostname)) {
+        return true;
+      }
+      // Deny unresolvable/non-IP hostnames — do not treat them as safe.
+      // OWASP A01:2025 — Broken Access Control (SSRF).
+      return false;
     }
     return false;
   } catch {

@@ -520,13 +520,10 @@ export function isSecureWebSocketUrl(
     if (isPrivateOrLoopbackHost(parsed.hostname)) {
       return true;
     }
-    // Hostnames may resolve to private networks (for example in VPN/Tailnet DNS),
-    // but resolution is not available in this synchronous validator.
-    const hostForIpCheck =
-      parsed.hostname.startsWith("[") && parsed.hostname.endsWith("]")
-        ? parsed.hostname.slice(1, -1)
-        : parsed.hostname;
-    return net.isIP(hostForIpCheck) === 0;
+    // If DNS resolution fails or hostname is not an IP literal, deny — do not
+    // treat unresolvable hostnames as safe.
+    // OWASP A01:2025 — Broken Access Control (SSRF).
+    return false;
   }
   return false;
 }
