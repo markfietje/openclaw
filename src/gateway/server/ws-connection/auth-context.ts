@@ -123,7 +123,7 @@ function resolveSharedConnectAuth(
   return { token, password };
 }
 
-function resolveDeviceTokenCandidate(connectAuth: HandshakeConnectAuth | null | undefined): {
+export function resolveDeviceTokenCandidate(connectAuth: HandshakeConnectAuth | null | undefined): {
   token?: string;
   source?: DeviceTokenCandidateSource;
 } {
@@ -131,11 +131,8 @@ function resolveDeviceTokenCandidate(connectAuth: HandshakeConnectAuth | null | 
   if (explicitDeviceToken) {
     return { token: explicitDeviceToken, source: "explicit-device-token" };
   }
-  const fallbackToken = normalizeOptionalString(connectAuth?.token);
-  if (!fallbackToken) {
-    return {};
-  }
-  return { token: fallbackToken, source: "shared-token-fallback" };
+  // No shared-token fallback — device identity must use a dedicated device token.
+  return {};
 }
 
 export async function resolveConnectAuthState(params: {
@@ -175,8 +172,8 @@ export async function resolveConnectAuthState(params: {
       req: params.req,
       trustedProxies: params.trustedProxies,
       allowRealIpFallback: params.allowRealIpFallback,
-      // Shared-auth probe only; rate-limit side effects are handled in the
-      // primary auth flow (or deferred for device-token candidates).
+      rateLimiter: sharedAuthProvided ? params.rateLimiter : undefined,
+      clientIp: params.clientIp,
       rateLimitScope: AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET,
     }));
   // Trusted-proxy auth is semantically shared: the proxy vouches for identity,
