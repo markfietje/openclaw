@@ -1,6 +1,8 @@
 // Connection-type capability gate for gateway RPC dispatch.
 // Restricts methods to specific client connection types when defined.
 
+import { CORE_GATEWAY_METHOD_SPECS } from "../../methods/core-descriptors.js";
+
 export type ConnectionType =
   | "webchat"
   | "cli"
@@ -11,9 +13,15 @@ export type ConnectionType =
   | "test"
   | "mcp-loopback";
 
-const METHOD_CAPABILITY_MATRIX: ReadonlyMap<string, ReadonlySet<ConnectionType>> = new Map([
-  // Conservative starting matrix. Expand as specific method restrictions are needed.
-]);
+// Node-only methods are restricted to node connections to prevent scope spoofing
+// (#64993). A browser WS client cannot call node.invoke.result to impersonate a node.
+const NODE_ONLY = new Set<ConnectionType>(["node"]);
+
+const METHOD_CAPABILITY_MATRIX: ReadonlyMap<string, ReadonlySet<ConnectionType>> = new Map(
+  CORE_GATEWAY_METHOD_SPECS.filter((spec) => spec.scope === "node").map(
+    (spec) => [spec.name, NODE_ONLY] as const,
+  ),
+);
 
 const VALID_CONNECTION_TYPES: ReadonlySet<string> = new Set<string>([
   "webchat",
