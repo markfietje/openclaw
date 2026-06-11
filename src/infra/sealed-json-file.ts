@@ -33,6 +33,19 @@ export class SealedJsonPassphraseRequiredError extends Error {
   }
 }
 
+export class SealedJsonTamperError extends Error {
+  public readonly filePath: string;
+
+  constructor(filePath: string) {
+    super(
+      `File ${filePath} is not sealed but ${ENV_KEY} is configured. ` +
+        "The file may have been tampered with or replaced with plaintext.",
+    );
+    this.name = "SealedJsonTamperError";
+    this.filePath = filePath;
+  }
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function getPassphrase(env: NodeJS.ProcessEnv): string | undefined {
@@ -96,13 +109,22 @@ function parseEnvelope(raw: string): SealedEnvelope | null {
     return null;
   }
 
+  if (
+    typeof obj.salt !== "string" ||
+    typeof obj.iv !== "string" ||
+    typeof obj.tag !== "string" ||
+    typeof obj.ciphertext !== "string"
+  ) {
+    return null;
+  }
+
   return {
     v: 1,
     alg: "aes-256-gcm",
-    salt: obj.salt as string,
-    iv: obj.iv as string,
-    tag: obj.tag as string,
-    ciphertext: obj.ciphertext as string,
+    salt: obj.salt,
+    iv: obj.iv,
+    tag: obj.tag,
+    ciphertext: obj.ciphertext,
   };
 }
 
@@ -172,13 +194,18 @@ export function loadSealedJsonFile(filePath: string, options?: SealedJsonFileOpt
     throw err;
   }
   const envelope = parseEnvelope(raw);
-
-  if (envelope === null) {
-    return JSON.parse(raw) as unknown;
-  }
-
   const env = options?.env ?? process.env;
   const passphrase = getPassphrase(env);
+
+  if (envelope === null) {
+    // No passphrase configured — plaintext is the expected format.
+    if (!passphrase) {
+      return JSON.parse(raw) as unknown;
+    }
+    // Passphrase IS configured but file is plaintext — tamper or downgrade.
+    // OWASP A04:2025 — Cryptographic Failures.
+    throw new SealedJsonTamperError(filePath);
+  }
 
   if (!passphrase) {
     throw new SealedJsonPassphraseRequiredError(filePath);
