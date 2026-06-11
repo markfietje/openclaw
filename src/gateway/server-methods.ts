@@ -974,6 +974,16 @@ export async function handleGatewayRequest(
     rootWorkAdmission?.release();
     return;
   }
+
+  const REQUEST_DEADLINE_MS = 30_000;
+  let responded = false;
+  const deadline = AbortSignal.timeout(REQUEST_DEADLINE_MS);
+  const onDeadline = () => {
+    if (!responded) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "request deadline exceeded"));
+    }
+  };
+  deadline.addEventListener("abort", onDeadline, { once: true });
   const invokeHandler = () =>
     handler({
       req,
@@ -993,12 +1003,30 @@ export async function handleGatewayRequest(
       invokeHandler,
     );
   if (!rootWorkAdmission) {
-    await invokeWithRequestScope();
+    try {
+      await invokeWithRequestScope();
+    } catch (error: unknown) {
+      if (!responded) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "internal error"));
+      }
+      context.logGateway.warn(`rpc dispatch failed method=${req.method}: ${String(error)}`);
+    } finally {
+      responded = true;
+      deadline.removeEventListener("abort", onDeadline);
+    }
     return;
   }
   try {
     await rootWorkAdmission.run(invokeWithRequestScope);
+  } catch (error: unknown) {
+    if (!responded) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "internal error"));
+    }
+    context.logGateway.warn(`rpc dispatch failed method=${req.method}: ${String(error)}`);
   } finally {
     rootWorkAdmission.release();
+    responded = true;
+    deadline.removeEventListener("abort", onDeadline);
+  }
   }
 }
