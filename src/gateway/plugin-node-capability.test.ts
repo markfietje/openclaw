@@ -26,6 +26,7 @@ function makeClient(
     } as GatewayWsClient["connect"],
     connId: "node-1",
     usesSharedGatewayAuth: false,
+    inflightRpcCount: 0,
     ...overrides,
   };
 }

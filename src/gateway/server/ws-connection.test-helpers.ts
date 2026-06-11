@@ -7,6 +7,8 @@ import type { WebSocketServer } from "ws";
 import type { ResolvedGatewayAuth } from "../auth.js";
 import type { attachGatewayWsConnectionHandler } from "./ws-connection.js";
 
+export type { ResolvedGatewayAuth };
+
 type AttachGatewayWsConnectionParams = Parameters<typeof attachGatewayWsConnectionHandler>[0];
 
 export type GatewayWsTestSocket = EventEmitter & {
@@ -58,6 +60,7 @@ export function createGatewayWsTestSocket(
     closeEmits?: boolean;
     onSend?: (data: string) => void;
     ping?: boolean;
+    protocol?: string;
   } = {},
 ): GatewayWsTestSocket {
   const socket = Object.assign(new EventEmitter(), {
