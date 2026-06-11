@@ -507,13 +507,16 @@ export function checkExecDenyPath(
   const patterns: readonly string[] =
     config?.denyPathPatterns !== undefined ? config.denyPathPatterns : DEFAULT_EXEC_DENY_PATTERNS;
 
-  if (patterns.length === 0) {
-    return undefined;
-  }
-
   // Fail-closed: oversized commands are denied, not silently allowed.
+  // This check runs before the empty-patterns early-return so that even when
+  // deny-path checking is fully disabled, oversized commands are still blocked.
+  // OWASP A05:2025 — Security Misconfiguration.
   if (command.length > MAX_COMMAND_LENGTH) {
     return OVERSIZED_COMMAND_DENIED;
+  }
+
+  if (patterns.length === 0) {
+    return undefined;
   }
 
   const commandName = command.trim().split(/\s+/)[0]?.split("/").pop() ?? "";
