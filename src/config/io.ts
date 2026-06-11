@@ -1801,9 +1801,10 @@ export function createConfigIO(
       const raw = deps.fs.readFileSync(configPath, "utf-8");
       const hmacResult = verifyConfigHmacSync(configPath, raw);
       if (!hmacResult.ok && hmacResult.kind === "mismatch") {
-        deps.logger.warn(
-          `[config-integrity] HMAC mismatch on ${configPath}. Config may have been tampered with.`,
+        deps.logger.error(
+          `[config-integrity] HMAC mismatch on ${configPath}. Refusing to load tampered config.`,
         );
+        return {};
       } else if (!hmacResult.ok && hmacResult.kind === "no_sig" && hmacResult.suspicious) {
         deps.logger.warn(
           `[config-integrity] Missing HMAC signature for ${configPath} (file > 100 bytes).`,
@@ -2012,6 +2013,31 @@ export function createConfigIO(
       const rawHash = await deps.measure("config.snapshot.read.hash", () => hashConfigRaw(raw));
       fallbackRaw = raw;
       fallbackHash = rawHash;
+
+      // HMAC integrity check — must match the sync path.
+      // OWASP A04:2025 — Cryptographic Failures / A08:2025 — Data Integrity Failures.
+      const hmacResult = verifyConfigHmacSync(configPath, raw);
+      if (!hmacResult.ok && hmacResult.kind === "mismatch") {
+        deps.logger.error(
+          `[config-integrity] HMAC mismatch on ${configPath}. Config may have been tampered with.`,
+        );
+        return await finalizeReadConfigSnapshotInternalResult(deps, {
+          snapshot: createConfigFileSnapshot({
+            path: configPath,
+            exists: true,
+            raw,
+            parsed: {},
+            sourceConfig: {},
+            valid: false,
+            runtimeConfig: {},
+            hash: rawHash,
+            issues: [{ path: "", message: "Config integrity check failed: HMAC mismatch" }],
+            warnings: [],
+            legacyIssues: [],
+          }),
+        });
+      }
+
       const parsedRes = await deps.measure("config.snapshot.read.parse", () =>
         parseConfigJson5(raw, deps.json5),
       );
@@ -2773,8 +2799,13 @@ export function createConfigIO(
         if (token) {
           writeConfigHmacSigSync(configPath, json, token);
         }
-      } catch {
-        // HMAC signing failure is non-fatal — log and continue
+      } catch (hmacErr) {
+        // HMAC signing failure leaves config unsigned — log for operator awareness.
+        // OWASP A09:2025 — Security Logging & Alerting Failures.
+        deps.logger.error(
+          `[config-integrity] Failed to sign ${configPath} HMAC. Config will load unsigned.`,
+          hmacErr,
+        );
       }
       logConfigOverwrite();
       logConfigWriteAnomalies();
