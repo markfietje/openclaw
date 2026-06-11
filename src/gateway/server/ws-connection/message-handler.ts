@@ -2398,6 +2398,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           ...(Object.keys(pluginNodeCapabilitySurfaces).length > 0
             ? { pluginNodeCapabilitySurfaces }
             : {}),
+          inflightRpcCount: 0,
           // Gap G1 fix — security hardening: device-token auth requires a valid authority
           // snapshot as a precondition. The tracker is only undefined when the feature is not
           // configured. When it IS configured, snapshot capture MUST succeed. If deviceId
@@ -2941,12 +2942,41 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
       // dispatch promise settles, so we only invalidate authority when the
       // mutation actually applied (see respond()).
       let dispatchSucceeded = false;
+      // Per-connection inflight RPC cap: reject new dispatches when the client
+      // already has MAX_INFLIGHT_RPC concurrent requests being processed.
+      const MAX_INFLIGHT_RPC = 10;
+      if (client.inflightRpcCount >= MAX_INFLIGHT_RPC) {
+        send({
+          type: "res",
+          id: req.id,
+          ok: false,
+          error: errorShape(
+            ErrorCodes.UNAVAILABLE,
+            `too many concurrent requests (max ${MAX_INFLIGHT_RPC})`,
+            {
+              retryable: true,
+              retryAfterMs: 500,
+            },
+          ),
+        });
+        logWs("out", "res", {
+          connId,
+          id: req.id,
+          ok: false,
+          method: req.method,
+          errorCode: ErrorCodes.UNAVAILABLE,
+          errorMessage: "inflight rpc cap exceeded",
+        });
+        return;
+      }
+      client.inflightRpcCount++;
       const respond = (
         ok: boolean,
         payload?: unknown,
         error?: ErrorShape,
         meta?: Record<string, unknown>,
       ) => {
+        client.inflightRpcCount--;
         // Mark dispatch as successful so the credential-mutation barrier can
         // decide whether to invalidate authority. We only count real success
         // (`ok === true`); error responses do not trigger invalidation to
