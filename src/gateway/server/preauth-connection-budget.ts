@@ -4,7 +4,9 @@ import {
   resolveIntegerOption,
 } from "@openclaw/normalization-core/number-coercion";
 
-const DEFAULT_MAX_PREAUTH_CONNECTIONS_PER_IP = 32;
+// Preauth budget: low enough to limit DoS, high enough for normal
+// multi-tab/multi-device Control UI use. OWASP A07:2025 — Auth Failures.
+const DEFAULT_MAX_PREAUTH_CONNECTIONS_PER_IP = 8;
 const UNKNOWN_CLIENT_IP_BUDGET_KEY = "__openclaw_unknown_client_ip__";
 
 function getMaxPreauthConnectionsPerIpFromEnv(env: NodeJS.ProcessEnv = process.env): number {
