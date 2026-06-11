@@ -240,6 +240,28 @@ function expandTilde(token: string): string {
   return token;
 }
 
+const SHELL_VAR_EXPANSIONS: ReadonlyMap<string, string> = new Map([
+  ["$HOME", "~"],
+  ["${HOME}", "~"],
+  ["$USERPROFILE", "~"],
+  ["${USERPROFILE}", "~"],
+  ["$HOMEPATH", "~"],
+  ["${HOMEPATH}", "~"],
+]);
+
+function expandShellVars(token: string): string {
+  let result = token;
+  for (const [pattern, replacement] of SHELL_VAR_EXPANSIONS) {
+    if (result.includes(pattern)) {
+      result = result.replaceAll(pattern, replacement);
+    }
+  }
+  if (/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/.test(result)) {
+    return "";
+  }
+  return result;
+}
+
 /**
  * Quick heuristic: does a token look like a filesystem path?
  * Matches tokens starting with `/`, `./`, `~`, or containing at least one `/`.
@@ -411,7 +433,7 @@ export function extractPathsFromCommand(command: string): string[] {
       candidate = stripped;
     }
 
-    candidate = expandTilde(stripQuotes(candidate));
+    candidate = expandShellVars(expandTilde(stripQuotes(candidate)));
 
     // Enforce maximum path length to prevent memory exhaustion.
     if (candidate.length > MAX_PATH_LENGTH) {
@@ -448,6 +470,30 @@ function stripQuotes(s: string): string {
 // command length to prevent memory exhaustion via oversized commands.
 const MAX_COMMAND_LENGTH = 64 * 1024; // 64 KB
 
+const OVERSIZED_COMMAND_DENIED = "<oversized-command-denied>";
+
+const ENV_DUMP_COMMANDS: ReadonlySet<string> = new Set([
+  "env",
+  "printenv",
+  "set",
+  "export",
+  "declare",
+]);
+
+const ENV_DUMP_DENIED = "<env-dump-denied>";
+
+const INLINE_SCRIPT_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["perl", new Set(["-e"])],
+  ["python", new Set(["-c"])],
+  ["python3", new Set(["-c"])],
+  ["node", new Set(["-e", "--eval"])],
+  ["ruby", new Set(["-e"])],
+  ["php", new Set(["-r"])],
+  ["lua", new Set(["-e"])],
+]);
+
+const INLINE_SCRIPT_DENIED = "<inline-script-denied>";
+
 /**
  * Check if a command string attempts to access a denied path.
  *
@@ -465,9 +511,25 @@ export function checkExecDenyPath(
     return undefined;
   }
 
-  // Reject oversized commands to prevent memory exhaustion.
+  // Fail-closed: oversized commands are denied, not silently allowed.
   if (command.length > MAX_COMMAND_LENGTH) {
-    return undefined; // Silently allow oversized commands to avoid blocking valid large commands
+    return OVERSIZED_COMMAND_DENIED;
+  }
+
+  const commandName = command.trim().split(/\s+/)[0]?.split("/").pop() ?? "";
+  if (ENV_DUMP_COMMANDS.has(commandName)) {
+    return ENV_DUMP_DENIED;
+  }
+
+  const interpName = commandName;
+  const inlineFlags = INLINE_SCRIPT_FLAGS.get(interpName);
+  if (inlineFlags) {
+    const tokens = command.trim().split(/\s+/);
+    for (let i = 1; i < tokens.length; i++) {
+      if (inlineFlags.has(tokens[i]!)) {
+        return INLINE_SCRIPT_DENIED;
+      }
+    }
   }
 
   const extractedPaths = extractPathsFromCommand(command);
