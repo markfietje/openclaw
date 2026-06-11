@@ -539,6 +539,17 @@ export type GatewayConfig = {
   /** Tool access restrictions for HTTP /tools/invoke endpoint. */
   tools?: GatewayToolsConfig;
   /**
+   * WebSocket connection lifecycle limits.
+   * These are operational parameters that vary by deployment (long-lived desktop
+   * vs. short-lived container). Default values are conservative for desktop use.
+   */
+  ws?: {
+    /** Max WebSocket connection age in ms. Default: 86400000 (24h). */
+    maxConnectionAgeMs?: number;
+    /** Max idle time before connection culling in ms. Default: 1800000 (30m). */
+    maxIdleMs?: number;
+  };
+  /**
    * Pre-auth Gateway WebSocket handshake timeout in milliseconds.
    * Env var OPENCLAW_HANDSHAKE_TIMEOUT_MS takes precedence. Default: 15000.
    */
