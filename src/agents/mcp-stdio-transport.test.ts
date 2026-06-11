@@ -246,4 +246,29 @@ describe("OpenClawStdioClientTransport", () => {
     child.stderr.write("server diagnostic");
     expect(transport.stderr?.read()?.toString()).toBe("server diagnostic");
   });
+
+  it("rejects disallowed MCP server commands", async () => {
+    expect(
+      () => new OpenClawStdioClientTransport({ command: "/bin/bash", args: ["-c", "evil"] }),
+    ).not.toThrow();
+    // start() is where the command validation runs.
+    const child = new MockChildProcess();
+    spawnMock.mockReturnValue(child);
+    const transport = new OpenClawStdioClientTransport({
+      command: "/bin/bash",
+      args: ["-c", "evil"],
+    });
+    await expect(transport.start()).rejects.toThrow("not allowed");
+  });
+
+  it("allows npx MCP server commands", async () => {
+    const child = new MockChildProcess();
+    spawnMock.mockReturnValue(child);
+
+    const transport = new OpenClawStdioClientTransport({ command: "npx" });
+    const started = transport.start();
+    child.emit("spawn");
+    // Should resolve without error (command is in allowlist).
+    await expect(started).resolves.toBeUndefined();
+  });
 });
