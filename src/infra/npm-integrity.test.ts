@@ -10,18 +10,21 @@ describe("resolveNpmIntegrityDrift", () => {
     {
       expectedIntegrity: undefined,
       resolution: { integrity: "sha512-same", resolvedAt: "2026-01-01T00:00:00.000Z" },
+      expectedProceed: false,
     },
     {
       expectedIntegrity: "sha512-same",
       resolution: { resolvedAt: "2026-01-01T00:00:00.000Z" },
+      expectedProceed: false,
     },
     {
       expectedIntegrity: "sha512-same",
       resolution: { integrity: "sha512-same", resolvedAt: "2026-01-01T00:00:00.000Z" },
+      expectedProceed: true,
     },
   ])(
-    "returns proceed=true when integrity is missing or unchanged: $expectedIntegrity",
-    async ({ expectedIntegrity, resolution }) => {
+    "handles missing or matching integrity: expected=$expectedIntegrity",
+    async ({ expectedIntegrity, resolution, expectedProceed }) => {
       const createPayload = vi.fn(() => "unused");
       await expect(
         resolveNpmIntegrityDrift({
@@ -30,7 +33,7 @@ describe("resolveNpmIntegrityDrift", () => {
           resolution,
           createPayload,
         }),
-      ).resolves.toEqual({ proceed: true });
+      ).resolves.toEqual({ proceed: expectedProceed });
       expect(createPayload).not.toHaveBeenCalled();
     },
   );
