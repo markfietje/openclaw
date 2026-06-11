@@ -139,6 +139,14 @@ const GATEWAY_PROBE_STATUS_BY_PATH = new Map<string, "live" | "ready">([
   ["/ready", "ready"],
   ["/readyz", "ready"],
 ]);
+
+const HTTP_MAX_BODY_BYTES_BY_PATH: Record<string, number> = {
+  "/v1/chat/completions": 5 * 1024 * 1024,
+  "/v1/responses": 5 * 1024 * 1024,
+  "/tools/invoke": 256 * 1024,
+  "/mcp": 64 * 1024,
+};
+const HTTP_DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
 const pluginGatewayAuthBypassPathsCache = new WeakMap<
   OpenClawConfig,
   Promise<ReadonlySet<string>>
@@ -644,6 +652,22 @@ export function createGatewayHttpServer(opts: {
         req.url = scopedNodeCapability.rewrittenUrl;
       }
       const scopedRequestPath = scopedNodeCapability.pathname;
+      // Early content-length rejection before body reading.
+      const maxBodyBytes =
+        HTTP_MAX_BODY_BYTES_BY_PATH[scopedRequestPath] ?? HTTP_DEFAULT_MAX_BODY_BYTES;
+      const contentLengthRaw = req.headers?.["content-length"];
+      const contentLength =
+        typeof contentLengthRaw === "string" ? parseInt(contentLengthRaw, 10) : 0;
+      if (Number.isFinite(contentLength) && contentLength > maxBodyBytes) {
+        res.statusCode = 413;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(
+          JSON.stringify({
+            error: { message: "Payload too large", type: "invalid_request_error" },
+          }),
+        );
+        return;
+      }
       const pluginPathContext = handlePluginRequest
         ? resolvePluginRoutePathContext(scopedRequestPath)
         : null;
