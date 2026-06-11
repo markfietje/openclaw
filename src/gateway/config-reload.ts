@@ -23,6 +23,7 @@ import {
 } from "./config-reload-plan.js";
 import { resolveGatewayReloadSettings } from "./config-reload-settings.js";
 import type { GatewayHotReloadStatus } from "./config-reload-status.types.js";
+import { setConfigReloadBarrier } from "./server/lifecycle/config-reload-barrier.js";
 
 export {
   buildGatewayReloadPlan,
@@ -612,14 +613,18 @@ export function startGatewayConfigReloader(opts: {
     }
 
     await opts.onConfigChange?.(plan, nextConfig);
+    const barrier = setConfigReloadBarrier(`hot-reload: ${plan.hotReasons.join(", ")}`);
     try {
       await opts.onHotReload(plan, nextConfig, ownership, nextSourceConfig);
     } catch (error) {
       ownership.rollbackRuntimeEnv();
       throw error;
+    } finally {
+      barrier.release();
     }
     assertCurrent();
     await applyCurrentRuntimePlan(plan, nextConfig);
+    await opts.onConfigApplied?.(plan, nextConfig);
     await commitReloadBaseline();
   };
 
