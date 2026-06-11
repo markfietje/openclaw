@@ -282,6 +282,24 @@ describe("ws connect policy", () => {
     expectSkipPairing(controlUi, "operator", false);
   });
 
+  // Fix 3.2: tailscale auth with authMode=none must still require device pairing
+  test("auth.mode=none does not skip pairing when authMethod is tailscale", () => {
+    const controlUi = authPolicy({ isControlUi: true });
+
+    // Control UI + operator + authMode=none + tailscale: require pairing
+    expectSkipPairing(controlUi, "operator", false, {
+      authMode: "none",
+      authMethod: "tailscale",
+    });
+    // Control UI + operator + authMode=none + no authMethod: still skip
+    expectSkipPairing(controlUi, "operator", true, { authMode: "none" });
+    // Control UI + operator + authMode=none + authMethod=token: still skip
+    expectSkipPairing(controlUi, "operator", true, {
+      authMode: "none",
+      authMethod: "token",
+    });
+  });
+
   test("tailscale auth skips pairing only for operator control-ui with device identity", () => {
     const device = deviceRaw("dev-1");
     const controlUiWithDevice = authPolicy({

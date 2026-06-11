@@ -52,7 +52,12 @@ export function shouldSkipControlUiPairing(
   // is called for ALL clients (not just Control UI) at the call site.
   // Scope to operator role so node-role sessions still need device identity
   // (#43478 was reverted for skipping ALL clients).
-  if (policy.isControlUi && role === "operator" && authMode === "none") {
+  if (
+    policy.isControlUi &&
+    role === "operator" &&
+    authMode === "none" &&
+    authMethod !== "tailscale"
+  ) {
     return true;
   }
   // dangerouslyDisableDeviceAuth is the break-glass path for Control UI
