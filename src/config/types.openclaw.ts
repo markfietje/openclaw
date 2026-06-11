@@ -126,6 +126,10 @@ export type OpenClawConfig = {
     };
     /** Inline env vars to apply when not already present in the process env. */
     vars?: Record<string, string>;
+    // env.vars are merged into process.env at startup. Combined with *_FILE
+    // secret resolution, this could inject values from arbitrary files. The
+    // *_FILE path allowlist in resolveSecretEnvValue breaks this chain.
+    // OWASP A02:2025 — Security Misconfiguration.
     /** Sugar: allow env vars directly under env (string values only). */
     [key: string]:
       | string
