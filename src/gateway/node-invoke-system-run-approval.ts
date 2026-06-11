@@ -501,27 +501,10 @@ export function sanitizeSystemRunParamsForForwarding(opts: {
     return { ok: true, params: next };
   }
 
-  // If the approval request timed out (decision=null), allow askFallback-driven
-  // "allow-once" ONLY for clients that are allowed to use exec approvals.
-  if (
-    timedOut &&
-    approvalSource === "ask-fallback" &&
-    !approved &&
-    requestedDecision === null &&
-    clientHasApprovals(opts.client)
-  ) {
-    if (!runtimeContext.plan) {
-      return systemRunApprovalGuardError({
-        code: "APPROVAL_PLAN_REQUIRED",
-        message: "ask fallback requires an approved execution plan",
-        details: { runId },
-      });
-    }
-    if (typeof manager.consumeAskFallback !== "function" || !manager.consumeAskFallback(runId)) {
-      return systemRunApprovalRequired(runId);
-    }
-    next.approvalSource = "ask-fallback";
-    return { ok: true, params: next };
+  // Fail-closed: timeout = denied, not approved.
+  // OWASP A06:2025 — Insecure Design.
+  if (timedOut) {
+    return systemRunApprovalRequired(runId);
   }
 
   return systemRunApprovalRequired(runId);
