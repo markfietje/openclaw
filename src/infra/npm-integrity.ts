@@ -44,7 +44,9 @@ export async function resolveNpmIntegrityDrift<TPayload>(
   const expectedIntegrity = normalizeIntegrity(params.expectedIntegrity);
   const actualIntegrity = normalizeIntegrity(params.resolution.integrity);
   if (!expectedIntegrity || !actualIntegrity) {
-    return { proceed: true };
+    // Missing integrity metadata in managed install path — deny by default.
+    // OWASP A03:2025 — Software Supply Chain Failures.
+    return { proceed: false };
   }
   if (expectedIntegrity === actualIntegrity) {
     return { proceed: true };
