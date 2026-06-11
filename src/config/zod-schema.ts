@@ -540,6 +540,7 @@ const GatewaySecurityConfigSchema = z
     dangerouslyAllowUnmappedMethods: z.boolean().default(false),
     dangerouslyAllowLegacyEndpointFallback: z.boolean().default(false),
     dangerouslyAllowHostHeaderOriginFallback: z.boolean().default(false),
+    allowWildcardOrigin: z.boolean().default(false),
 
     // ─── Layer 4: Operational ────
     enablePingPong: z.boolean().default(true),

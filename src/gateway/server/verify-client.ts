@@ -311,6 +311,7 @@ export function createGatewayVerifyClient(
         validateHostHeader: securityConfig.validateHostHeader !== false,
         secFetchSite: headerValue(req.headers["sec-fetch-site"]),
         strictProtoValidation: securityConfig.strictProtoValidation,
+        allowWildcardOrigin: securityConfig.allowWildcardOrigin === true,
       });
 
       if (!originCheck.ok) {
@@ -321,18 +322,21 @@ export function createGatewayVerifyClient(
     }
 
     // 4. IP restriction — blocklist takes precedence over allowlist
+    //    OWASP A01:2025 — when proxy headers come from an untrusted source that was
+    //    allowed by config opt-in, resolve client IP from the socket, not the header.
     const ipRestriction: IpRestrictionConfig = {
       ipAllowlist: securityConfig.ipAllowlist,
       ipBlocklist: securityConfig.ipBlocklist,
     };
     if (ipRestriction.ipAllowlist?.length || ipRestriction.ipBlocklist?.length) {
+      const useForwardedHeaders = remoteIsTrustedProxy;
       const clientIp = resolveClientIp({
         remoteAddr,
-        forwardedFor,
-        forwarded,
-        realIp,
-        trustedProxies,
-        allowRealIpFallback,
+        forwardedFor: useForwardedHeaders ? forwardedFor : undefined,
+        forwarded: useForwardedHeaders ? forwarded : undefined,
+        realIp: useForwardedHeaders ? realIp : undefined,
+        trustedProxies: useForwardedHeaders ? trustedProxies : [],
+        allowRealIpFallback: useForwardedHeaders && allowRealIpFallback,
       });
       if (!isIpAllowed(clientIp, ipRestriction)) {
         log.warn(
