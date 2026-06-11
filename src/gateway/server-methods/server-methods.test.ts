@@ -2320,7 +2320,32 @@ describe("sanitizeChatSendMessageInput", () => {
     {
       name: "normalizes unicode to NFC",
       input: "Cafe\u0301",
-      expected: { ok: true as const, message: "Café" },
+      expected: { ok: true as const, message: "Caf\u00e9" },
+    },
+    {
+      name: "strips zero-width space characters",
+      input: "hello\u200Bworld",
+      expected: { ok: true as const, message: "helloworld" },
+    },
+    {
+      name: "strips zero-width joiner characters",
+      input: "test\u200Ding",
+      expected: { ok: true as const, message: "testing" },
+    },
+    {
+      name: "preserves normal Unicode emoji",
+      input: "hello \uD83E\uDD80 world",
+      expected: { ok: true as const, message: "hello \uD83E\uDD80 world" },
+    },
+    {
+      name: "strips BOM characters",
+      input: "\uFEFFtext",
+      expected: { ok: true as const, message: "text" },
+    },
+    {
+      name: "strips directional override characters",
+      input: "hello\u202Eworld",
+      expected: { ok: true as const, message: "helloworld" },
     },
   ])("$name", ({ input, expected }) => {
     expect(sanitizeChatSendMessageInput(input)).toEqual(expected);

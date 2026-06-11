@@ -383,10 +383,20 @@ function writeUpgradePreflightFailure(
   socket: { write: (chunk: string) => void },
   failure: Extract<GatewayUpgradePreflightResult, { ok: false }>,
 ) {
+  // Security headers must be present even on preflight failures to prevent
+  // content-sniffing and framing attacks on error responses.
+  const securityHeaders = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "default-src 'none'",
+  };
   socket.write(
     `HTTP/1.1 ${failure.code} ${sanitizeHttpReasonPhrase(failure.message)}\r\n` +
       "Connection: close\r\n" +
-      "\r\n",
+      Object.entries(securityHeaders)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join("\r\n") +
+      "\r\n\r\n",
   );
 }
 
