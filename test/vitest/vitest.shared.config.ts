@@ -617,6 +617,36 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: "@openclaw/gateway-security-core/ws-keepalive",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "ws-keepalive.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/config-guard",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "config-guard.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/ipv6-subnet",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "ipv6-subnet.ts",
+        ),
+      },
+      {
         find: "@openclaw/gateway-security-core",
         replacement: path.join(repoRoot, "packages", "gateway-security-core", "src", "index.ts"),
       },
