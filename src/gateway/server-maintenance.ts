@@ -32,6 +32,8 @@ import { PENDING_CHAT_SEND_DEDUPE_PREFIX, type DedupeEntry } from "./server-shar
 import { formatError } from "./server-utils.js";
 import { setBroadcastHealthUpdate } from "./server/health-state.js";
 import { isManagedWorktreeOwnerActive } from "./worktree-owner-activity.js";
+import { startHeapPressureMonitor } from "./server/lifecycle/heap-pressure-monitor.js";
+import { registerInterval } from "./server/lifecycle/timer-registry.js";
 
 export function startGatewayMaintenanceTimers(params: {
   broadcast: (
@@ -97,20 +99,30 @@ export function startGatewayMaintenanceTimers(params: {
     params.nodeSendToAllSubscribed("health", snap);
   });
 
+  startHeapPressureMonitor({ log: { warn: (msg) => params.logHealth.error(msg) } });
+
   // periodic keepalive
-  const tickInterval = setInterval(() => {
-    const payload = { ts: Date.now() };
-    params.broadcast("tick", payload);
-    params.nodeSendToAllSubscribed("tick", payload);
-  }, TICK_INTERVAL_MS);
+  const tickInterval = registerInterval(
+    "gateway.tick",
+    () => {
+      const payload = { ts: Date.now() };
+      params.broadcast("tick", payload);
+      params.nodeSendToAllSubscribed("tick", payload);
+    },
+    TICK_INTERVAL_MS,
+  );
 
   // Keep cached health warm without request-time live channel probes. Explicit
   // status/doctor probe paths still pass probe=true when the operator asks.
-  const healthInterval = setInterval(() => {
-    void params
-      .refreshGatewayHealthSnapshot({ probe: false })
-      .catch((err: unknown) => params.logHealth.error(`refresh failed: ${formatError(err)}`));
-  }, HEALTH_REFRESH_INTERVAL_MS);
+  const healthInterval = registerInterval(
+    "gateway.health",
+    () => {
+      void params
+        .refreshGatewayHealthSnapshot({ probe: false })
+        .catch((err: unknown) => params.logHealth.error(`refresh failed: ${formatError(err)}`));
+    },
+    HEALTH_REFRESH_INTERVAL_MS,
+  );
 
   // Prime cache so first client gets a snapshot without waiting.
   void params
@@ -131,7 +143,11 @@ export function startGatewayMaintenanceTimers(params: {
     runWorktreeGc().catch((err: unknown) => {
       params.logHealth.error(`managed worktree cleanup failed: ${formatError(err)}`);
     });
-  const worktreeCleanup = setInterval(() => void performWorktreeGc(), WORKTREE_GC_INTERVAL_MS);
+  const worktreeCleanup = registerInterval(
+    "gateway.worktree-gc",
+    () => void performWorktreeGc(),
+    WORKTREE_GC_INTERVAL_MS,
+  );
   void performWorktreeGc();
 
   let skillCuratorCleanup = () => {};
@@ -144,190 +160,194 @@ export function startGatewayMaintenanceTimers(params: {
   }
 
   // dedupe cache cleanup
-  const dedupeCleanup = setInterval(() => {
-    const AGENT_RUN_SEQ_MAX = 10_000;
-    const now = Date.now();
-    const resolveDedupeRunId = (key: string, entry: DedupeEntry) => {
-      if (!key.startsWith("agent:") && !key.startsWith("chat:")) {
-        return undefined;
-      }
-      const keyRunId = key.slice(key.indexOf(":") + 1);
-      if (keyRunId) {
-        if (params.chatAbortControllers.has(keyRunId) || params.chatQueuedTurns.has(keyRunId)) {
-          return keyRunId;
+  const dedupeCleanup = registerInterval(
+    "gateway.dedupe-cleanup",
+    () => {
+      const AGENT_RUN_SEQ_MAX = 10_000;
+      const now = Date.now();
+      const resolveDedupeRunId = (key: string, entry: DedupeEntry) => {
+        if (!key.startsWith("agent:") && !key.startsWith("chat:")) {
+          return undefined;
+        }
+        const keyRunId = key.slice(key.indexOf(":") + 1);
+        if (keyRunId) {
+          if (params.chatAbortControllers.has(keyRunId) || params.chatQueuedTurns.has(keyRunId)) {
+            return keyRunId;
+          }
+        }
+        const payload = entry.payload;
+        return payload && typeof payload === "object" && !Array.isArray(payload)
+          ? typeof (payload as { runId?: unknown }).runId === "string"
+            ? (payload as { runId: string }).runId.trim() || undefined
+            : undefined
+          : undefined;
+      };
+      const isPendingAcceptedRunDedupeKey = (key: string, dedupeEntry: DedupeEntry) => {
+        if (!key.startsWith("agent:") && !key.startsWith(PENDING_CHAT_SEND_DEDUPE_PREFIX)) {
+          return false;
+        }
+        const payload = dedupeEntry.payload;
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+          return false;
+        }
+        if ((payload as { status?: unknown }).status !== "accepted") {
+          return false;
+        }
+        const expiresAtMs = (payload as { expiresAtMs?: unknown }).expiresAtMs;
+        return isFutureDateTimestampMs(expiresAtMs, { nowMs: now });
+      };
+      const isActiveRunDedupeKey = (key: string, dedupeEntry: DedupeEntry) => {
+        // Keep idempotency records for active runs so retries cannot create
+        // duplicate chat/agent work while a command is still draining.
+        const isAgentKey = key.startsWith("agent:");
+        const isChatKey = key.startsWith("chat:");
+        if (!isAgentKey && !isChatKey) {
+          return false;
+        }
+        const runId = resolveDedupeRunId(key, dedupeEntry);
+        const entry = runId ? params.chatAbortControllers.get(runId) : undefined;
+        if (entry) {
+          return isAgentKey ? entry.kind === "agent" : entry.kind !== "agent";
+        }
+        return Boolean(isChatKey && runId && params.chatQueuedTurns.has(runId));
+      };
+      for (const [k, v] of params.dedupe) {
+        if (isActiveRunDedupeKey(k, v) || isPendingAcceptedRunDedupeKey(k, v)) {
+          continue;
+        }
+        if (now - v.ts > DEDUPE_TTL_MS) {
+          params.dedupe.delete(k);
         }
       }
-      const payload = entry.payload;
-      return payload && typeof payload === "object" && !Array.isArray(payload)
-        ? typeof (payload as { runId?: unknown }).runId === "string"
-          ? (payload as { runId: string }).runId.trim() || undefined
-          : undefined
-        : undefined;
-    };
-    const isPendingAcceptedRunDedupeKey = (key: string, dedupeEntry: DedupeEntry) => {
-      if (!key.startsWith("agent:") && !key.startsWith(PENDING_CHAT_SEND_DEDUPE_PREFIX)) {
-        return false;
-      }
-      const payload = dedupeEntry.payload;
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-        return false;
-      }
-      if ((payload as { status?: unknown }).status !== "accepted") {
-        return false;
-      }
-      const expiresAtMs = (payload as { expiresAtMs?: unknown }).expiresAtMs;
-      return isFutureDateTimestampMs(expiresAtMs, { nowMs: now });
-    };
-    const isActiveRunDedupeKey = (key: string, dedupeEntry: DedupeEntry) => {
-      // Keep idempotency records for active runs so retries cannot create
-      // duplicate chat/agent work while a command is still draining.
-      const isAgentKey = key.startsWith("agent:");
-      const isChatKey = key.startsWith("chat:");
-      if (!isAgentKey && !isChatKey) {
-        return false;
-      }
-      const runId = resolveDedupeRunId(key, dedupeEntry);
-      const entry = runId ? params.chatAbortControllers.get(runId) : undefined;
-      if (entry) {
-        return isAgentKey ? entry.kind === "agent" : entry.kind !== "agent";
-      }
-      return Boolean(isChatKey && runId && params.chatQueuedTurns.has(runId));
-    };
-    for (const [k, v] of params.dedupe) {
-      if (isActiveRunDedupeKey(k, v) || isPendingAcceptedRunDedupeKey(k, v)) {
-        continue;
-      }
-      if (now - v.ts > DEDUPE_TTL_MS) {
-        params.dedupe.delete(k);
-      }
-    }
-    if (params.dedupe.size > DEDUPE_MAX) {
-      const excess = params.dedupe.size - DEDUPE_MAX;
-      const oldestKeys = [...params.dedupe.entries()]
-        .filter(
-          ([key, entry]) =>
-            !isActiveRunDedupeKey(key, entry) && !isPendingAcceptedRunDedupeKey(key, entry),
-        )
-        .toSorted(([, left], [, right]) => left.ts - right.ts)
-        .slice(0, excess)
-        .map(([key]) => key);
-      for (const key of oldestKeys) {
-        params.dedupe.delete(key);
-      }
-    }
-
-    if (params.agentRunSeq.size > AGENT_RUN_SEQ_MAX) {
-      const excess = params.agentRunSeq.size - AGENT_RUN_SEQ_MAX;
-      let removed = 0;
-      for (const runId of params.agentRunSeq.keys()) {
-        params.agentRunSeq.delete(runId);
-        removed += 1;
-        if (removed >= excess) {
-          break;
+      if (params.dedupe.size > DEDUPE_MAX) {
+        const excess = params.dedupe.size - DEDUPE_MAX;
+        const oldestKeys = [...params.dedupe.entries()]
+          .filter(
+            ([key, entry]) =>
+              !isActiveRunDedupeKey(key, entry) && !isPendingAcceptedRunDedupeKey(key, entry),
+          )
+          .toSorted(([, left], [, right]) => left.ts - right.ts)
+          .slice(0, excess)
+          .map(([key]) => key);
+        for (const key of oldestKeys) {
+          params.dedupe.delete(key);
         }
       }
-    }
 
-    const resolveAgentThrottleRunId = (key: string) => {
-      if (key.endsWith(":assistant")) {
-        return key.slice(0, -":assistant".length);
-      }
-      if (key.endsWith(":thinking")) {
-        return key.slice(0, -":thinking".length);
-      }
-      return key;
-    };
-
-    for (const [runId, entry] of params.chatAbortControllers) {
-      if (entry.projectSessionTerminalPending === true) {
-        continue;
-      }
-      if (isFutureDateTimestampMs(entry.expiresAtMs, { nowMs: now })) {
-        continue;
-      }
-      if (entry.projectSessionTerminalPersistence) {
-        const lifecycleGeneration = entry.lifecycleGeneration?.trim();
-        const sessionKey = entry.sessionKey.trim();
-        const sessionId = entry.sessionId.trim();
-        if (entry.controlUiVisible !== false && lifecycleGeneration && sessionKey && sessionId) {
-          params.restartRecoveryCandidates.set(runId, {
-            runId,
-            lifecycleGeneration,
-            sessionKey,
-            sessionId,
-            observedAt: entry.projectSessionTerminalObservedAt,
-          });
+      if (params.agentRunSeq.size > AGENT_RUN_SEQ_MAX) {
+        const excess = params.agentRunSeq.size - AGENT_RUN_SEQ_MAX;
+        let removed = 0;
+        for (const runId of params.agentRunSeq.keys()) {
+          params.agentRunSeq.delete(runId);
+          removed += 1;
+          if (removed >= excess) {
+            break;
+          }
         }
-        removeChatAbortControllerEntry(params.chatAbortControllers, runId, entry);
-        continue;
       }
-      if (entry.projectSessionActive === false) {
-        removeChatAbortControllerEntry(params.chatAbortControllers, runId, entry);
-        continue;
-      }
-      abortTrackedChatRunById(params, {
-        runId,
-        sessionKey: entry.sessionKey,
-        stopReason: "timeout",
-      });
-    }
 
-    const ABORTED_RUN_TTL_MS = 60 * 60_000;
-    for (const [runId, abortMarker] of params.chatRunState.abortedRuns) {
-      if (now - chatAbortMarkerTimestampMs(abortMarker) <= ABORTED_RUN_TTL_MS) {
-        continue;
-      }
-      params.chatRunState.abortedRuns.delete(runId);
-      params.chatRunState.clearRun(runId);
-    }
+      const resolveAgentThrottleRunId = (key: string) => {
+        if (key.endsWith(":assistant")) {
+          return key.slice(0, -":assistant".length);
+        }
+        if (key.endsWith(":thinking")) {
+          return key.slice(0, -":thinking".length);
+        }
+        return key;
+      };
 
-    // Prune expired control-plane rate-limit buckets to prevent unbounded
-    // growth when many unique clients connect over time.
-    pruneStaleControlPlaneBuckets(now);
+      for (const [runId, entry] of params.chatAbortControllers) {
+        if (entry.projectSessionTerminalPending === true) {
+          continue;
+        }
+        if (isFutureDateTimestampMs(entry.expiresAtMs, { nowMs: now })) {
+          continue;
+        }
+        if (entry.projectSessionTerminalPersistence) {
+          const lifecycleGeneration = entry.lifecycleGeneration?.trim();
+          const sessionKey = entry.sessionKey.trim();
+          const sessionId = entry.sessionId.trim();
+          if (entry.controlUiVisible !== false && lifecycleGeneration && sessionKey && sessionId) {
+            params.restartRecoveryCandidates.set(runId, {
+              runId,
+              lifecycleGeneration,
+              sessionKey,
+              sessionId,
+              observedAt: entry.projectSessionTerminalObservedAt,
+            });
+          }
+          removeChatAbortControllerEntry(params.chatAbortControllers, runId, entry);
+          continue;
+        }
+        if (entry.projectSessionActive === false) {
+          removeChatAbortControllerEntry(params.chatAbortControllers, runId, entry);
+          continue;
+        }
+        abortTrackedChatRunById(params, {
+          runId,
+          sessionKey: entry.sessionKey,
+          stopReason: "timeout",
+        });
+      }
 
-    // Sweep stale buffers for runs that were never explicitly aborted.
-    // Only reap orphaned buffers after the abort controller is gone; active
-    // runs can legitimately sit idle while tools/models work.
-    for (const [runId, lastSentAt] of params.chatDeltaSentAt) {
-      if (params.chatRunState.abortedRuns.has(runId)) {
-        continue; // already handled above
+      const ABORTED_RUN_TTL_MS = 60 * 60_000;
+      for (const [runId, abortMarker] of params.chatRunState.abortedRuns) {
+        if (now - chatAbortMarkerTimestampMs(abortMarker) <= ABORTED_RUN_TTL_MS) {
+          continue;
+        }
+        params.chatRunState.abortedRuns.delete(runId);
+        params.chatRunState.clearRun(runId);
       }
-      if (params.chatAbortControllers.has(runId)) {
-        continue;
+
+      // Prune expired control-plane rate-limit buckets to prevent unbounded
+      // growth when many unique clients connect over time.
+      pruneStaleControlPlaneBuckets(now);
+
+      // Sweep stale buffers for runs that were never explicitly aborted.
+      // Only reap orphaned buffers after the abort controller is gone; active
+      // runs can legitimately sit idle while tools/models work.
+      for (const [runId, lastSentAt] of params.chatDeltaSentAt) {
+        if (params.chatRunState.abortedRuns.has(runId)) {
+          continue; // already handled above
+        }
+        if (params.chatAbortControllers.has(runId)) {
+          continue;
+        }
+        if (now - lastSentAt <= ABORTED_RUN_TTL_MS) {
+          continue;
+        }
+        params.chatRunState.clearRun(runId);
       }
-      if (now - lastSentAt <= ABORTED_RUN_TTL_MS) {
-        continue;
+      for (const [runId, lastUpdatedAt] of params.chatRunState.bufferUpdatedAt) {
+        if (params.chatRunState.abortedRuns.has(runId)) {
+          continue;
+        }
+        if (params.chatAbortControllers.has(runId)) {
+          continue;
+        }
+        if (now - lastUpdatedAt <= ABORTED_RUN_TTL_MS) {
+          continue;
+        }
+        params.chatRunState.clearRun(runId);
       }
-      params.chatRunState.clearRun(runId);
-    }
-    for (const [runId, lastUpdatedAt] of params.chatRunState.bufferUpdatedAt) {
-      if (params.chatRunState.abortedRuns.has(runId)) {
-        continue;
+      for (const [key, lastSentAt] of params.chatRunState.agentDeltaSentAt) {
+        const runId = resolveAgentThrottleRunId(key);
+        if (params.chatRunState.abortedRuns.has(runId)) {
+          continue;
+        }
+        if (params.chatAbortControllers.has(runId)) {
+          continue;
+        }
+        if (now - lastSentAt <= ABORTED_RUN_TTL_MS) {
+          continue;
+        }
+        params.chatRunState.clearRun(runId);
       }
-      if (params.chatAbortControllers.has(runId)) {
-        continue;
-      }
-      if (now - lastUpdatedAt <= ABORTED_RUN_TTL_MS) {
-        continue;
-      }
-      params.chatRunState.clearRun(runId);
-    }
-    for (const [key, lastSentAt] of params.chatRunState.agentDeltaSentAt) {
-      const runId = resolveAgentThrottleRunId(key);
-      if (params.chatRunState.abortedRuns.has(runId)) {
-        continue;
-      }
-      if (params.chatAbortControllers.has(runId)) {
-        continue;
-      }
-      if (now - lastSentAt <= ABORTED_RUN_TTL_MS) {
-        continue;
-      }
-      params.chatRunState.clearRun(runId);
-    }
-    // Sweep stale agent run contexts (orphaned when lifecycle end/error is missed).
-    sweepStaleRunContexts();
-  }, 60_000);
+      // Sweep stale agent run contexts (orphaned when lifecycle end/error is missed).
+      sweepStaleRunContexts();
+    },
+    60_000,
+  );
 
   if (typeof params.mediaCleanupTtlMs !== "number") {
     return {
@@ -358,9 +378,13 @@ export function startGatewayMaintenanceTimers(params: {
     return mediaCleanupInFlight;
   };
 
-  const mediaCleanup = setInterval(() => {
-    void runMediaCleanup();
-  }, 60 * 60_000);
+  const mediaCleanup = registerInterval(
+    "gateway.media-cleanup",
+    () => {
+      void runMediaCleanup();
+    },
+    60 * 60_000,
+  );
 
   void runMediaCleanup();
 

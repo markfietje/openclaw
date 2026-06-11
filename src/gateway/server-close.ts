@@ -32,6 +32,7 @@ import {
   type ChatRunState,
 } from "./server-chat-state.js";
 import type { GatewayPostReadySidecarHandle } from "./server-startup-post-attach.js";
+import { clearAllTimers } from "./server/lifecycle/timer-registry.js";
 
 const shutdownLog = createSubsystemLogger("gateway/shutdown");
 const GATEWAY_SHUTDOWN_HOOK_TIMEOUT_MS = 5_000;
@@ -911,15 +912,7 @@ export function createGatewayCloseHandler(
         reason,
         restartExpectedMs,
       });
-      clearInterval(params.tickInterval);
-      clearInterval(params.healthInterval);
-      clearInterval(params.dedupeCleanup);
-      if (params.mediaCleanup) {
-        clearInterval(params.mediaCleanup);
-      }
-      if (params.worktreeCleanup) {
-        clearInterval(params.worktreeCleanup);
-      }
+      clearAllTimers();
       params.skillCuratorCleanup();
       if (params.agentUnsub) {
         await shutdownStep("agent-unsub", () => params.agentUnsub!(), warnings);
