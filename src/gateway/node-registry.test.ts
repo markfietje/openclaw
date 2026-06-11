@@ -32,6 +32,7 @@ function makeClient(
   return {
     connId,
     usesSharedGatewayAuth: false,
+    inflightRpcCount: 0,
     socket:
       opts.socket ??
       ({

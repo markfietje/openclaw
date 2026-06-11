@@ -8,6 +8,7 @@ import {
   createGatewayWsTestSocket,
   createResolvedGatewayTokenAuth,
   type GatewayWsTestSocket,
+  type ResolvedGatewayAuth,
 } from "./ws-connection.test-helpers.js";
 
 const {
@@ -219,6 +220,7 @@ describe("attachGatewayWsConnectionHandler", () => {
       connect: { client: { id: "openclaw-control-ui", mode: "webchat" } },
       connId: "late-client",
       usesSharedGatewayAuth: false,
+      inflightRpcCount: 0,
     });
 
     expect(registered).toBe(false);
@@ -248,6 +250,7 @@ describe("attachGatewayWsConnectionHandler", () => {
       },
       connId: "budgeted-client",
       usesSharedGatewayAuth: false,
+      inflightRpcCount: 0,
     });
 
     expect(registered).toBe(false);
@@ -275,6 +278,7 @@ describe("attachGatewayWsConnectionHandler", () => {
         connect: { client: { id: "openclaw-control-ui", mode: "webchat" } },
         connId: "ping-client",
         usesSharedGatewayAuth: false,
+        inflightRpcCount: 0,
       }),
     ).toBe(true);
     handlerParams.onHandshakeComplete?.();
@@ -368,6 +372,7 @@ describe("attachGatewayWsConnectionHandler", () => {
         connId: "conn-old",
         presenceKey: "node-1",
         usesSharedGatewayAuth: false,
+        inflightRpcCount: 0,
       }),
     ).toBe(true);
 

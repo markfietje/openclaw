@@ -297,6 +297,7 @@ function makeGatewayWsClient(
     connect,
     connId,
     usesSharedGatewayAuth: false,
+    inflightRpcCount: 0,
   };
 }
 
