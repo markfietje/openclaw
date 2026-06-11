@@ -74,6 +74,7 @@ import {
 import { wrapUntrustedFileContent } from "./openresponses-file-content.js";
 import { buildAgentPrompt } from "./openresponses-prompt.js";
 import { createAssistantOutputItem, createFunctionCallOutputItem } from "./openresponses-shape.js";
+import { startSseHeartbeat } from "./server/lifecycle/sse-heartbeat.js";
 
 type OpenResponsesHttpOptions = {
   auth: ResolvedGatewayAuth;
@@ -912,6 +913,7 @@ export async function handleOpenResponsesHttpRequest(
   // ─────────────────────────────────────────────────────────────────────────
 
   setSseHeaders(res);
+  const stopSseHeartbeat = startSseHeartbeat(res);
 
   let accumulatedText = "";
   let sawAssistantDelta = false;
@@ -936,6 +938,7 @@ export async function handleOpenResponsesHttpRequest(
     closed = true;
     stopWatchingDisconnect();
     unsubscribe();
+    stopSseHeartbeat();
 
     writeSseEvent(res, {
       type: "response.output_text.done",
@@ -1076,6 +1079,7 @@ export async function handleOpenResponsesHttpRequest(
   stopWatchingDisconnect = watchClientDisconnect(req, res, abortController, () => {
     closed = true;
     unsubscribe();
+    stopSseHeartbeat();
   });
 
   void (async () => {
@@ -1124,6 +1128,7 @@ export async function handleOpenResponsesHttpRequest(
         closed = true;
         stopWatchingDisconnect();
         unsubscribe();
+        stopSseHeartbeat();
         rememberResponseSession();
         writeSseEvent(res, { type: "response.failed", response: failed });
         writeDone(res);
@@ -1232,6 +1237,7 @@ export async function handleOpenResponsesHttpRequest(
         closed = true;
         stopWatchingDisconnect();
         unsubscribe();
+        stopSseHeartbeat();
         rememberResponseSession();
         writeSseEvent(res, { type: "response.completed", response: incompleteResponse });
         writeDone(res);

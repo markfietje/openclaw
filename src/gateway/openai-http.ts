@@ -68,6 +68,7 @@ import {
   toolChoiceConstraintPrompt,
   type ToolChoiceConstraint,
 } from "./openai-tool-choice.js";
+import { startSseHeartbeat } from "./server/lifecycle/sse-heartbeat.js";
 
 type OpenAiHttpOptions = {
   auth: ResolvedGatewayAuth;
@@ -1245,6 +1246,7 @@ export async function handleOpenAiHttpRequest(
   }
 
   setSseHeaders(res);
+  const stopSseHeartbeat = startSseHeartbeat(res);
 
   let wroteRole = false;
   let wroteStopChunk = false;
@@ -1270,6 +1272,7 @@ export async function handleOpenAiHttpRequest(
     closed = true;
     stopWatchingDisconnect();
     unsubscribe();
+    stopSseHeartbeat();
     if (!wroteStopChunk) {
       writeAssistantFinishChunk(res, { runId, model, finishReason: finalizeFinishReason });
       wroteStopChunk = true;
@@ -1335,6 +1338,7 @@ export async function handleOpenAiHttpRequest(
   stopWatchingDisconnect = watchClientDisconnect(req, res, abortController, () => {
     closed = true;
     unsubscribe();
+    stopSseHeartbeat();
   });
 
   wroteRole = true;
@@ -1366,6 +1370,7 @@ export async function handleOpenAiHttpRequest(
         closed = true;
         stopWatchingDisconnect();
         unsubscribe();
+        stopSseHeartbeat();
         writeSse(res, {
           error: {
             message: resolveUnsatisfiedToolChoiceMessage(toolChoiceConstraint),
@@ -1430,6 +1435,7 @@ export async function handleOpenAiHttpRequest(
         closed = true;
         stopWatchingDisconnect();
         unsubscribe();
+        stopSseHeartbeat();
         writeSse(res, {
           error: { message: "invalid tool configuration", type: "invalid_request_error" },
         });
@@ -1442,6 +1448,7 @@ export async function handleOpenAiHttpRequest(
         closed = true;
         stopWatchingDisconnect();
         unsubscribe();
+        stopSseHeartbeat();
         writeSse(res, { error: mapped.error });
         writeDone(res);
         res.end();
