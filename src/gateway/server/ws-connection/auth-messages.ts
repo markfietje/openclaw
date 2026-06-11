@@ -22,6 +22,14 @@ export function formatGatewayAuthFailureMessage(params: {
   const isCli = isGatewayCliClient(client);
   const isControlUi = isOperatorUiClient(client);
   const isWebchat = isWebchatClient(client);
+
+  // OWASP A07:2025 — Identity/Auth Failures. Unknown clients get a generic
+  // message to avoid leaking gateway auth configuration (token vs password).
+  const GENERIC_AUTH_FAILURE = "unauthorized: authentication failed";
+  const isKnownClient = isCli || isControlUi || isWebchat;
+  if (!isKnownClient) {
+    return GENERIC_AUTH_FAILURE;
+  }
   const uiHint = "open the dashboard URL and paste the token in Control UI settings";
   const tokenHint = isCli
     ? "set gateway.remote.token to match gateway.auth.token"
