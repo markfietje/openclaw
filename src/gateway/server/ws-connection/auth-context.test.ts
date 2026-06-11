@@ -1,9 +1,11 @@
 // WebSocket auth-context tests cover token, password, bootstrap, and device-token decision state.
 import { describe, expect, it, vi } from "vitest";
 import { createAuthRateLimiter, type AuthRateLimiter } from "../../auth-rate-limit.js";
-import { resolveConnectAuthDecision, resolveConnectAuthState } from "./auth-context.js";
-
-type ConnectAuthState = Awaited<ReturnType<typeof resolveConnectAuthState>>;
+import {
+  resolveConnectAuthDecision,
+  resolveDeviceTokenCandidate,
+  type ConnectAuthState,
+} from "./auth-context.js";
 
 type VerifyDeviceTokenFn = Parameters<typeof resolveConnectAuthDecision>[0]["verifyDeviceToken"];
 type VerifyBootstrapTokenFn = Parameters<
@@ -513,5 +515,34 @@ describe("resolveConnectAuthDecision", () => {
     });
     expect(rateLimiter.reset).toHaveBeenCalledWith(CLIENT_IP, "bootstrap-token");
     expect(rateLimiter.recordFailure).not.toHaveBeenCalledWith(CLIENT_IP, "bootstrap-token");
+  });
+
+  // Fix 3.4: shared gateway token must not be reused as device-token candidate
+  describe("resolveDeviceTokenCandidate", () => {
+    it("does not use shared token as device token candidate", () => {
+      const result = resolveDeviceTokenCandidate({ token: "shared-secret" });
+      expect(result.token).toBeUndefined();
+      expect(result.source).toBeUndefined();
+    });
+
+    it("returns explicit device token when provided", () => {
+      const result = resolveDeviceTokenCandidate({
+        token: "shared-secret",
+        deviceToken: "my-device-token",
+      });
+      expect(result.token).toBe("my-device-token");
+      expect(result.source).toBe("explicit-device-token");
+    });
+
+    it("returns empty when no token is provided at all", () => {
+      const result = resolveDeviceTokenCandidate({});
+      expect(result.token).toBeUndefined();
+      expect(result.source).toBeUndefined();
+    });
+
+    it("returns empty for null input", () => {
+      const result = resolveDeviceTokenCandidate(null);
+      expect(result.token).toBeUndefined();
+    });
   });
 });
