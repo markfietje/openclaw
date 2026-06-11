@@ -1,4 +1,22 @@
 import { readFileSync } from "node:fs";
+import { resolve, normalize } from "node:path";
+
+/**
+ * Directories from which secret files may be read via *_FILE env vars.
+ * Paths outside these directories are rejected to prevent arbitrary file reads.
+ */
+const ALLOWED_SECRET_FILE_DIRS: ReadonlySet<string> = new Set([
+  "/run/secrets",
+  "/etc/openclaw/secrets",
+  normalize(`${process.env.HOME ?? "/root"}/.openclaw/credentials`),
+]);
+
+function isAllowedSecretFilePath(filePath: string): boolean {
+  const resolved = resolve(filePath);
+  return [...ALLOWED_SECRET_FILE_DIRS].some(
+    (dir) => resolved.startsWith(dir + "/") || resolved.startsWith(dir + "\\"),
+  );
+}
 
 /**
  * Resolved value for a secret that may come from an environment variable
@@ -37,6 +55,9 @@ export function resolveSecretEnvValue(
 
   const filePath = env[`${envVar}_FILE`];
   if (typeof filePath === "string" && filePath.length > 0) {
+    if (!isAllowedSecretFilePath(filePath)) {
+      return null;
+    }
     try {
       const contents = readFileSync(filePath, "utf8");
       return { value: contents.trim(), source: "file", envVar };
