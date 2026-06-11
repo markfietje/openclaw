@@ -975,6 +975,7 @@ export async function startGatewayServer(
     chatAbortControllers,
     toolEventRecipients,
     deviceSessionAuthorityTracker,
+    clearChildProcessRegistry,
   } = await startupTrace.measure("runtime.state", () =>
     createGatewayRuntimeState({
       cfg: cfgAtStart,
@@ -1173,6 +1174,7 @@ export async function startGatewayServer(
       httpServer,
       httpServers,
       drainActiveSessionsForShutdown,
+      clearChildProcessRegistry,
     })(optsValue);
   };
   let clearFallbackGatewayContextForServer = () => {};

@@ -22,6 +22,7 @@ import {
   releasePinnedPluginHttpRouteRegistry,
   releasePinnedPluginSessionExtensionRegistry,
 } from "../plugins/runtime.js";
+import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
 import type { ChatAbortControllerEntry } from "./chat-abort.js";
@@ -46,6 +47,11 @@ import {
 } from "./server/authenticated-connection-budget.js";
 import type { HookClientIpConfig, HooksRequestHandler } from "./server/hooks-request-handler.js";
 import { listenGatewayHttpServer } from "./server/http-listen.js";
+import {
+  clearAllChildProcesses,
+  ensureChildProcessTable,
+  reapOrphanChildProcesses,
+} from "./server/lifecycle/process-registry.js";
 import type { PluginRoutePathContext } from "./server/plugins-http/path-context.js";
 import { shouldEnforceGatewayAuthForPluginPath } from "./server/plugins-http/route-auth.js";
 import { findMatchingPluginNodeCapabilityRoute } from "./server/plugins-http/route-capability.js";
@@ -154,6 +160,7 @@ export async function createGatewayRuntimeState(params: {
   chatAbortControllers: Map<string, ChatAbortControllerEntry>;
   toolEventRecipients: ReturnType<typeof createToolEventRecipientRegistry>;
   deviceSessionAuthorityTracker: DeviceSessionAuthorityTracker;
+  clearChildProcessRegistry: () => void;
 }> {
   pinActivePluginHttpRouteRegistry(params.pluginRegistry);
   pinActivePluginSessionExtensionRegistry(params.pluginRegistry);
@@ -403,6 +410,18 @@ export async function createGatewayRuntimeState(params: {
     const chatAbortControllers = new Map<string, ChatAbortControllerEntry>();
     const toolEventRecipients = createToolEventRecipientRegistry();
 
+    // Reap orphan child processes from a previous crashed run before any MCP
+    // runtimes are created. This is called before MCP runtime creation.
+    const stateDb = openOpenClawStateDatabase();
+    ensureChildProcessTable(stateDb.db);
+    // Async but intentionally not awaited — stale PIDs are reaped in the background;
+    // new MCP runtimes start immediately and register their PIDs as they spawn.
+    void reapOrphanChildProcesses(stateDb.db).then(({ reaped, skipped }) => {
+      if (reaped > 0 || skipped > 0) {
+        params.log.info(`process-reap: reaped=${reaped} skipped=${skipped}`);
+      }
+    });
+
     return {
       releasePluginRouteRegistry: () => {
         // Releases pinned HTTP-route, session-extension, and channel registries.
@@ -437,6 +456,7 @@ export async function createGatewayRuntimeState(params: {
       chatAbortControllers,
       toolEventRecipients,
       deviceSessionAuthorityTracker,
+      clearChildProcessRegistry: () => clearAllChildProcesses(stateDb.db),
     };
   } catch (err) {
     // If state creation fails after pins are installed, release them immediately so later

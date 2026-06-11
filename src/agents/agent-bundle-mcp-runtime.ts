@@ -15,6 +15,10 @@ import { redactSensitiveUrlLikeString } from "@openclaw/net-policy/redact-sensit
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { Compile } from "typebox/compile";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import {
+  registerChildProcess,
+  unregisterChildProcess,
+} from "../gateway/server/lifecycle/process-registry.js";
 import { logWarn } from "../logger.js";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
@@ -22,6 +26,7 @@ import {
   findJsonSchemaShapeError,
   normalizeJsonSchemaForTypeBox,
 } from "../shared/json-schema-defaults.js";
+import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import { sanitizeServerName } from "./agent-bundle-mcp-names.js";
 import type {
   McpCatalogTool,
@@ -43,6 +48,7 @@ type BundleMcpSession = {
   requestTimeoutMs: number;
   supportsParallelToolCalls: boolean;
   detachStderr?: () => void;
+  recordedPid?: number | null;
 };
 
 type LoadedMcpConfig = ReturnType<typeof loadEmbeddedAgentMcpConfig>;
@@ -412,6 +418,15 @@ async function disposeSession(session: BundleMcpSession) {
     await session.transport.close().catch(() => {});
     await session.client.close().catch(() => {});
   }
+  // Unregister the child PID if one was recorded at connect time.
+  if (typeof session.recordedPid === "number" && session.recordedPid > 0) {
+    try {
+      const { db } = openOpenClawStateDatabase();
+      unregisterChildProcess(db, session.recordedPid);
+    } catch {
+      // Process registry is best-effort; log and continue.
+    }
+  }
 }
 
 function createCatalogFingerprint(servers: Record<string, unknown>): string {
@@ -630,6 +645,23 @@ export function createSessionMcpRuntime(params: {
                 resolved.connectionTimeoutMs,
               );
               connected = true;
+              // Register the stdio transport's child PID for orphan detection.
+              if (session.transportType === "stdio") {
+                const stdioTransport = session.transport as { pid?: number | null };
+                if (typeof stdioTransport.pid === "number" && stdioTransport.pid > 0) {
+                  session.recordedPid = stdioTransport.pid;
+                  try {
+                    const { db } = openOpenClawStateDatabase();
+                    registerChildProcess(
+                      db,
+                      stdioTransport.pid,
+                      `bundle-mcp:${session.serverName}`,
+                    );
+                  } catch {
+                    // Process registry is best-effort; log and continue.
+                  }
+                }
+              }
             }
             failIfDisposed();
             const capabilities = summarizeServerCapabilities(
