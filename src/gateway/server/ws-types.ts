@@ -15,6 +15,8 @@ export type GatewayWsClient = PluginNodeCapabilityClient & {
   deviceSessionAuthority?: DeviceSessionAuthoritySnapshot;
   invalidated?: boolean;
   invalidatedReason?: string;
+  connectedAt?: number;
+  lastActivityAt?: number;
   usesSharedGatewayAuth: boolean;
   sharedGatewaySessionGeneration?: string;
   presenceKey?: string;
