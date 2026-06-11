@@ -4,6 +4,14 @@
 
 import { createSubsystemLogger } from "../../../logging/subsystem.js";
 
+// Type the db parameter using the concrete call signatures of node:sqlite's
+// Statement. This matches what callers actually pass (DatabaseSync from
+// node:sqlite via openOpenClawStateDatabase()) without requiring an external
+// package import here. SqlValue must match node:sqlite's SQLOutputValue.
+type SqlValue = string | number | bigint | Uint8Array | null;
+type StmtRun = (this: unknown, ...args: SqlValue[]) => void;
+type StmtAll = (this: unknown) => Record<string, SqlValue | SqlValue[]>[];
+
 const procLog = createSubsystemLogger("gateway/process-registry");
 
 const TABLE_DDL = `
@@ -52,7 +60,7 @@ export function ensureChildProcessTable(db: { exec: (sql: string) => void }): vo
  * Record a child process PID for orphan detection.
  */
 export function registerChildProcess(
-  db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } },
+  db: { prepare: (sql: string) => { run: StmtRun } },
   pid: number,
   label: string,
 ): void {
@@ -66,7 +74,7 @@ export function registerChildProcess(
  * Remove a child process PID from the registry.
  */
 export function unregisterChildProcess(
-  db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } },
+  db: { prepare: (sql: string) => { run: StmtRun } },
   pid: number,
 ): void {
   const stmt = db.prepare("DELETE FROM child_processes WHERE pid = ?");
@@ -86,13 +94,13 @@ export function clearAllChildProcesses(db: { exec: (sql: string) => void }): voi
  * Call on startup before initializing new MCP runtimes.
  */
 export async function reapOrphanChildProcesses(db: {
-  prepare: (sql: string) => { all: () => unknown[] };
+  prepare: (sql: string) => { all: StmtAll };
   exec: (sql: string) => void;
 }): Promise<{ reaped: number; skipped: number }> {
   let rows: ChildProcessRow[];
   try {
     const stmt = db.prepare("SELECT pid, label, started_at FROM child_processes");
-    rows = stmt.all() as ChildProcessRow[];
+    rows = stmt.all() as unknown as ChildProcessRow[];
   } catch {
     return { reaped: 0, skipped: 0 };
   }

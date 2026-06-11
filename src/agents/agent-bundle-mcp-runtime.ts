@@ -12,10 +12,19 @@ import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import { redactSensitiveUrlLikeString } from "@openclaw/net-policy/redact-sensitive-url";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import {
+  registerChildProcess,
+  unregisterChildProcess,
+} from "../gateway/server/lifecycle/process-registry.js";
 import { toErrorObject } from "../infra/errors.js";
 import { logWarn } from "../logger.js";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
+import {
+  findJsonSchemaShapeError,
+  normalizeJsonSchemaForTypeBox,
+} from "../shared/json-schema-defaults.js";
+import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import { runTasksWithConcurrency } from "../utils/run-with-concurrency.js";
 import { matchesMcpToolFilterPattern } from "./agent-bundle-mcp-filter.js";
 import { sanitizeServerName } from "./agent-bundle-mcp-names.js";
@@ -49,6 +58,7 @@ type BundleMcpSession = {
   sharedAcrossCatalogGenerations: boolean;
   connectPromise?: Promise<void>;
   detachStderr?: () => void;
+  recordedPid?: number | null;
 };
 
 type LoadedMcpConfig = ReturnType<typeof loadEmbeddedAgentMcpConfig>;
@@ -331,6 +341,15 @@ async function disposeSession(session: BundleMcpSession) {
         : session.transport.close();
     await settleWithin(Promise.allSettled([transportClose, session.client.close()]), timeoutMs);
   }
+  // Unregister the child PID if one was recorded at connect time.
+  if (typeof session.recordedPid === "number" && session.recordedPid > 0) {
+    try {
+      const { db } = openOpenClawStateDatabase();
+      unregisterChildProcess(db, session.recordedPid);
+    } catch {
+      // Process registry is best-effort; log and continue.
+    }
+  }
 }
 
 function createCatalogFingerprint(params: {
@@ -495,6 +514,24 @@ export function createSessionMcpRuntime(params: {
     )
       .then(() => {
         session.connected = true;
+        // Register the stdio transport's child PID for orphan detection. Best-effort;
+        // a registration miss only means the reaper cannot clean up an orphaned process.
+        if (session.transportType === "stdio") {
+          const stdioTransport = session.transport as { pid?: number | null };
+          if (typeof stdioTransport.pid === "number" && stdioTransport.pid > 0) {
+            session.recordedPid = stdioTransport.pid;
+            try {
+              const { db } = openOpenClawStateDatabase();
+              registerChildProcess(
+                db,
+                stdioTransport.pid,
+                `bundle-mcp:${session.serverName}`,
+              );
+            } catch {
+              // Process registry is best-effort; log and continue.
+            }
+          }
+        }
       })
       .finally(() => {
         session.connectPromise = undefined;
