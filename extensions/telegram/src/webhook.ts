@@ -210,6 +210,18 @@ function hasValidTelegramWebhookSecret(
   return safeEqualSecret(secretHeader, expectedSecret);
 }
 
+const MAX_WEBHOOK_AGE_SECONDS = 60;
+
+function isUpdateFresh(update: Record<string, unknown>): boolean {
+  const message = update.message as Record<string, unknown> | undefined;
+  const date = message?.date;
+  if (typeof date !== "number") {
+    return true;
+  }
+  const ageSeconds = Date.now() / 1000 - date;
+  return ageSeconds >= 0 && ageSeconds <= MAX_WEBHOOK_AGE_SECONDS;
+}
+
 function parseIpLiteral(value: string | undefined): string | undefined {
   const trimmed = normalizeOptionalString(value);
   if (!trimmed) {
@@ -950,6 +962,14 @@ export async function startTelegramWebhook(opts: {
         return;
       }
 
+      // Reject stale/replayed updates before they enter the durable spool. Ack 200
+      // so Telegram does not redeliver a replayed update.
+      const updateBody = body.value as Record<string, unknown>;
+      if (!isUpdateFresh(updateBody)) {
+        respondText(200);
+        return;
+      }
+
       // Telegram sees 200 only after the update is durable. If SQLite rejects
       // the enqueue, this path returns non-200 so Telegram redelivers.
       await writeTelegramSpooledUpdate({
@@ -963,6 +983,11 @@ export async function startTelegramWebhook(opts: {
       respondText(200);
       status.noteWebhookUpdateReceived();
       requestWebhookSpoolDrain();
+      // Log the update ID before processing so dropped messages are traceable.
+      const updateId = (body.value as Record<string, unknown> | undefined)?.update_id;
+      if (updateId !== undefined) {
+        runtime.log?.(`webhook update received: update_id=${String(updateId)}`);
+      }
       if (diagnosticsEnabled) {
         logWebhookProcessed({
           channel: "telegram",
