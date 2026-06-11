@@ -163,8 +163,12 @@ describe("oversized command denial", () => {
   });
 
   it("denies oversized commands even with empty deny patterns", () => {
+    // Oversized commands must be denied regardless of deny-path pattern config.
+    // The oversized check runs before the empty-patterns early-return, so it
+    // is fail-closed: no config can re-enable oversized commands.
+    // OWASP A05:2025 — Security Misconfiguration.
     const result = checkExecDenyPath("x".repeat(64 * 1024 + 1), { denyPathPatterns: [] });
-    expect(result).toBeUndefined();
+    expect(result).toBe("<oversized-command-denied>");
   });
 });
 
