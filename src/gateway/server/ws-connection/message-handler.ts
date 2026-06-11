@@ -2455,6 +2455,17 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           return;
         }
       }
+      // Atomic stale check: compare and invalidate in one step to prevent
+      // concurrent mutation from creating a TOCTOU gap. This second check
+      // runs after the barrier so concurrent credential mutations are complete.
+      if (deviceSessionAuthorityTracker?.isStale(client?.deviceSessionAuthority)) {
+        setCloseCause("session-authority-stale", {
+          deviceId: client?.connect.device?.id,
+          method: req.method,
+        });
+        close(4001, "session authority changed");
+        return;
+      }
       if (closeInvalidatedClient(client, req.method)) {
         return;
       }
