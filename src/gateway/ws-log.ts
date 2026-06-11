@@ -10,6 +10,7 @@ import { shouldLogSubsystemToConsole } from "../logging/console.js";
 import { getDefaultRedactPatterns, redactSensitiveText } from "../logging/redact.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
+import { MapGauge } from "./server/lifecycle/map-gauge.js";
 import { DEFAULT_WS_SLOW_MS, getGatewayWsLogStyle } from "./ws-logging.js";
 
 /**
@@ -28,11 +29,12 @@ type WsInflightEntry = {
   meta?: Record<string, unknown>;
 };
 
-const wsInflightCompact = new Map<string, WsInflightEntry>();
+const wsInflightCompact = new MapGauge<string, WsInflightEntry>(2000, {
+  label: "wsInflightCompact",
+});
 let wsLastCompactConnId: string | undefined;
-const wsInflightOptimized = new Map<string, number>();
-const wsInflightSince = new Map<string, number>();
-const MAX_WS_INFLIGHT_ENTRIES = 2000;
+const wsInflightOptimized = new MapGauge<string, number>(2000, { label: "wsInflightOptimized" });
+const wsInflightSince = new MapGauge<string, number>(2000, { label: "wsInflightSince" });
 const MAX_WS_INFLIGHT_SINCE_AGE_MS = 60_000;
 const wsLog = createSubsystemLogger("gateway/ws");
 
@@ -371,9 +373,6 @@ function logWsOptimized(direction: "in" | "out", kind: string, meta?: Record<str
 
   if (direction === "in" && kind === "req" && inflightKey) {
     wsInflightOptimized.set(inflightKey, Date.now());
-    if (wsInflightOptimized.size > 2000) {
-      wsInflightOptimized.clear();
-    }
     return;
   }
 
@@ -435,9 +434,6 @@ function logWsCompact(direction: "in" | "out", kind: string, meta?: Record<strin
 
   if (kind === "req" && direction === "in" && inflightKey) {
     wsInflightCompact.set(inflightKey, { ts: now, method, meta });
-    if (wsInflightCompact.size > MAX_WS_INFLIGHT_ENTRIES) {
-      wsInflightCompact.clear();
-    }
     return;
   }
 

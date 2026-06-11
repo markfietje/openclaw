@@ -78,6 +78,7 @@ import {
 import { wrapUntrustedFileContent } from "./openresponses-file-content.js";
 import { buildAgentPrompt } from "./openresponses-prompt.js";
 import { createAssistantOutputItem, createFunctionCallOutputItem } from "./openresponses-shape.js";
+import { MapGauge } from "./server/lifecycle/map-gauge.js";
 import { startSseHeartbeat } from "./server/lifecycle/sse-heartbeat.js";
 
 type OpenResponsesHttpOptions = {
@@ -107,7 +108,12 @@ type ResponseSessionEntry = ResponseSessionScope & {
   ts: number;
 };
 
-const responseSessionMap = new Map<string, ResponseSessionEntry>();
+const responseSessionMap = new MapGauge<string, ResponseSessionEntry>(
+  MAX_RESPONSE_SESSION_ENTRIES,
+  {
+    label: "responseSessionMap",
+  },
+);
 
 function normalizeResponseSessionScope(scope: ResponseSessionScope): ResponseSessionScope {
   const authSubject = scope.authSubject.trim();
@@ -173,27 +179,14 @@ function pruneExpiredResponseSessions(now: number) {
   }
 }
 
-function evictOverflowResponseSessions() {
-  while (responseSessionMap.size > MAX_RESPONSE_SESSION_ENTRIES) {
-    const oldestKey = responseSessionMap.keys().next().value;
-    if (!oldestKey) {
-      return;
-    }
-    responseSessionMap.delete(oldestKey);
-  }
-}
-
 function storeResponseSession(
   responseId: string,
   sessionKey: string,
   scope: ResponseSessionScope,
   now = Date.now(),
 ) {
-  // Reinsert existing keys so the map stays ordered by freshest timestamp.
-  responseSessionMap.delete(responseId);
   responseSessionMap.set(responseId, { ...scope, sessionKey, ts: now });
   pruneExpiredResponseSessions(now);
-  evictOverflowResponseSessions();
 }
 
 function lookupResponseSession(
