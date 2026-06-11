@@ -20,6 +20,7 @@ import {
   type GatewayReloadPlan,
 } from "./config-reload-plan.js";
 import { resolveGatewayReloadSettings } from "./config-reload-settings.js";
+import { setConfigReloadBarrier } from "./server/lifecycle/config-reload-barrier.js";
 
 export {
   buildGatewayReloadPlan,
@@ -318,7 +319,12 @@ export function startGatewayConfigReloader(opts: {
       return;
     }
 
-    await opts.onHotReload(plan, nextConfig);
+    const barrier = setConfigReloadBarrier(`hot-reload: ${plan.hotReasons.join(", ")}`);
+    try {
+      await opts.onHotReload(plan, nextConfig);
+    } finally {
+      barrier.release();
+    }
   };
 
   const promoteAcceptedSnapshot = async (snapshot: ConfigFileSnapshot, reason: string) => {

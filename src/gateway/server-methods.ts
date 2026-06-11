@@ -26,6 +26,14 @@ import type {
   GatewayRequestOptions,
   RespondFn,
 } from "./server-methods/shared-types.js";
+import {
+  getConfigReloadBarrier,
+  isConfigReloadBarrierActive,
+} from "./server/lifecycle/config-reload-barrier.js";
+import {
+  isMethodAllowedForConnectionType,
+  resolveConnectionType,
+} from "./server/lifecycle/connection-type-gate.js";
 
 function lazyHandlerModule<T>(
   loadModule: () => Promise<T>,
@@ -701,6 +709,57 @@ export async function handleGatewayRequest(
       );
       return;
     }
+  }
+  // Config reload barrier: if a hot-reload is applying runtime state changes
+  // (providers, model catalog, MCP), wait up to 5s or reject with UNAVAILABLE.
+  if (isConfigReloadBarrierActive()) {
+    const barrier = getConfigReloadBarrier();
+    if (barrier) {
+      const BARRIER_TIMEOUT_MS = 5_000;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race<"resolved" | "timeout">([
+        barrier.then(() => "resolved" as const),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve("timeout"), BARRIER_TIMEOUT_MS);
+        }),
+      ]);
+      if (timer !== undefined) clearTimeout(timer);
+      if (result === "timeout") {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.UNAVAILABLE, "config reload in progress", {
+            retryable: true,
+            retryAfterMs: 1_000,
+          }),
+        );
+        return;
+      }
+    }
+  }
+  // Connection-type capability gate: reject methods not allowed for this
+  // client's connection type. Methods not in the matrix pass through.
+  const connectionType = resolveConnectionType({
+    clientMode: client?.connect?.client?.mode,
+    clientId: client?.connect?.client?.id,
+  });
+  if (!isMethodAllowedForConnectionType(req.method, connectionType)) {
+    respond(
+      false,
+      undefined,
+      errorShape(
+        ErrorCodes.INVALID_REQUEST,
+        `method ${req.method} not allowed for connection type ${connectionType}`,
+        {
+          details: {
+            code: "connection-type-forbidden",
+            method: req.method,
+            connectionType,
+          },
+        },
+      ),
+    );
+    return;
   }
   const handler = methodRegistry.getHandler(req.method) as GatewayRequestHandler | undefined;
   if (!handler) {
