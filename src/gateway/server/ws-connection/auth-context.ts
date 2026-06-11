@@ -154,17 +154,26 @@ export async function resolveConnectAuthState(params: {
   const { token: deviceTokenCandidate, source: deviceTokenCandidateSource } =
     params.hasDeviceIdentity ? resolveDeviceTokenCandidate(params.connectAuth) : {};
 
+  // OWASP A04:2021 — Broken Access Control. Always apply per-IP rate limiting
+  // on the primary auth path, regardless of whether shared credentials were
+  // offered. Without this, an attacker who sends no token/password can probe
+  // the auth surface indefinitely to detect gateway configuration (e.g. whether
+  // a gateway token is configured) or to exploit any timing-based oracles in
+  // the Tailscale-lookup and token-comparison branches.
   const authResult: GatewayAuthResult = await authorizeWsControlUiGatewayConnect({
     auth: params.resolvedAuth,
     connectAuth: sharedConnectAuth,
     req: params.req,
     trustedProxies: params.trustedProxies,
     allowRealIpFallback: params.allowRealIpFallback,
-    rateLimiter: sharedAuthProvided ? params.rateLimiter : undefined,
+    rateLimiter: params.rateLimiter,
     clientIp: params.clientIp,
     rateLimitScope: AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET,
   });
 
+  // Secondary auth probe — runs only when shared credentials are offered.
+  // The rate limiter is always available here since this branch only executes
+  // when sharedConnectAuth is truthy (sharedAuthProvided is always true).
   const sharedAuthResult =
     sharedConnectAuth &&
     (await authorizeHttpGatewayConnect({
@@ -173,7 +182,7 @@ export async function resolveConnectAuthState(params: {
       req: params.req,
       trustedProxies: params.trustedProxies,
       allowRealIpFallback: params.allowRealIpFallback,
-      rateLimiter: sharedAuthProvided ? params.rateLimiter : undefined,
+      rateLimiter: params.rateLimiter,
       clientIp: params.clientIp,
       rateLimitScope: AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET,
     }));

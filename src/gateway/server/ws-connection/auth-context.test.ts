@@ -1,8 +1,11 @@
 // WebSocket auth-context tests cover token, password, bootstrap, and device-token decision state.
-import { describe, expect, it, vi } from "vitest";
+import type { IncomingMessage } from "node:http";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAuthRateLimiter, type AuthRateLimiter } from "../../auth-rate-limit.js";
+import type { GatewayAuthResult } from "../../auth.js";
 import {
   resolveConnectAuthDecision,
+  resolveConnectAuthState,
   resolveDeviceTokenCandidate,
   type ConnectAuthState,
 } from "./auth-context.js";
@@ -544,5 +547,247 @@ describe("resolveConnectAuthDecision", () => {
       const result = resolveDeviceTokenCandidate(null);
       expect(result.token).toBeUndefined();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveConnectAuthState — rate limiter enforcement
+// OWASP A04:2021 — Broken Access Control. The primary auth path must always
+// receive the per-IP rate limiter, even when no shared credentials are offered.
+// Without this, an attacker can probe the auth surface indefinitely.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// resolveConnectAuthState — rate limiter enforcement
+// OWASP A04:2021 — Broken Access Control. The primary auth path must always
+// receive the per-IP rate limiter, even when no shared credentials are offered.
+// Without this, an attacker can probe the auth surface indefinitely.
+//
+// We mock the auth functions at module level so we can verify what arguments
+// resolveConnectAuthState passes to each auth gate. The real
+// authorizeGatewayConnectCore calls limiter.check() before processing, so
+// passing the limiter object is the security-critical assertion.
+// ---------------------------------------------------------------------------
+
+vi.mock("../../auth.js", () => ({
+  authorizeWsControlUiGatewayConnect: vi.fn<() => Promise<GatewayAuthResult>>(),
+  authorizeHttpGatewayConnect: vi.fn<() => Promise<GatewayAuthResult | undefined>>(),
+}));
+
+import { authorizeHttpGatewayConnect, authorizeWsControlUiGatewayConnect } from "../../auth.js";
+
+const MOCK_AUTH_RESULT: GatewayAuthResult = { ok: false, reason: "token_missing" };
+const MOCK_SHARED_AUTH_RESULT: GatewayAuthResult = { ok: false, reason: "token_missing" };
+
+function createMockReq(): IncomingMessage {
+  return {
+    socket: { remoteAddress: "127.0.0.1" },
+    headers: {},
+  } as unknown as IncomingMessage;
+}
+
+describe("resolveConnectAuthState", () => {
+  beforeEach(() => {
+    vi.mocked(authorizeWsControlUiGatewayConnect).mockResolvedValue(MOCK_AUTH_RESULT);
+    vi.mocked(authorizeHttpGatewayConnect).mockResolvedValue(MOCK_SHARED_AUTH_RESULT);
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  // Critical: this was the unrate-limited oracle (Finding #1.1 / Top-5 #5).
+  // An attacker who sends no token/password could probe auth without any
+  // per-IP rate limiting. The fix ensures params.rateLimiter is always passed
+  // to authorizeWsControlUiGatewayConnect, so authorizeGatewayConnectCore's
+  // rejectIfRateLimited() fires even when sharedAuthProvided=false.
+  it("passes rate limiter to authorizeWsControlUiGatewayConnect when shared credentials ARE NOT provided", async () => {
+    const { limiter } = createRateLimiter();
+    vi.mocked(authorizeWsControlUiGatewayConnect).mockResolvedValue({
+      ok: false,
+      reason: "token_missing",
+    });
+
+    await resolveConnectAuthState({
+      resolvedAuth: {
+        mode: "token",
+        token: "gateway-secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
+      connectAuth: {}, // no token, no password — sharedAuthProvided = false
+      hasDeviceIdentity: false,
+      req: createMockReq(),
+      trustedProxies: [],
+      allowRealIpFallback: false,
+      rateLimiter: limiter,
+      clientIp: CLIENT_IP,
+    });
+
+    // Primary auth gate must receive the rate limiter so rejectIfRateLimited()
+    // in authorizeGatewayConnectCore can fire even when no shared credentials
+    // are offered. Without this, an attacker probes auth indefinitely.
+    expect(authorizeWsControlUiGatewayConnect).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(authorizeWsControlUiGatewayConnect).mock.calls[0]!;
+    expect(call[0]!.rateLimiter).toBe(limiter);
+    // Secondary auth gate is skipped — no shared credentials were offered
+    expect(authorizeHttpGatewayConnect).not.toHaveBeenCalled();
+  });
+
+  it("passes rate limiter to authorizeWsControlUiGatewayConnect when shared credentials ARE provided", async () => {
+    const { limiter } = createRateLimiter();
+    vi.mocked(authorizeWsControlUiGatewayConnect).mockResolvedValue({
+      ok: true,
+      method: "token" as const,
+    });
+    vi.mocked(authorizeHttpGatewayConnect).mockResolvedValue({
+      ok: true,
+      method: "token" as const,
+    });
+
+    await resolveConnectAuthState({
+      resolvedAuth: {
+        mode: "token",
+        token: "gateway-secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
+      connectAuth: { token: "gateway-secret" },
+      hasDeviceIdentity: false,
+      req: createMockReq(),
+      trustedProxies: [],
+      allowRealIpFallback: false,
+      rateLimiter: limiter,
+      clientIp: CLIENT_IP,
+    });
+
+    expect(authorizeWsControlUiGatewayConnect).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(authorizeWsControlUiGatewayConnect).mock.calls[0]!;
+    expect(call[0]!.rateLimiter).toBe(limiter);
+  });
+
+  it("does not pass rate limiter when none is provided (no crash, auth still runs)", async () => {
+    vi.mocked(authorizeWsControlUiGatewayConnect).mockResolvedValue({
+      ok: false,
+      reason: "token_missing",
+    });
+
+    const state = await resolveConnectAuthState({
+      resolvedAuth: {
+        mode: "token",
+        token: "gateway-secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
+      connectAuth: {},
+      hasDeviceIdentity: false,
+      req: createMockReq(),
+      trustedProxies: [],
+      allowRealIpFallback: false,
+      rateLimiter: undefined,
+      clientIp: CLIENT_IP,
+    });
+
+    expect(authorizeWsControlUiGatewayConnect).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(authorizeWsControlUiGatewayConnect).mock.calls[0]!;
+    expect(call[0]!.rateLimiter).toBeUndefined();
+    expect(state.authOk).toBe(false);
+  });
+
+  it("passes rate limiter to authorizeHttpGatewayConnect when shared credentials are provided", async () => {
+    const { limiter } = createRateLimiter();
+    vi.mocked(authorizeWsControlUiGatewayConnect).mockResolvedValue(MOCK_AUTH_RESULT);
+    vi.mocked(authorizeHttpGatewayConnect).mockResolvedValue({
+      ok: true,
+      method: "token" as const,
+    });
+
+    await resolveConnectAuthState({
+      resolvedAuth: {
+        mode: "token",
+        token: "gateway-secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
+      connectAuth: { token: "gateway-secret" },
+      hasDeviceIdentity: false,
+      req: createMockReq(),
+      trustedProxies: [],
+      allowRealIpFallback: false,
+      rateLimiter: limiter,
+      clientIp: CLIENT_IP,
+    });
+
+    expect(authorizeHttpGatewayConnect).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(authorizeHttpGatewayConnect).mock.calls[0]!;
+    expect(call[0]!.rateLimiter).toBe(limiter);
+  });
+
+  it("skips authorizeHttpGatewayConnect when no shared credentials are offered", async () => {
+    const { limiter } = createRateLimiter();
+    vi.mocked(authorizeWsControlUiGatewayConnect).mockResolvedValue(MOCK_AUTH_RESULT);
+
+    await resolveConnectAuthState({
+      resolvedAuth: {
+        mode: "token",
+        token: "gateway-secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
+      connectAuth: {}, // no token/password — sharedConnectAuth is undefined
+      hasDeviceIdentity: false,
+      req: createMockReq(),
+      trustedProxies: [],
+      allowRealIpFallback: false,
+      rateLimiter: limiter,
+      clientIp: CLIENT_IP,
+    });
+
+    // Secondary auth gate must NOT be called when no shared credentials offered
+    expect(authorizeHttpGatewayConnect).not.toHaveBeenCalled();
+  });
+
+  it("returns rate-limited auth result when limiter blocks primary path with no shared credentials", async () => {
+    // The critical fix: when the attacker sends no shared credentials, the
+    // rate limiter must still block repeated attempts. The state.authResult
+    // reflects what authorizeWsControlUiGatewayConnect returned — which
+    // includes the rate_limited result from authorizeGatewayConnectCore.
+    vi.mocked(authorizeWsControlUiGatewayConnect).mockResolvedValue({
+      ok: false,
+      reason: "rate_limited",
+      rateLimited: true,
+      retryAfterMs: 30_000,
+    });
+
+    const state = await resolveConnectAuthState({
+      resolvedAuth: {
+        mode: "token",
+        token: "gateway-secret",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
+      connectAuth: {}, // no shared credentials — the previously vulnerable path
+      hasDeviceIdentity: false,
+      req: createMockReq(),
+      trustedProxies: [],
+      allowRealIpFallback: false,
+      rateLimiter: createRateLimiter({ allowed: false, retryAfterMs: 30_000 }).limiter,
+      clientIp: CLIENT_IP,
+    });
+
+    expect(authorizeWsControlUiGatewayConnect).toHaveBeenCalledTimes(1);
+    // The limiter was passed (so rejectIfRateLimited fired in the real code)
+    const call = vi.mocked(authorizeWsControlUiGatewayConnect).mock.calls[0]!;
+    expect(call[0]!.rateLimiter).not.toBeUndefined();
+    // The auth result reflects the rate-limit rejection
+    expect(state.authResult.rateLimited).toBe(true);
+    expect(state.authResult.reason).toBe("rate_limited");
+    expect(state.authResult.retryAfterMs).toBe(30_000);
   });
 });
