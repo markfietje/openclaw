@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -16,7 +16,9 @@ describe("resolveSecretEnvValue", () => {
   });
 
   it("reads from _FILE path when env var is not set", () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "secret-env-test-"));
+    const homeDir = process.env.HOME ?? "/tmp";
+    const dir = path.join(homeDir, ".openclaw", "credentials", `secret-env-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
     const secretPath = path.join(dir, "openai-key");
     writeFileSync(secretPath, "sk-from-file\n", "utf8");
     try {
@@ -40,6 +42,25 @@ describe("resolveSecretEnvValue", () => {
   it("returns null when _FILE path does not exist", () => {
     const result = resolveSecretEnvValue("MY_KEY", { MY_KEY_FILE: "/nonexistent/secret" });
     expect(result).toBeNull();
+  });
+
+  it("rejects *_FILE paths outside allowed directories", () => {
+    const result = resolveSecretEnvValue("MY_SECRET", { MY_SECRET_FILE: "/etc/shadow" });
+    expect(result).toBeNull();
+  });
+
+  it("allows *_FILE paths under ~/.openclaw/credentials", () => {
+    const homeDir = process.env.HOME ?? "/tmp";
+    const credDir = path.join(homeDir, ".openclaw", "credentials");
+    mkdirSync(credDir, { recursive: true });
+    const secretPath = path.join(credDir, "test-key");
+    try {
+      writeFileSync(secretPath, "secret-value\n", "utf8");
+      const result = resolveSecretEnvValue("MY_KEY", { MY_KEY_FILE: secretPath });
+      expect(result).toEqual({ value: "secret-value", source: "file", envVar: "MY_KEY" });
+    } finally {
+      rmSync(secretPath, { force: true });
+    }
   });
 });
 
