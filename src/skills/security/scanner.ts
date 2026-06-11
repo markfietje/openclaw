@@ -174,7 +174,8 @@ const LINE_RULES: LineRule[] = [
     ruleId: "dynamic-code-execution",
     severity: "critical",
     message: "Dynamic code execution detected",
-    pattern: /\beval\s*\(|new\s+Function\s*\(/,
+    pattern:
+      /\beval[\s\u0028\u200B\uFEFF]*\(|new\s+Func[t\u0074]ion\s*\(|\beval\\u0028|\beval\\x28/,
   },
   {
     ruleId: "crypto-mining",
@@ -230,13 +231,15 @@ const SKILL_CONTENT_RULES: SourceRule[] = [
     ruleId: "prompt-injection-ignore-instructions",
     severity: "critical",
     message: "Prompt-injection wording attempts to override higher-priority instructions",
-    pattern: /ignore (all|any|previous|above|prior) instructions/i,
+    pattern:
+      /ignore[\s\u200B\uFEFF\u00A0]+(all|any|previous|above|prior)[\s\u200B\uFEFF\u00A0]+instructions/i,
   },
   {
     ruleId: "prompt-injection-system",
     severity: "critical",
     message: "Skill text references hidden prompt layers",
-    pattern: /\b(system prompt|developer message|hidden instructions)\b/i,
+    pattern:
+      /\b(system[\s\u200B\uFEFF\u00A0]+prompt|developer[\s\u200B\uFEFF\u00A0]+message|hidden[\s\u200B\uFEFF\u00A0]+instructions)\b/i,
   },
   {
     ruleId: "prompt-injection-tool",
