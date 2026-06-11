@@ -41,7 +41,7 @@ import { formatError } from "../server-utils.js";
 import { logWs } from "../ws-log.js";
 import type { AuthenticatedConnectionBudget } from "./authenticated-connection-budget.js";
 import { getHealthVersion, incrementPresenceVersion } from "./health-state.js";
-import { MAX_CONNECTION_AGE_MS, MAX_IDLE_MS } from "./lifecycle/connection-limits.js";
+import { resolveMaxConnectionAgeMs, resolveMaxIdleMs } from "./lifecycle/connection-limits.js";
 import { safeWsJsonStringify } from "./lifecycle/safe-ws-json.js";
 import { registerInterval } from "./lifecycle/timer-registry.js";
 import type { PreauthConnectionBudget } from "./preauth-connection-budget.js";
@@ -312,13 +312,15 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     "gateway.connection-cull",
     () => {
       const now = Date.now();
+      const maxAge = resolveMaxConnectionAgeMs(getRuntimeConfig().gateway);
+      const maxIdle = resolveMaxIdleMs(getRuntimeConfig().gateway);
       for (const client of clients) {
         const connectedAt = client.connectedAt;
         if (!connectedAt) continue;
         const lastActivity = client.lastActivityAt;
         const age = now - connectedAt;
         const idle = lastActivity !== undefined ? now - lastActivity : age;
-        if (age > MAX_CONNECTION_AGE_MS || idle > MAX_IDLE_MS) {
+        if (age > maxAge || idle > maxIdle) {
           try {
             client.socket.close(4000, "connection lifecycle: age/idle limit");
           } catch {
