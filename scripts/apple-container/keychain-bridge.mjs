@@ -27,6 +27,11 @@ const allowedIds = new Set(
     .filter(Boolean),
 );
 
+const allowedClientCidrs = (process.env.OPENCLAW_KEYCHAIN_BRIDGE_ALLOWED_CIDRS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 if (!authToken) {
   console.error("OPENCLAW_KEYCHAIN_BRIDGE_TOKEN is required.");
   process.exit(1);
@@ -143,7 +148,77 @@ async function handleSecretRequest(request, response) {
   }
 }
 
+// IP allowlist: reject connections from outside permitted CIDRs.
+// Loopback (127.0.0.0/8, ::1/128) is always allowed.
+// OPENCLAW_KEYCHAIN_BRIDGE_ALLOWED_CIDRS adds container-network ranges.
+const { isIPv4, isIPv6 } = await import("node:net");
+
+function ipToBuffer(ip) {
+  if (isIPv4(ip)) {
+    return Buffer.from(
+      ip.split(".").map((octet) => {
+        const n = Number.parseInt(octet, 10);
+        return n;
+      }),
+    );
+  }
+  if (isIPv6(ip)) {
+    // Expand :: shorthand to 16 bytes
+    const expanded = ip.replace("::", ":".repeat(9 - ip.split(":").length));
+    return Buffer.from(
+      expanded.split(":").flatMap((h) => {
+        const val = Number.parseInt(h || "0", 16);
+        return [(val >> 8) & 0xff, val & 0xff];
+      }),
+    );
+  }
+  return null;
+}
+
+function parseCidr(cidr) {
+  const [ip, bitsStr] = cidr.split("/");
+  const bits = Number(bitsStr);
+  const buf = ipToBuffer(ip);
+  if (!buf || Number.isNaN(bits) || bits < 0 || bits > buf.length * 8) return null;
+  const mask =
+    bits === 0
+      ? Buffer.alloc(buf.length, 0)
+      : Buffer.from(
+          Array.from(
+            { length: buf.length },
+            (_, i) => ((0xff << (8 - Math.min(8, Math.max(0, bits - i * 8)))) & 0xff) >>> 0,
+          ),
+        );
+  return { network: Buffer.from(buf.map((b, i) => b & mask[i])), mask };
+}
+
+const parsedCidrs = allowedClientCidrs.map(parseCidr).filter(Boolean);
+
+function isLoopback(ip) {
+  return ip === "127.0.0.1" || ip === "::1" || ip.startsWith("127.");
+}
+
+function isIpAllowed(ip) {
+  if (isLoopback(ip)) return true;
+  if (parsedCidrs.length === 0) return true; // no CIDR filter = allow all (backward compat)
+  const buf = ipToBuffer(ip);
+  if (!buf) return false;
+  return parsedCidrs.some((cidr) => {
+    if (cidr.network.length !== buf.length) return false;
+    const masked = Buffer.from(buf.map((b, i) => b & cidr.mask[i]));
+    return masked.equals(cidr.network);
+  });
+}
+
 const server = createServer((request, response) => {
+  // Enforce IP allowlist before any handler runs
+  const clientIp = request.socket.remoteAddress;
+  if (clientIp && !isIpAllowed(clientIp)) {
+    console.error(`[bridge] Rejected connection from ${clientIp} (not in allowed CIDRs)`);
+    sendJson(response, 403, { error: "forbidden" });
+    request.socket.destroy();
+    return;
+  }
   if (request.method === "GET" && request.url === "/healthz") {
     sendJson(response, 200, { ok: true });
     return;
@@ -171,6 +246,11 @@ server.listen(port, host, () => {
       await mkdir(dirname(pidFile), { recursive: true, mode: 0o700 });
       await writeFile(pidFile, `${process.pid}\n`, { mode: 0o600 });
     }
-    console.error(`OpenClaw Keychain bridge listening on ${host}:${selectedPort}`);
+    console.error(
+      `OpenClaw Keychain bridge listening on ${host}:${selectedPort}` +
+        (parsedCidrs.length > 0
+          ? ` (allowed CIDRs: loopback + ${allowedClientCidrs.join(", ")})`
+          : " (no CIDR filter — allow all)"),
+    );
   })();
 });
