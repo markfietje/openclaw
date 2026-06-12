@@ -490,6 +490,7 @@ cd "$BUILD_CONTEXT"
 echo ""
 echo "=== Configuring builder (${BUILDER_CPUS} CPUs, ${BUILDER_MEMORY} RAM) ==="
 DESIRED_BUILDER_MEMORY_MB="$(memory_to_mb "$BUILDER_MEMORY")"
+BUILDER_JUST_STARTED=false
 
 if $RESET_BUILDER; then
   echo "  Resetting builder by request..."
@@ -505,16 +506,36 @@ if container builder status >/dev/null 2>&1; then
     container builder stop 2>/dev/null || true
     container builder delete --force 2>/dev/null || true
     container builder start --cpus "$BUILDER_CPUS" --memory "$BUILDER_MEMORY" --dns "$BUILDER_DNS"
+    BUILDER_JUST_STARTED=true
     echo "  Builder restarted."
   elif [[ "$CURRENT_BUILDER_STATE" != "running" ]]; then
     container builder start --cpus "$BUILDER_CPUS" --memory "$BUILDER_MEMORY" --dns "$BUILDER_DNS"
+    BUILDER_JUST_STARTED=true
     echo "  Builder started."
   else
     echo "  Builder already running; keeping cache."
   fi
 else
   container builder start --cpus "$BUILDER_CPUS" --memory "$BUILDER_MEMORY" --dns "$BUILDER_DNS"
+  BUILDER_JUST_STARTED=true
   echo "  Builder started."
+fi
+
+# Wait for the buildkit VM to accept gRPC connections after a fresh start.
+# "Stream unexpectedly closed" occurs when the build fires before the VM's
+# gRPC endpoint is fully bound. Probe with a tiny no-op build to confirm.
+if $BUILDER_JUST_STARTED; then
+  echo -n "  Waiting for builder readiness"
+  for _i in $(seq 1 20); do
+    sleep 1
+    # A dummy image list call exercises the gRPC path without starting a build.
+    if container image list 2>/dev/null >/dev/null; then
+      sleep 1
+      break
+    fi
+    echo -n "."
+  done
+  echo " ready."
 fi
 
 # ── Build ────────────────────────────────────────────────────────
