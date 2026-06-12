@@ -40,7 +40,12 @@ const env = {
 };
 const OUTPUT_SOURCE_MAPS = process.env.OUTPUT_SOURCE_MAPS === "1";
 const RUN_NODE_SKIP_DTS_BUILD = process.env.OPENCLAW_RUN_NODE_SKIP_DTS_BUILD === "1";
-const TSDOWN_DECLARATIONS = !RUN_NODE_SKIP_DTS_BUILD;
+const TSDOWN_DECLARATIONS = RUN_NODE_SKIP_DTS_BUILD ? false : true;
+// When OPENCLAW_TSDOWN_STAGE is set, only emit configs for that stage.
+// "packages" = workspace package builds (small, independent).
+// "root" = unified root build (large, needs packages done first).
+// Unset/empty = all configs (backward compat).
+const TSDOWN_STAGE = process.env.OPENCLAW_TSDOWN_STAGE || "";
 
 const SUPPRESSED_EVAL_WARNING_PATHS = [
   "@protobufjs/inquire/index.js",
@@ -677,7 +682,7 @@ function buildUnifiedDistEntries(): Record<string, string> {
   };
 }
 
-const configs = [
+const packageConfigs: UserConfig[] = [
   nodeBuildConfig({
     clean: true,
     dts: TSDOWN_DECLARATIONS,
@@ -798,19 +803,26 @@ const configs = [
     entry: buildModelCatalogCoreDistEntries(),
     outDir: tsdownPackageOutputRoot("model-catalog-core"),
   }),
-  nodeBuildConfig({
-    // Build core entrypoints, plugin-sdk subpaths, bundled plugin entrypoints,
-    // and bundled hooks in one graph so runtime singletons are emitted once.
-    clean: true,
-    dts: TSDOWN_DECLARATIONS,
-    entry: buildUnifiedDistEntries(),
-    deps: {
-      alwaysBundle: shouldAlwaysBundleDependency,
-      neverBundle: shouldNeverBundleDependency,
-      // Keep dts generation from inlining externalized package types.
-      dts: { neverBundle: shouldNeverBundleDependency },
-    },
-  }),
-] satisfies UserConfig[];
+];
 
-export default configs;
+const rootConfig: UserConfig = nodeBuildConfig({
+  // Build core entrypoints, plugin-sdk subpaths, bundled plugin entrypoints,
+  // and bundled hooks in one graph so runtime singletons are emitted once.
+  clean: true,
+  dts: TSDOWN_DECLARATIONS,
+  entry: buildUnifiedDistEntries(),
+  deps: {
+    alwaysBundle: shouldAlwaysBundleDependency,
+    neverBundle: shouldNeverBundleDependency,
+    // Keep dts generation from inlining externalized package types.
+    dts: { neverBundle: shouldNeverBundleDependency },
+  },
+});
+
+function selectConfigs(): UserConfig[] {
+  if (TSDOWN_STAGE === "packages") return packageConfigs;
+  if (TSDOWN_STAGE === "root") return [rootConfig];
+  return [...packageConfigs, rootConfig];
+}
+
+export default selectConfigs();

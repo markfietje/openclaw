@@ -103,7 +103,21 @@ RUN set -eux; \
 # Docker builds target linux/arm64 containers where .d.ts files are deleted
 # in the runtime-assets stage anyway. Skip declaration generation to reduce
 # peak heap ~30-40% and wall-clock build time.
-RUN OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=1 pnpm build:docker
+# --stage all runs packages then root in separate processes, each with its own
+# heap, instead of one monolithic 18-config pass that OOMs in 12 GB.
+ENV OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=1
+RUN node scripts/tsdown-build.mjs --stage all && \
+    node scripts/check-cli-bootstrap-imports.mjs && \
+    node scripts/runtime-postbuild.mjs && \
+    node scripts/build-stamp.mjs && \
+    node scripts/runtime-postbuild-stamp.mjs && \
+    pnpm plugins:assets:build && \
+    pnpm plugins:assets:copy && \
+    node --experimental-strip-types scripts/copy-hook-metadata.ts && \
+    node --experimental-strip-types scripts/copy-export-html-templates.ts && \
+    node --experimental-strip-types scripts/write-build-info.ts && \
+    node --experimental-strip-types scripts/write-cli-startup-metadata.ts && \
+    node --experimental-strip-types scripts/write-cli-compat.ts
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
 RUN pnpm qa:lab:build
