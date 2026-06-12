@@ -511,6 +511,24 @@ start_keychain_bridge() {
   rm -f "$BRIDGE_PID_FILE" "$BRIDGE_PORT_FILE" "$BRIDGE_ENV_FILE"
   : > "$BRIDGE_LOG_FILE"
 
+  # Collect CIDRs for ALL container networks, not just the one this container
+  # uses. Apple Container assigns networks dynamically (e.g. 192.168.64.0/24,
+  # 192.168.65.0/24) and the assignment can change between runs.
+  local bridge_allowed_cidrs=""
+  if [[ -z "${OPENCLAW_KEYCHAIN_BRIDGE_ALLOWED_CIDRS:-}" ]]; then
+    local all_gateway_cidrs=()
+    while IFS= read -r gw_ip; do
+      [[ "$gw_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+      all_gateway_cidrs+=("$(echo "$gw_ip" | cut -d. -f1-3).0/24")
+    done < <(container network list --quiet 2>/dev/null | while read -r net_name; do
+      parse_container_network_gateway "$net_name"
+    done)
+    # Deduplicate and join with commas.
+    bridge_allowed_cidrs="$(printf '%s\n' "${all_gateway_cidrs[@]}" | sort -u | paste -sd ',' -)"
+  else
+    bridge_allowed_cidrs="$OPENCLAW_KEYCHAIN_BRIDGE_ALLOWED_CIDRS"
+  fi
+
   # Write bridge env to a restricted file so the token is never visible in
   # process argument lists (launchctl submit / ps aux).
   cat >"$BRIDGE_ENV_FILE" <<BRIDGE_ENV
@@ -522,13 +540,15 @@ OPENCLAW_KEYCHAIN_BRIDGE_PID_FILE=$BRIDGE_PID_FILE
 OPENCLAW_KEYCHAIN_SERVICE=$KEYCHAIN_SERVICE
 OPENCLAW_KEYCHAIN_ACCOUNT=$KEYCHAIN_ACCOUNT
 OPENCLAW_KEYCHAIN_BRIDGE_KEYCHAIN_TIMEOUT_MS=$BRIDGE_TIMEOUT_MS
+OPENCLAW_KEYCHAIN_BRIDGE_ALLOWED_CIDRS=$bridge_allowed_cidrs
 BRIDGE_ENV
   chmod 600 "$BRIDGE_ENV_FILE"
 
   # Apple Container 0.12.3 vmnet NAT only delivers traffic to the network's
   # gateway IP when the host listener is bound to a wildcard. Bind to 0.0.0.0
-  # and rely on the per-run bearer token to gate /secret; /healthz returns
-  # {"ok":true} with no sensitive data.
+  # and restrict access to loopback + container-network CIDR via
+  # OPENCLAW_KEYCHAIN_BRIDGE_ALLOWED_CIDRS. Per-run bearer token gates /secret;
+  # /healthz returns {"ok":true} with no sensitive data.
   if command -v launchctl >/dev/null 2>&1; then
     launchctl submit \
       -l "$BRIDGE_LAUNCH_LABEL" \
