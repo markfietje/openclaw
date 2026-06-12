@@ -100,14 +100,9 @@ RUN set -eux; \
     done; \
     find /app/node_modules -name "matrix-sdk-crypto*.node" 2>/dev/null | grep -q . || \
       (echo "ERROR: matrix-sdk-crypto native addon missing after retries" >&2 && exit 1)
-# Docker builds target linux/arm64 containers where .d.ts files are deleted
-# in the runtime-assets stage anyway. Skip declaration generation to reduce
-# peak heap ~30-40% and wall-clock build time.
-# --stage all runs packages then root in separate processes, each with its own
-# heap, instead of one monolithic 18-config pass that OOMs in 12 GB.
 ENV OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=1
-RUN node scripts/tsdown-build.mjs --stage all && \
-    node scripts/check-cli-bootstrap-imports.mjs && \
+RUN node scripts/tsdown-build.mjs --stage all
+RUN node scripts/check-cli-bootstrap-imports.mjs && \
     node scripts/runtime-postbuild.mjs && \
     node scripts/build-stamp.mjs && \
     node scripts/runtime-postbuild-stamp.mjs && \
