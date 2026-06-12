@@ -489,7 +489,8 @@ export function tsdownBuildUsage() {
     "Builds OpenClaw with tsdown and validates emitted import diagnostics.",
     "",
     "Options:",
-    "  -h, --help  Show this help without starting tsdown.",
+    "  -h, --help   Show this help without starting tsdown.",
+    "  --stage <s>  Build stage: packages, root, or all (default: all).",
     "",
     "Other arguments are forwarded to tsdown.",
   ].join("\n");
@@ -499,11 +500,26 @@ export function parseTsdownBuildArgs(argv) {
   if (argv.includes("--help") || argv.includes("-h")) {
     return {
       forwardedArgs: [],
+      stage: "",
       help: true,
     };
   }
+  const remaining = [];
+  let stage = "";
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--stage") {
+      stage = argv[++i] ?? "";
+      continue;
+    }
+    if (argv[i]?.startsWith("--stage=")) {
+      stage = argv[i].slice("--stage=".length);
+      continue;
+    }
+    remaining.push(argv[i]);
+  }
   return {
-    forwardedArgs: argv,
+    forwardedArgs: remaining,
+    stage,
     help: false,
   };
 }
@@ -769,30 +785,51 @@ if (isMainModule()) {
   pruneUntrackedGeneratedSourceDeclarations();
   pruneStaleRuntimeSymlinks();
   cleanTsdownOutputRoots();
-  const invocation = resolveTsdownBuildInvocation({ args: args.forwardedArgs });
-  const result = await runTsdownBuildInvocation(invocation);
 
-  if (result.status === 0 && result.hasIneffectiveDynamicImport) {
-    console.error(
-      "Build emitted [INEFFECTIVE_DYNAMIC_IMPORT]. Replace transparent runtime re-export facades with real runtime boundaries.",
-    );
-    process.exit(1);
+  // When --stage is specified, run only that stage. When unset, run all configs
+  // in a single tsdown invocation (backward compat). When --stage all is given,
+  // run packages then root as separate processes so each gets its own heap.
+  const stages =
+    args.stage === "" ? [""] : args.stage === "all" ? ["packages", "root"] : [args.stage];
+
+  for (const stage of stages) {
+    if (stage) {
+      console.error(`[tsdown-build] stage: ${stage}`);
+    }
+    const stageEnv = { ...process.env };
+    if (stage) {
+      stageEnv.OPENCLAW_TSDOWN_STAGE = stage;
+    }
+    const invocation = resolveTsdownBuildInvocation({
+      args: args.forwardedArgs,
+      env: stageEnv,
+    });
+    const result = await runTsdownBuildInvocation(invocation, {
+      env: stageEnv,
+    });
+
+    if (result.status === 0 && result.hasIneffectiveDynamicImport) {
+      console.error(
+        "Build emitted [INEFFECTIVE_DYNAMIC_IMPORT]. Replace transparent runtime re-export facades with real runtime boundaries.",
+      );
+      process.exit(1);
+    }
+
+    if (result.status === 0 && result.fatalUnresolvedImport) {
+      console.error(
+        `Build emitted [UNRESOLVED_IMPORT] outside extensions: ${result.fatalUnresolvedImport}`,
+      );
+      process.exit(1);
+    }
+
+    if (result.timedOut) {
+      process.exit(124);
+    }
+
+    if (typeof result.status === "number" && result.status !== 0) {
+      process.exit(result.status);
+    }
   }
 
-  if (result.status === 0 && result.fatalUnresolvedImport) {
-    console.error(
-      `Build emitted [UNRESOLVED_IMPORT] outside extensions: ${result.fatalUnresolvedImport}`,
-    );
-    process.exit(1);
-  }
-
-  if (result.timedOut) {
-    process.exit(124);
-  }
-
-  if (typeof result.status === "number") {
-    process.exit(result.status);
-  }
-
-  process.exit(1);
+  process.exit(0);
 }
