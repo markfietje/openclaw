@@ -40,7 +40,12 @@ const env = {
 };
 const OUTPUT_SOURCE_MAPS = process.env.OUTPUT_SOURCE_MAPS === "1";
 const RUN_NODE_SKIP_DTS_BUILD = process.env.OPENCLAW_RUN_NODE_SKIP_DTS_BUILD === "1";
-const TSDOWN_DECLARATIONS = !RUN_NODE_SKIP_DTS_BUILD;
+const TSDOWN_DECLARATIONS = RUN_NODE_SKIP_DTS_BUILD ? false : true;
+// When OPENCLAW_TSDOWN_STAGE is set, only emit configs for that stage.
+// "packages" = workspace package builds (small, independent).
+// "root" = unified root build (large, needs packages done first).
+// Unset/empty = all configs (backward compat).
+const TSDOWN_STAGE = process.env.OPENCLAW_TSDOWN_STAGE || "";
 
 const SUPPRESSED_EVAL_WARNING_PATHS = [
   "@protobufjs/inquire/index.js",
@@ -410,6 +415,20 @@ function buildLlmCoreDistEntries(): Record<string, string> {
   };
 }
 
+function buildModelCatalogCoreDistEntries(): Record<string, string> {
+  return {
+    index: "packages/model-catalog-core/src/index.ts",
+    "configured-model-refs": "packages/model-catalog-core/src/configured-model-refs.ts",
+    "model-catalog-normalize": "packages/model-catalog-core/src/model-catalog-normalize.ts",
+    "model-catalog-refs": "packages/model-catalog-core/src/model-catalog-refs.ts",
+    "model-catalog-types": "packages/model-catalog-core/src/model-catalog-types.ts",
+    "provider-id": "packages/model-catalog-core/src/provider-id.ts",
+    "provider-model-id-normalization":
+      "packages/model-catalog-core/src/provider-model-id-normalization.ts",
+    "provider-model-id-normalize": "packages/model-catalog-core/src/provider-model-id-normalize.ts",
+  };
+}
+
 function shouldExternalizeAgentCoreDependency(id: string): boolean {
   return (
     id === "@openclaw/ai" ||
@@ -519,7 +538,7 @@ function buildUnifiedDistEntries(): Record<string, string> {
   };
 }
 
-const configs = [
+const packageConfigs: UserConfig[] = [
   nodeBuildConfig({
     entry: buildAgentCoreDistEntries(),
     outDir: tsdownPackageOutputRoot("agent-core"),
@@ -573,18 +592,32 @@ const configs = [
       neverBundle: shouldExternalizeLlmCoreDependency,
     },
   }),
-  nodeWorkspacePackageBuildConfig("model-catalog-core"),
-  nodeBuildConfig({
-    // Build core entrypoints, plugin-sdk subpaths, bundled plugin entrypoints,
-    // and bundled hooks in one graph so runtime singletons are emitted once.
-    entry: buildUnifiedDistEntries(),
-    deps: {
-      alwaysBundle: shouldAlwaysBundleDependency,
-      neverBundle: shouldNeverBundleDependency,
-      // Keep dts generation from inlining externalized package types.
-      dts: { neverBundle: shouldNeverBundleDependency },
-    },
+  nodeWorkspacePackageBuildConfig({
+    clean: true,
+    dts: TSDOWN_DECLARATIONS,
+    entry: buildModelCatalogCoreDistEntries(),
+    outDir: tsdownPackageOutputRoot("model-catalog-core"),
   }),
-] satisfies UserConfig[];
+];
 
-export default configs;
+const rootConfig: UserConfig = nodeBuildConfig({
+  // Build core entrypoints, plugin-sdk subpaths, bundled plugin entrypoints,
+  // and bundled hooks in one graph so runtime singletons are emitted once.
+  clean: true,
+  dts: TSDOWN_DECLARATIONS,
+  entry: buildUnifiedDistEntries(),
+  deps: {
+    alwaysBundle: shouldAlwaysBundleDependency,
+    neverBundle: shouldNeverBundleDependency,
+    // Keep dts generation from inlining externalized package types.
+    dts: { neverBundle: shouldNeverBundleDependency },
+  },
+});
+
+function selectConfigs(): UserConfig[] {
+  if (TSDOWN_STAGE === "packages") return packageConfigs;
+  if (TSDOWN_STAGE === "root") return [rootConfig];
+  return [...packageConfigs, rootConfig];
+}
+
+export default selectConfigs();
