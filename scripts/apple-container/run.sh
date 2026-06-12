@@ -517,14 +517,17 @@ start_keychain_bridge() {
   local bridge_allowed_cidrs=""
   if [[ -z "${OPENCLAW_KEYCHAIN_BRIDGE_ALLOWED_CIDRS:-}" ]]; then
     local all_gateway_cidrs=()
-    while IFS= read -r gw_ip; do
+    local net_name gw_ip
+    while IFS= read -r net_name; do
+      [[ -n "$net_name" ]] || continue
+      gw_ip="$(parse_container_network_gateway "$net_name")"
       [[ "$gw_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
       all_gateway_cidrs+=("$(echo "$gw_ip" | cut -d. -f1-3).0/24")
-    done < <(container network list --quiet 2>/dev/null | while read -r net_name; do
-      parse_container_network_gateway "$net_name"
-    done)
+    done < <(container network list --quiet 2>/dev/null)
     # Deduplicate and join with commas.
-    bridge_allowed_cidrs="$(printf '%s\n' "${all_gateway_cidrs[@]}" | sort -u | paste -sd ',' -)"
+    if [[ ${#all_gateway_cidrs[@]} -gt 0 ]]; then
+      bridge_allowed_cidrs="$(printf '%s\n' "${all_gateway_cidrs[@]}" | sort -u | paste -sd ',' -)"
+    fi
   else
     bridge_allowed_cidrs="$OPENCLAW_KEYCHAIN_BRIDGE_ALLOWED_CIDRS"
   fi
