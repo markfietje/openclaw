@@ -196,42 +196,41 @@ export function startGatewayMaintenanceTimers(params: {
         }
       }
 
-      for (const [runId, entry] of params.chatAbortControllers) {
-      if (entry.projectSessionTerminalPending === true) {
-        continue;
-      }
-      if (isFutureDateTimestampMs(entry.expiresAtMs, { nowMs: now })) {
-        continue;
-      }
-      if (entry.projectSessionTerminalPersistence) {
-        const lifecycleGeneration = entry.lifecycleGeneration?.trim();
-        const sessionKey = entry.sessionKey.trim();
-        const sessionId = entry.sessionId.trim();
-        if (entry.controlUiVisible !== false && lifecycleGeneration && sessionKey && sessionId) {
-          params.restartRecoveryCandidates.set(runId, {
-            runId,
-            lifecycleGeneration,
-            sessionKey,
-            sessionId,
-            observedAt: entry.projectSessionTerminalObservedAt,
-          });
+      const resolveAgentThrottleRunId = (key: string) => {
+        if (key.endsWith(":assistant")) {
+          return key.slice(0, -":assistant".length);
         }
-        params.chatAbortControllers.delete(runId);
-        continue;
-      }
-      if (entry.projectSessionActive === false) {
-        params.chatAbortControllers.delete(runId);
-        continue;
-      }
-      abortTrackedChatRunById(params, {
-        runId,
-        sessionKey: entry.sessionKey,
-        stopReason: "timeout",
-      });
-    }
+        if (key.endsWith(":thinking")) {
+          return key.slice(0, -":thinking".length);
+        }
+        return key;
+      };
 
       for (const [runId, entry] of params.chatAbortControllers) {
+        if (entry.projectSessionTerminalPending === true) {
+          continue;
+        }
         if (isFutureDateTimestampMs(entry.expiresAtMs, { nowMs: now })) {
+          continue;
+        }
+        if (entry.projectSessionTerminalPersistence) {
+          const lifecycleGeneration = entry.lifecycleGeneration?.trim();
+          const sessionKey = entry.sessionKey.trim();
+          const sessionId = entry.sessionId.trim();
+          if (entry.controlUiVisible !== false && lifecycleGeneration && sessionKey && sessionId) {
+            params.restartRecoveryCandidates.set(runId, {
+              runId,
+              lifecycleGeneration,
+              sessionKey,
+              sessionId,
+              observedAt: entry.projectSessionTerminalObservedAt,
+            });
+          }
+          params.chatAbortControllers.delete(runId);
+          continue;
+        }
+        if (entry.projectSessionActive === false) {
+          params.chatAbortControllers.delete(runId);
           continue;
         }
         abortTrackedChatRunById(params, {
