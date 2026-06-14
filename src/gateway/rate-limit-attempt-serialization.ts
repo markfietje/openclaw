@@ -46,7 +46,7 @@ export async function withSerializedRateLimitAttempt<T>(params: {
   scope: string | undefined;
   run: () => Promise<T>;
 }): Promise<T> {
-  const key = params.key;
+  const key = buildSerializationKey(params.ip, params.scope);
   const previous = pendingAttempts.get(key) ?? Promise.resolve();
   let releaseCurrent!: () => void;
   const current = new Promise<void>((resolve) => {
@@ -83,3 +83,18 @@ export async function withSerializedRateLimitAttempt<T>(params: {
   }
 }
 
+/**
+ * Runs one attempt after prior work for the same stable key finishes.
+ * @deprecated Use withSerializedRateLimitAttempt(ip, scope, run) instead.
+ */
+export async function withSerializedKeyedAttempt<T>(params: {
+  key: string;
+  run: () => Promise<T>;
+}): Promise<T> {
+  const parts = params.key.split(":");
+  return withSerializedRateLimitAttempt({
+    ip: parts[1] ?? undefined,
+    scope: parts[0] ?? undefined,
+    run: params.run,
+  });
+}
