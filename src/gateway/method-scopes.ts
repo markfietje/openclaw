@@ -16,7 +16,6 @@ import {
   READ_SCOPE,
   TALK_SECRETS_SCOPE,
   WRITE_SCOPE,
-  isOperatorScope,
   type OperatorScope,
 } from "./operator-scopes.js";
 

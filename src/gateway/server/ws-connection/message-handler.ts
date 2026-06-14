@@ -2484,11 +2484,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           return;
         }
       }
-      // Tracks whether the request handler produced a successful response.
-      // Read by the DEVICE_CREDENTIAL_INVALIDATING_METHODS barrier after the
-      // dispatch promise settles, so we only invalidate authority when the
-      // mutation actually applied (see respond()).
-      let dispatchSucceeded = false;
+
       // Per-connection inflight RPC cap: reject new dispatches when the client
       // already has MAX_INFLIGHT_RPC concurrent requests being processed.
       const MAX_INFLIGHT_RPC = 10;
@@ -2530,7 +2526,8 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         // avoid a DoS where an attacker could bump the authority generation
         // for arbitrary deviceIds via params that fail validation.
         if (ok) {
-          dispatchSucceeded = true;
+          // dispatchSucceeded was removed — authority invalidation is now
+          // handled synchronously in onBeforeRespond (Gap G2/G3 fix).
         }
         send({ type: "res", id: req.id, ok, payload, error });
         const unauthorizedRoleError = isUnauthorizedRoleError(error);

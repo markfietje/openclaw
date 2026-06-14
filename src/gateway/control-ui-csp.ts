@@ -34,8 +34,6 @@ function hasScriptSrcAttribute(openTag: string): boolean {
   );
 }
 
-const STYLE_ATTRIBUTE_NAME_RE = /\s([^\s=/>]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/g;
-
 /** Compute SHA-256 CSP hashes for inline `<style>` blocks in an HTML string. */
 export function computeInlineStyleHashes(html: string): string[] {
   const hashes: string[] = [];
