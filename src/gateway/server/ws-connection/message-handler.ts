@@ -201,6 +201,14 @@ const DEVICE_CREDENTIAL_INVALIDATING_METHODS = new Set([
   "device.token.rotate",
   "device.token.revoke",
 ]);
+
+// Single source of truth for which methods bump the device-session authority
+// generation. The onBeforeRespond hook and the per-connection mutation barrier
+// both consult this so non-mutating methods (even those carrying a deviceId in
+// params) cannot trigger spurious authority invalidation.
+function isDeviceCredentialInvalidatingMethod(method: string): boolean {
+  return DEVICE_CREDENTIAL_INVALIDATING_METHODS.has(method);
+}
 const unauthorizedHandshakeLogLimiter = new HandshakeAuthLogLimiter();
 
 class NodePairingRateLimitError extends Error {
@@ -2581,11 +2589,18 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         // The wrapped respond in server-methods.ts calls onBeforeRespond
         // SYNCHRONOUSLY before send() for ALL successful dispatches,
         // bumping the generation atomically with the response.
-        const onBeforeRespond = deviceSessionAuthorityTracker
-          ? (params: { deviceId: string; role?: string }) => {
-              deviceSessionAuthorityTracker.invalidate(params);
-            }
-          : undefined;
+        // Only the three device-credential mutating methods bump the
+        // generation. server-methods.ts calls onBeforeRespond for ANY
+        // successful method whose params carry a non-empty deviceId, so the
+        // method gate must live here at construction time — otherwise a benign
+        // read method that happens to include deviceId would invalidate the
+        // authority and force reconnects (availability regression).
+        const onBeforeRespond =
+          deviceSessionAuthorityTracker && isDeviceCredentialInvalidatingMethod(req.method)
+            ? (params: { deviceId: string; role?: string }) => {
+                deviceSessionAuthorityTracker.invalidate(params);
+              }
+            : undefined;
         await handleGatewayRequest({
           req,
           respond,
@@ -2609,7 +2624,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
       // is the dispatch promise — subsequent requests spin on it until the dispatch
       // settles (success or failure). This provides request-level serialization for
       // mutations without relying on the deferred .finally() pattern that caused Gap G2.
-      if (DEVICE_CREDENTIAL_INVALIDATING_METHODS.has(req.method)) {
+      if (isDeviceCredentialInvalidatingMethod(req.method)) {
         deviceCredentialMutationBarrier = dispatch.then(() => {
           deviceCredentialMutationBarrier = undefined;
         });
@@ -2671,31 +2686,6 @@ function matchesEndpointCapabilities(
 }
 
 /**
- * Decide whether the credential-mutation barrier should call
- * `invalidate({ deviceId })` after a device.* method completes. Skipped on
- * error responses (dispatchSucceeded === false) so an attacker without
- * operator.pairing scope cannot bump authority for arbitrary deviceIds by
- * sending invalid params.
- */
-function shouldInvalidateDeviceAuthority(params: {
-  dispatchSucceeded: boolean;
-  deviceSessionAuthorityTracker: DeviceSessionAuthorityTracker | undefined;
-  params: unknown;
-}): boolean {
-  if (!params.dispatchSucceeded) {
-    return false;
-  }
-  if (!params.deviceSessionAuthorityTracker) {
-    return false;
-  }
-  if (!params.params || typeof params.params !== "object") {
-    return false;
-  }
-  const deviceId = (params.params as { deviceId?: unknown }).deviceId;
-  return typeof deviceId === "string" && deviceId.length > 0;
-}
-
-/**
  * Top-level gate for the per-request authorization block. Returns true
  * (gate runs) when either the new `enableMessageAuthorization` flag is not
  * explicitly false, or the legacy `messageAuth.enabled` flag is not
@@ -2727,7 +2717,7 @@ function isUnmappedMethodAllowed(configSnapshot: OpenClawConfig | undefined): bo
 export const testing = {
   resolvePinnedClientMetadata,
   matchesEndpointCapabilities,
-  shouldInvalidateDeviceAuthority,
+  isDeviceCredentialInvalidatingMethod,
   isMessageAuthorizationEnabled,
   isUnmappedMethodAllowed,
 };

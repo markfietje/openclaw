@@ -5,6 +5,7 @@ import { isPrivateOrLoopbackIpAddress } from "@openclaw/net-policy/ip";
 import { z } from "zod";
 import { validateProtoMismatch, type ForwardedHeader } from "./forwarded-headers.js";
 import { isLoopbackHost, normalizeHostHeader, resolveHostName } from "./net.js";
+import { MapGauge } from "./server/lifecycle/map-gauge.js";
 
 // OWASP LLM02 — Insecure Output Handling. Validate signed token payload with
 // Zod schema before accessing properties to prevent malformed data attacks.
@@ -29,6 +30,28 @@ export type SignedTokenVerificationResult =
   | { ok: false; reason: string };
 
 const SIGNED_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
+
+// Replay defense for signed origin tokens: a captured token is otherwise
+// reusable for up to SIGNED_TOKEN_MAX_AGE_MS. Track seen nonces (mapped to their
+// exp deadline) in a bounded, self-pruning cache. This is transient
+// per-process security state (not app state), so an in-process map is correct;
+// it does not need to survive restarts and is not a SQLite concern.
+const NONCE_CACHE_MAX_ENTRIES = 4096;
+const seenNonces = new MapGauge<string, number>(NONCE_CACHE_MAX_ENTRIES, {
+  label: "signedOriginTokenNonces",
+});
+
+// Drop expired nonces and enforce the bounded cap. Called on each verify so the
+// cache cannot grow unbounded between requests. MapGauge already evicts the
+// oldest entry on overflow; this pass also drops entries whose token has
+// expired so a nonce frees up as soon as it can no longer be replayed.
+function pruneExpiredNonces(now: number): void {
+  for (const [nonce, expMs] of seenNonces) {
+    if (expMs <= now) {
+      seenNonces.delete(nonce);
+    }
+  }
+}
 
 export function verifySignedOriginToken(
   token: string,
@@ -77,11 +100,33 @@ export function verifySignedOriginToken(
       return { ok: false, reason: "token expired" };
     }
 
+    // Replay defense: signature, origin, and iat/exp have all passed, so the
+    // token is otherwise valid. Reject if this nonce was already accepted
+    // within its validity window; otherwise record it bound to its exp.
+    // Pruning first keeps the cache bounded and reclaims slots from tokens
+    // that can no longer be replayed.
+    pruneExpiredNonces(now);
+    const expMs = (payload.exp ?? Math.floor(now / 1000) + SIGNED_TOKEN_MAX_AGE_MS / 1000) * 1000;
+    if (seenNonces.has(payload.nonce)) {
+      return { ok: false, reason: "nonce replayed" };
+    }
+    seenNonces.set(payload.nonce, expMs);
+
     return { ok: true, user: payload.sub };
   } catch {
     return { ok: false, reason: "token verification failed" };
   }
 }
+
+// Test-only hook: reset the replay cache between deterministic nonce tests.
+export const __testing = {
+  resetNonceCache(): void {
+    seenNonces.clear();
+  },
+  nonceCacheSize(): number {
+    return seenNonces.size;
+  },
+};
 
 type OriginCheckResult =
   | {

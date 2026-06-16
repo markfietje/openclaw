@@ -24,6 +24,12 @@ CREATE TABLE IF NOT EXISTS child_processes (
 
 const ORPHAN_SIGTERM_TIMEOUT_MS = 5_000;
 const ORPHAN_SIGKILL_WAIT_MS = 500;
+// Only reap child-process rows recorded within this recent window. The table
+// records spawn-time `started_at`; between restarts the OS may recycle a PID to
+// an unrelated process, so reaping stale rows risks killing the wrong process.
+// A tight window keeps reaping safe for the common crash-restart case while
+// skipping rows that are old enough for PID reuse to be plausible.
+const ORPHAN_REAP_MAX_AGE_MS = 60_000;
 
 function isProcessRunning(pid: number): boolean {
   try {
@@ -115,12 +121,26 @@ export async function reapOrphanChildProcesses(db: {
   let skipped = 0;
 
   for (const row of rows) {
+    // Gate on recorded spawn time: skip rows older than the reap window to
+    // avoid killing an unrelated process that may have inherited a recycled PID
+    // during the downtime. The row is still cleared below. Evaluated per-row
+    // because each reap can wait several seconds for graceful exit.
+    if (
+      typeof row.started_at !== "number" ||
+      Date.now() - row.started_at > ORPHAN_REAP_MAX_AGE_MS
+    ) {
+      procLog.warn(
+        `skipping stale orphan record pid=${row.pid} label=${row.label} (age exceeds reap window)`,
+      );
+      skipped++;
+      continue;
+    }
     if (!isProcessRunning(row.pid)) {
       skipped++;
       continue;
     }
 
-    procLog.info(`sending SIGTERM to orphan pid=${row.pid} label=${row.label}`);
+    procLog.warn(`reaping orphan pid=${row.pid} label=${row.label} from previous run`);
     sendSignal(row.pid, "SIGTERM");
 
     // Wait up to 5s for graceful exit
