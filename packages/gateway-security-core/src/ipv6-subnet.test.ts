@@ -23,6 +23,14 @@ describe("expandIPv6", () => {
   it("expands address with multiple consecutive zero blocks", () => {
     expect(expandIPv6("fe80::1:2:3:4")).toBe("fe80:0000:0000:0000:0001:0002:0003:0004");
   });
+
+  // More than one `::` run is malformed; `split("::")` would silently drop the
+  // middle segment and return a plausible-but-wrong address. Fail loudly so
+  // rate-limit keys can't be silently mangled.
+  // OWASP A04:2025 — Insecure Design.
+  it("throws on malformed input with two '::' runs", () => {
+    expect(() => expandIPv6("2001::db8::1")).toThrow();
+  });
 });
 
 describe("applyIpv6SubnetMask", () => {
