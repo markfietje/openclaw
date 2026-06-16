@@ -42,9 +42,17 @@ export const DEFAULT_EXEC_DENY_PATTERNS: readonly string[] = [
  * Supports `*` (any chars except `/`) and `?` (single char).
  */
 function matchSegment(segment: string, pattern: string): boolean {
+  // Case-insensitive comparison: on case-insensitive filesystems (macOS APFS,
+  // Windows NTFS) case variants like `~/.SSH/id_rsa` would otherwise bypass
+  // `**/.ssh/id_*`. Lowercasing is safe here because `*`/`?` metacharacters
+  // are not letters, and a denylist has no downside to broader matching.
+  // OWASP A05:2025 — Security Misconfiguration.
+  const seg = segment.toLowerCase();
+  const pat = pattern.toLowerCase();
+
   // Fast path: literal match
-  if (pattern === segment) return true;
-  if (!pattern.includes("*") && !pattern.includes("?")) return pattern === segment;
+  if (pat === seg) return true;
+  if (!pat.includes("*") && !pat.includes("?")) return pat === seg;
 
   // Walk both strings simultaneously
   let si = 0;
@@ -52,16 +60,16 @@ function matchSegment(segment: string, pattern: string): boolean {
   let starIdx = -1;
   let segBacktrack = -1;
 
-  while (si < segment.length) {
-    if (pi < pattern.length) {
-      const pc = pattern[pi]!;
+  while (si < seg.length) {
+    if (pi < pat.length) {
+      const pc = pat[pi]!;
       if (pc === "*") {
         starIdx = pi;
         segBacktrack = si;
         pi++;
         continue;
       }
-      if (pc === "?" || pc === segment[si]) {
+      if (pc === "?" || pc === seg[si]) {
         si++;
         pi++;
         continue;
@@ -78,11 +86,11 @@ function matchSegment(segment: string, pattern: string): boolean {
   }
 
   // Consume trailing stars
-  while (pi < pattern.length && pattern[pi] === "*") {
+  while (pi < pat.length && pat[pi] === "*") {
     pi++;
   }
 
-  return pi === pattern.length;
+  return pi === pat.length;
 }
 
 /**
@@ -256,9 +264,11 @@ function expandShellVars(token: string): string {
       result = result.replaceAll(pattern, replacement);
     }
   }
-  if (/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/.test(result)) {
-    return "";
-  }
+  // Do NOT discard the token when an unresolved `$VAR`/`${VAR}` remains.
+  // Dropping the whole token can hide a denied substring from the gate (e.g.
+  // `~/.openclaw/credentials/$ACCT` must still be inspected against the
+  // credentials deny pattern). Keep unresolved variables as literal text.
+  // OWASP A05:2025 — Security Misconfiguration.
   return result;
 }
 
@@ -494,6 +504,11 @@ const INLINE_SCRIPT_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
 
 const INLINE_SCRIPT_DENIED = "<inline-script-denied>";
 
+// OWASP A05:2025 — A benign command argument never contains a NUL byte. NULs
+// can truncate a path token at the FS layer (e.g. `.env\x00padding` would not
+// match `**/.env`), so any NUL in the command fails closed.
+const NULL_BYTE_DENIED = "<null-byte-denied>";
+
 /**
  * Check if a command string attempts to access a denied path.
  *
@@ -513,6 +528,15 @@ export function checkExecDenyPath(
   // OWASP A05:2025 — Security Misconfiguration.
   if (command.length > MAX_COMMAND_LENGTH) {
     return OVERSIZED_COMMAND_DENIED;
+  }
+
+  // Fail-closed: a benign command argument never contains a NUL byte. NULs can
+  // truncate path tokens at the filesystem layer and bypass deny patterns
+  // (e.g. `.env\x00padding` would not match `**/.env`). Deny unconditionally,
+  // before the empty-patterns early-return, so this holds regardless of config.
+  // OWASP A05:2025 — Security Misconfiguration.
+  if (command.includes("\0")) {
+    return NULL_BYTE_DENIED;
   }
 
   if (patterns.length === 0) {

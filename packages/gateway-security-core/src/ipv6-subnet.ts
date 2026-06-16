@@ -23,6 +23,14 @@ export function expandIPv6(address: string): string {
   if (!address.includes("::")) {
     return address;
   }
+  // Reject malformed addresses containing more than one `::` run. `split("::")`
+  // on such input silently drops the middle segment, producing a plausible but
+  // wrong address — a correctness hazard for rate-limit keys. Throw so callers
+  // can't get silently-mangled output.
+  // OWASP A04:2025 — Insecure Design.
+  if (address.split("::").length > 2) {
+    throw new Error(`Invalid IPv6 address (multiple '::' runs): ${address}`);
+  }
   const halves = address.split("::");
   const left = halves[0] ? halves[0].split(":") : [];
   const right = halves[1] ? halves[1].split(":") : [];

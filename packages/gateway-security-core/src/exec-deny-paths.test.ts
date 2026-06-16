@@ -47,6 +47,26 @@ describe("checkExecDenyPath", () => {
       expect(checkExecDenyPath("cat ~/.gnupg/private-keys-v1.d/abc.key")).toBeDefined();
     });
 
+    // Case-insensitive filesystems (macOS APFS, Windows NTFS) resolve
+    // `~/.SSH/id_rsa` the same as `~/.ssh/id_rsa`. Matching must be
+    // case-insensitive or the gate is bypassable by case variation.
+    // OWASP A05:2025 — Security Misconfiguration.
+    it("denies ~/.SSH/id_rsa bypassing **/.ssh/id_*", () => {
+      expect(checkExecDenyPath("cat ~/.SSH/id_rsa")).toBeDefined();
+    });
+
+    it("denies ~/.OPENCLAW/Secrets/x bypassing **/.openclaw/secrets/**", () => {
+      expect(checkExecDenyPath("cat ~/.OPENCLAW/Secrets/x")).toBeDefined();
+    });
+
+    it("denies .ENV bypassing **/.env", () => {
+      expect(checkExecDenyPath("head .ENV")).toBeDefined();
+    });
+
+    it("denies .OpenClaw/Credentials/aws bypassing **/.openclaw/credentials/**", () => {
+      expect(checkExecDenyPath("cat .OpenClaw/Credentials/aws")).toBeDefined();
+    });
+
     it("allows reading /etc/hosts", () => {
       expect(checkExecDenyPath("cat /etc/hosts")).toBeUndefined();
     });
@@ -172,6 +192,26 @@ describe("oversized command denial", () => {
   });
 });
 
+// A benign command argument never contains a NUL byte; NULs can truncate path
+// tokens at the filesystem layer (`.env\x00padding` would not match `**/.env`)
+// and bypass the gate. Deny unconditionally and fail-closed.
+// OWASP A05:2025 — Security Misconfiguration.
+describe("null-byte token denial", () => {
+  it("denies a path token containing a NUL byte", () => {
+    expect(checkExecDenyPath("cat .env\u0000padding")).toBe("<null-byte-denied>");
+  });
+
+  it("denies a NUL byte even with empty deny patterns (fail-closed)", () => {
+    expect(checkExecDenyPath("cat safe.txt\u0000x", { denyPathPatterns: [] })).toBe(
+      "<null-byte-denied>",
+    );
+  });
+
+  it("allows commands without NUL bytes", () => {
+    expect(checkExecDenyPath("cat /etc/hosts")).toBeUndefined();
+  });
+});
+
 describe("shell variable expansion", () => {
   it("resolves $HOME to ~/ for deny matching", () => {
     const paths = extractPathsFromCommand("cat $HOME/.ssh/id_rsa");
@@ -183,9 +223,21 @@ describe("shell variable expansion", () => {
     expect(paths).toContain("~/.env");
   });
 
-  it("returns empty for unresolvable variables", () => {
-    const paths = extractPathsFromCommand("cat $MYSTERYVAR/.ssh/id_rsa");
-    expect(paths).not.toContain(expect.stringContaining(".ssh"));
+  // Unresolved `$VAR`/`${VAR}` must NOT be discarded: dropping the token can
+  // hide a denied substring (e.g. `~/.openclaw/credentials/$ACCT`). Keep the
+  // literal text so the deny gate still inspects it.
+  // OWASP A05:2025 — Security Misconfiguration.
+  it("keeps unresolved $VAR literal text so the deny path is still inspected", () => {
+    const paths = extractPathsFromCommand("cat ~/.openclaw/credentials/$ACCT");
+    expect(paths).toContain("~/.openclaw/credentials/$ACCT");
+  });
+
+  it("denies a credentials path with an unresolved $VAR segment", () => {
+    expect(checkExecDenyPath("cat ~/.openclaw/credentials/$ACCT")).toBeDefined();
+  });
+
+  it("denies a .ssh path with an unresolved leading $VAR", () => {
+    expect(checkExecDenyPath("cat $MYSTERYVAR/.ssh/id_rsa")).toBeDefined();
   });
 });
 
