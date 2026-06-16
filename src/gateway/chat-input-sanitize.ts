@@ -16,8 +16,10 @@ function stripDisallowedChatControlChars(message: string): string {
     }
     if (code >= 0x80) {
       // Strip zero-width characters: ZW space/joiner/non-joiner, BOM,
-      // directional overrides, and word-joiner ranges.
+      // directional overrides (U+202A–202E, U+2066–2069), Arabic Letter Mark
+      // (U+061C, an invisible bidi control), and the word-joiner ranges.
       if (
+        code === 0x061c ||
         (code >= 0x200b && code <= 0x200f) ||
         code === 0xfeff ||
         (code >= 0x202a && code <= 0x202e) ||
