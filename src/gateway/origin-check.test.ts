@@ -1,8 +1,8 @@
 // Browser origin tests document same-origin, private-network, loopback, forwarded
 // host, and explicit allowlist decisions for gateway browser surfaces.
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
-import { checkBrowserOrigin, verifySignedOriginToken } from "./origin-check.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import { __testing, checkBrowserOrigin, verifySignedOriginToken } from "./origin-check.js";
 
 describe("checkBrowserOrigin", () => {
   it.each([
@@ -901,6 +901,10 @@ describe("checkBrowserOrigin", () => {
 describe("verifySignedOriginToken", () => {
   const secret = "test-secret-key";
 
+  beforeEach(() => {
+    __testing.resetNonceCache();
+  });
+
   it("accepts valid token", () => {
     const now = Math.floor(Date.now() / 1000);
     const payload = {
@@ -994,5 +998,48 @@ describe("verifySignedOriginToken", () => {
     if (!result.ok) {
       expect(result.reason).toBe("missing token or secret");
     }
+  });
+
+  it("rejects a valid token reused within its validity window (nonce replay)", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+      sub: "user@example.com",
+      origin: "https://example.com",
+      iat: now,
+      exp: now + 300,
+      nonce: "replay-once",
+    };
+    const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
+    const sig = createHmac("sha256", secret).update(payloadB64).digest("base64url");
+    const token = `${payloadB64}.${sig}`;
+
+    const first = verifySignedOriginToken(token, secret, "https://example.com");
+    expect(first.ok).toBe(true);
+
+    // Same token presented again within the 5-min window must be rejected.
+    const second = verifySignedOriginToken(token, secret, "https://example.com");
+    expect(second.ok).toBe(false);
+    if (!second.ok) {
+      expect(second.reason).toBe("nonce replayed");
+    }
+  });
+
+  it("does not grow the nonce cache unbounded (bounded + self-pruning)", () => {
+    const now = Math.floor(Date.now() / 1000);
+    // Each token uses a distinct nonce and a far-future exp so they are NOT
+    // pruned by expiry; the cache must still stay bounded by NONCE_CACHE_MAX_ENTRIES.
+    for (let i = 0; i < 5000; i++) {
+      const payload = {
+        sub: "user@example.com",
+        origin: "https://example.com",
+        iat: now,
+        exp: now + 300,
+        nonce: `nonce-${i}`,
+      };
+      const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
+      const sig = createHmac("sha256", secret).update(payloadB64).digest("base64url");
+      verifySignedOriginToken(`${payloadB64}.${sig}`, secret, "https://example.com");
+    }
+    expect(__testing.nonceCacheSize()).toBeLessThanOrEqual(4096);
   });
 });
