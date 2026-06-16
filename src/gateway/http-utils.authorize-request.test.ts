@@ -56,7 +56,13 @@ describe("authorizeGatewayHttpRequestOrReply", () => {
       authorizeGatewayHttpRequestOrReply({
         req: createReq({ authorization: "Bearer secret" }),
         res: {} as ServerResponse,
-        auth: { mode: "trusted-proxy", allowTailscale: false, token: "secret" },
+        auth: {
+          mode: "trusted-proxy",
+          allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
+          token: "secret",
+        },
         trustedProxies: ["127.0.0.1"],
       }),
     ).resolves.toEqual({
@@ -79,6 +85,8 @@ describe("authorizeGatewayHttpRequestOrReply", () => {
         auth: {
           mode: "trusted-proxy",
           allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
           trustedProxy: { userHeader: "x-user" },
         },
         trustedProxies: ["127.0.0.1"],
@@ -105,6 +113,8 @@ describe("authorizeGatewayHttpRequestOrReply", () => {
       auth: {
         mode: "trusted-proxy",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
         trustedProxy: { userHeader: "x-user" },
       },
       trustedProxies: ["127.0.0.1"],
@@ -133,7 +143,13 @@ describe("authorizeGatewayHttpRequestOrReply", () => {
       authorizeGatewayHttpRequestOrReply({
         req: createReq(),
         res,
-        auth: { mode: "token", allowTailscale: false, token: "secret" },
+        auth: {
+          mode: "token",
+          allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
+          token: "secret",
+        },
       }),
     ).resolves.toBeNull();
 

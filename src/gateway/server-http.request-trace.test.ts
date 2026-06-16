@@ -18,7 +18,12 @@ import type { ResolvedGatewayAuth } from "./auth.js";
 import { createGatewayHttpServer } from "./server-http.js";
 import { withTempConfig } from "./test-temp-config.js";
 
-const resolvedAuth: ResolvedGatewayAuth = { mode: "none", allowTailscale: false };
+const resolvedAuth: ResolvedGatewayAuth = {
+  mode: "none",
+  allowTailscale: false,
+  allowLocalDirectNoAuth: true,
+  toolsInvokeMaxBodyBytes: 256 * 1024,
+};
 
 async function listen(server: ReturnType<typeof createGatewayHttpServer>): Promise<number> {
   return await new Promise<number>((resolve) => {

@@ -108,6 +108,9 @@
   "dependencies": {
     "@openclaw/net-policy": "workspace:*"
   },
+  "devDependencies": {
+    "@openclaw/gateway-protocol": "workspace:*"
+  },
   "scripts": {
     "build": "tsdown"
   }

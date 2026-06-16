@@ -50,7 +50,7 @@ describe("createOutboundDeliveryPayloadRedactor", () => {
       sessionId: "abc-123",
       channelId: "discord",
     };
-    const result = redact(payload as any);
+    const result = redact(payload as any) as typeof payload;
     expect(result.sessionId).toBe("abc-123");
     expect(result.channelId).toBe("discord");
     expect(result.text).toContain("***REDACTED***");

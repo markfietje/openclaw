@@ -2845,6 +2845,7 @@ describe("mcp loopback server", () => {
 
   it("survives a client that closes the request mid-body without writing headers", async () => {
     server = await startMcpLoopbackServer(0);
+    const port = server.port;
     const runtime = getActiveMcpLoopbackRuntime();
     if (!runtime) {
       throw new Error("expected active MCP loopback runtime");
@@ -2856,7 +2857,7 @@ describe("mcp loopback server", () => {
       const req = request(
         {
           hostname: "127.0.0.1",
-          port: server.port,
+          port,
           path: "/mcp",
           method: "POST",
           headers: {
@@ -2866,7 +2867,9 @@ describe("mcp loopback server", () => {
           },
         },
         (res) => {
-          wroteHeaders = res.headersSent === true;
+          // Receiving a response means the server wrote headers; drain and close it.
+          wroteHeaders = true;
+          res.destroy();
         },
       );
       req.on("close", () => {
