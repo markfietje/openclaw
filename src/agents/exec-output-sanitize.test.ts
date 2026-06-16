@@ -53,5 +53,16 @@ describe("sanitizeExecOutput", () => {
         sanitizeExecOutput("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
       ).toBe("AWS_SECRET_ACCESS_KEY=[REDACTED]");
     });
+
+    // C1b: the unquoted value class stops at quotes, so quoted assignments must
+    // be matched by a dedicated pattern or they leak verbatim.
+    it("redacts double-quoted secret values", () => {
+      expect(sanitizeExecOutput('API_KEY="secret123abcd"')).toBe("API_KEY=[REDACTED]");
+      expect(sanitizeExecOutput('TOKEN="sk-abc123def456"')).toBe("TOKEN=[REDACTED]");
+    });
+
+    it("redacts single-quoted secret values", () => {
+      expect(sanitizeExecOutput("PASSWORD='hunter2secret'")).toBe("PASSWORD=[REDACTED]");
+    });
   });
 });

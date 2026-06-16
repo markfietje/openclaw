@@ -63,6 +63,9 @@ export type HmacVerifyResult =
 
 const SUSPICIOUS_SIZE_THRESHOLD = 100;
 
+// sha256 hex digest is always 64 lowercase/uppercase hex chars.
+const HEX_64_RE = /^[0-9a-f]{64}$/i;
+
 /**
  * Async: verify that the HMAC signature on disk matches the config content.
  *
@@ -100,13 +103,14 @@ export async function verifyConfigHmac(
       return { ok: false, kind: "no_sig", suspicious };
     }
 
-    const expectedBuf = Buffer.from(expected, "utf-8");
-    const actualBuf = Buffer.from(sigOnDisk.trim(), "utf-8");
-
-    if (expectedBuf.length !== actualBuf.length) {
+    const sig = sigOnDisk.trim();
+    // G2: validate hex charset before timingSafeEqual to avoid a length side-channel
+    // on malformed input, mirroring audit-log-base.ts. Compare raw 32-byte digests.
+    if (!HEX_64_RE.test(expected) || !HEX_64_RE.test(sig)) {
       return { ok: false, kind: "mismatch" };
     }
-
+    const expectedBuf = Buffer.from(expected, "hex");
+    const actualBuf = Buffer.from(sig, "hex");
     if (!timingSafeEqual(expectedBuf, actualBuf)) {
       return { ok: false, kind: "mismatch" };
     }
@@ -143,13 +147,14 @@ export function verifyConfigHmacSync(configPath: string, content: string): HmacV
       return { ok: false, kind: "no_sig", suspicious };
     }
 
-    const expectedBuf = Buffer.from(expected, "utf-8");
-    const actualBuf = Buffer.from(sigOnDisk.trim(), "utf-8");
-
-    if (expectedBuf.length !== actualBuf.length) {
+    const sig = sigOnDisk.trim();
+    // G2: validate hex charset before timingSafeEqual to avoid a length side-channel
+    // on malformed input, mirroring audit-log-base.ts. Compare raw 32-byte digests.
+    if (!HEX_64_RE.test(expected) || !HEX_64_RE.test(sig)) {
       return { ok: false, kind: "mismatch" };
     }
-
+    const expectedBuf = Buffer.from(expected, "hex");
+    const actualBuf = Buffer.from(sig, "hex");
     if (!timingSafeEqual(expectedBuf, actualBuf)) {
       return { ok: false, kind: "mismatch" };
     }
