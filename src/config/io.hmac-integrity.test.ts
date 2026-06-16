@@ -133,5 +133,24 @@ describe("config HMAC integrity", () => {
         expect(result.kind).toBe("no_token");
       }
     });
+
+    // Regression: verify must consult the injected `env`, not only `process.env`.
+    // Before the fix, the write path read `deps.env` while verify fell back to
+    // `process.env`, so a token present only in `deps.env` would let writes sign
+    // while verifies reported `no_token` — a fail-open drift. Now verify honors
+    // the passed env and succeeds.
+    it("verifies using a token present only in the injected env", () => {
+      const dir = makeTestDir();
+      const configPath = path.join(dir, "openclaw.json");
+      writeFileSync(configPath, CONTENT, "utf-8");
+      writeConfigHmacSigSync(configPath, CONTENT, TOKEN);
+
+      // Ensure process.env has no token so the only source is the injected env.
+      delete process.env.OPENCLAW_GATEWAY_TOKEN;
+      const injectedEnv: NodeJS.ProcessEnv = { OPENCLAW_GATEWAY_TOKEN: TOKEN };
+
+      const result = verifyConfigHmacSync(configPath, CONTENT, injectedEnv);
+      expect(result).toEqual({ ok: true });
+    });
   });
 });

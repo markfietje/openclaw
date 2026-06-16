@@ -45,13 +45,13 @@ export async function writeConfigHmacSig(
   token: string,
 ): Promise<void> {
   const sig = computeConfigHmac(content, token);
-  await writeFile(`${configPath}.sig`, sig, "utf-8");
+  await writeFile(`${configPath}.sig`, sig, { encoding: "utf-8", mode: 0o600 });
 }
 
 /** Sync: write the HMAC signature to `${configPath}.sig`. */
 export function writeConfigHmacSigSync(configPath: string, content: string, token: string): void {
   const sig = computeConfigHmac(content, token);
-  writeFileSync(`${configPath}.sig`, sig, "utf-8");
+  writeFileSync(`${configPath}.sig`, sig, { encoding: "utf-8", mode: 0o600 });
 }
 
 export type HmacVerifyResult =
@@ -79,9 +79,10 @@ const HEX_64_RE = /^[0-9a-f]{64}$/i;
 export async function verifyConfigHmac(
   configPath: string,
   content: string,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<HmacVerifyResult> {
   try {
-    const token = readGatewayToken();
+    const token = readGatewayToken(env);
     if (token === null) {
       return { ok: false, kind: "no_token" };
     }
@@ -124,9 +125,13 @@ export async function verifyConfigHmac(
 }
 
 /** Sync: verify that the HMAC signature on disk matches the config content. */
-export function verifyConfigHmacSync(configPath: string, content: string): HmacVerifyResult {
+export function verifyConfigHmacSync(
+  configPath: string,
+  content: string,
+  env: NodeJS.ProcessEnv = process.env,
+): HmacVerifyResult {
   try {
-    const token = readGatewayToken();
+    const token = readGatewayToken(env);
     if (token === null) {
       return { ok: false, kind: "no_token" };
     }
