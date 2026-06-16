@@ -74,7 +74,9 @@ export function createRequestRateLimiter(config?: RequestRateLimitConfig) {
   const pruneIntervalMs = config?.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
   const ipv6SubnetMask = config?.ipv6SubnetMask ?? 56;
 
-  const store = createSlidingWindowStore({ windowMs, pruneIntervalMs });
+  // Pass maxEntries to the store (mirrors connection-rate-limit) so the cap
+  // is owned at the store layer and enforced by store.reserve()'s eviction.
+  const store = createSlidingWindowStore({ windowMs, pruneIntervalMs, maxEntries });
 
   function normalizeIp(ip: string | undefined): string {
     const resolved = ip ?? "unknown";
@@ -170,8 +172,10 @@ export function createRequestRateLimiter(config?: RequestRateLimitConfig) {
         // recording but the request was already rejected upstream.
         return;
       }
-      entry = { timestamps: [] };
-      store.entries.set(key, entry);
+      // Route insertion through store.reserve() (mirrors connection-rate-limit)
+      // so the maxEntries cap is enforced via evictOldestNonLocked().
+      // canTrackNewEntry above is the fail-closed gate; reserve is the safety net.
+      entry = store.reserve(key, now);
     }
 
     store.slideWindow(entry, now);
