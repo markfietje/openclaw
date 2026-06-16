@@ -10,7 +10,7 @@ import { __testing } from "./message-handler.js";
 
 const { isMessageAuthorizationEnabled, isUnmappedMethodAllowed } = __testing;
 
-function configWith(security: OpenClawConfig["gateway"]["security"]): OpenClawConfig {
+function configWith(security: NonNullable<OpenClawConfig["gateway"]>["security"]): OpenClawConfig {
   return { gateway: { security } } as OpenClawConfig;
 }
 

@@ -35,7 +35,12 @@ import {
   setActiveMcpLoopbackRuntime,
   updateMcpLoopbackToolCallCapture,
 } from "./mcp-http.loopback-runtime.js";
-import { jsonRpcError, JsonRpcRequestSchema, type JsonRpcRequest } from "./mcp-http.protocol.js";
+import {
+  isJsonRpcRequest,
+  jsonRpcError,
+  JsonRpcRequestSchema,
+  type JsonRpcRequest,
+} from "./mcp-http.protocol.js";
 import {
   isMcpHttpBodyTooLargeError,
   isMcpHttpBodyTimeoutError,
@@ -310,7 +315,7 @@ export async function startMcpLoopbackServer(port = 0): Promise<{
         logMcpLoopbackTraffic("request", {
           batchSize: messages.length,
           methods: messages.map((message) =>
-            JsonRpcRequestSchema.safeParse(message).success ? message.method : undefined,
+            isJsonRpcRequest(message) ? message.method : undefined,
           ),
           sessionKey: requestContext.sessionKey,
           inboundEventKind: requestContext.inboundEventKind,

@@ -26,6 +26,15 @@ export const JsonRpcRequestSchema = z.object({
 });
 
 /**
+ * Allowlist type guard for the JSON-RPC request envelope.
+ * Centralizes boundary validation (OWASP Input Validation: allowlist, schema-checked)
+ * so callers don't repeat `JsonRpcRequestSchema.safeParse(x).success` inline.
+ */
+export function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {
+  return JsonRpcRequestSchema.safeParse(value).success;
+}
+
+/**
  * Builds a JSON-RPC success response, using null for notifications or malformed missing ids.
  */
 export function jsonRpcResult(id: JsonRpcId, result: unknown) {

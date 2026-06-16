@@ -322,6 +322,8 @@ describe("gateway plugin HTTP auth boundary", () => {
           resolvedAuth: {
             mode: "trusted-proxy",
             allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
             trustedProxy: { userHeader: "x-forwarded-user" },
           },
           overrides: {

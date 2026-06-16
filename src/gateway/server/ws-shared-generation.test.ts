@@ -9,6 +9,8 @@ describe("resolveSharedGatewaySessionGeneration", () => {
     const baseAuth = {
       mode: "trusted-proxy" as const,
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
       trustedProxy: {
         userHeader: "x-forwarded-user",
         requiredHeaders: ["x-forwarded-proto", "x-forwarded-host"],
@@ -50,6 +52,8 @@ describe("resolveSharedGatewaySessionGeneration", () => {
     const auth = {
       mode: "token" as const,
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
       token: "shared-token",
     };
 
