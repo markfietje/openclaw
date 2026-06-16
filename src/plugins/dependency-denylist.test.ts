@@ -96,6 +96,61 @@ describe("dependency denylist guardrails", () => {
     expect(pnpmWorkspace.overrides?.axios).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
+  it("blocks case-variant package names on every manifest surface", () => {
+    // npm names are case-insensitive on the registry; manifest checks must be
+    // too, or `Crossenv` / `BABELCLI` / `Dns-Sync` would bypass the denylist.
+    // name surface
+    expect(
+      findBlockedManifestDependencies({
+        name: "Crossenv",
+      }),
+    ).toEqual([{ dependencyName: "Crossenv", field: "name" }]);
+    // dependencies surface
+    expect(
+      findBlockedManifestDependencies({
+        dependencies: { BABELCLI: "^1.0.0" },
+      }),
+    ).toEqual([{ dependencyName: "BABELCLI", field: "dependencies" }]);
+    // optionalDependencies surface
+    expect(
+      findBlockedManifestDependencies({
+        optionalDependencies: { "Dns-Sync": "^1.0.0" },
+      }),
+    ).toEqual([{ dependencyName: "Dns-Sync", field: "optionalDependencies" }]);
+    // peerDependencies surface
+    expect(
+      findBlockedManifestDependencies({
+        peerDependencies: { crossENV: "^1.0.0" },
+      }),
+    ).toEqual([{ dependencyName: "crossENV", field: "peerDependencies" }]);
+    // overrides selector surface
+    expect(
+      findBlockedManifestDependencies({
+        overrides: { BabelCli: "^1.0.0" },
+      }),
+    ).toEqual([{ dependencyName: "BabelCli", declaredAs: "BabelCli", field: "overrides" }]);
+    // npm-alias target surface (case-variant target under a safe name)
+    expect(
+      findBlockedManifestDependencies({
+        dependencies: { "safe-name": "npm:DNS-SYNC@^1.0.0" },
+      }),
+    ).toEqual([{ dependencyName: "DNS-SYNC", declaredAs: "safe-name", field: "dependencies" }]);
+    // nested override alias target surface
+    expect(
+      findBlockedManifestDependencies({
+        overrides: {
+          "@scope/parent": { "safe-name": "npm:CrossEnv@^4.2.1" },
+        },
+      }),
+    ).toEqual([
+      {
+        dependencyName: "CrossEnv",
+        declaredAs: "@scope/parent > safe-name",
+        field: "overrides",
+      },
+    ]);
+  });
+
   it("finds blocked package directories under node_modules regardless of node_modules casing", () => {
     expect(
       findBlockedNodeModulesDirectory({

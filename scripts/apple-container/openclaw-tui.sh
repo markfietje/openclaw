@@ -89,7 +89,6 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 chmod 600 "$tmp_env"
-local tui_token
 tui_token="$(read_keychain_token "$KEYCHAIN_SERVICE" "$KEYCHAIN_ACCOUNT")"
 [[ -n "$tui_token" ]] || fail "Keychain has no gateway token for ${KEYCHAIN_SERVICE} / ${KEYCHAIN_ACCOUNT}."
 printf 'OPENCLAW_GATEWAY_TOKEN=%s\n' "$tui_token" >"$tmp_env"
