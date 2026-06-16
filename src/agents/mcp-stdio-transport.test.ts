@@ -219,6 +219,58 @@ describe("OpenClawStdioClientTransport", () => {
     await expect(transport.start()).rejects.toThrow("not allowed");
   });
 
+  it.each(["node", "npx", "python3", "python", "uvx"])(
+    "allows bare allowlisted command %s",
+    async (command) => {
+      const child = new MockChildProcess();
+      spawnMock.mockReturnValue(child);
+
+      const transport = new OpenClawStdioClientTransport({ command });
+      const started = transport.start();
+      child.emit("spawn");
+      // Should resolve without error (command is in allowlist).
+      await expect(started).resolves.toBeUndefined();
+    },
+  );
+
+  it.each([
+    ["/tmp/evil/node", "absolute path bypass"],
+    ["./node", "relative path bypass"],
+    ["../bin/node", "parent traversal bypass"],
+    ["node.exe", ".exe must not match bare node"],
+    ["", "empty command"],
+    ["node\\\\x", "backslash path separator"],
+    ["C:\\node.exe", "windows absolute path"],
+    ["python/evil", "mid-string slash"],
+  ])("rejects allowlist-bypassing command %s (%s)", async (command) => {
+    const child = new MockChildProcess();
+    spawnMock.mockReturnValue(child);
+    const transport = new OpenClawStdioClientTransport({ command });
+    await expect(transport.start()).rejects.toThrow("not allowed");
+    // spawn() must never have been reached for a rejected command.
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it("allows operator-added bare names via OPENCLAW_MCP_ALLOWED_COMMANDS", async () => {
+    vi.stubEnv("OPENCLAW_MCP_ALLOWED_COMMANDS", "my-tool,another-tool");
+    const child = new MockChildProcess();
+    spawnMock.mockReturnValue(child);
+
+    const transport = new OpenClawStdioClientTransport({ command: "my-tool" });
+    const started = transport.start();
+    child.emit("spawn");
+    await expect(started).resolves.toBeUndefined();
+
+    // Operators still cannot bypass the separator rule via env: a path-like
+    // extra name is itself rejected at spawn time.
+    const bypassChild = new MockChildProcess();
+    spawnMock.mockReturnValue(bypassChild);
+    const bypassTransport = new OpenClawStdioClientTransport({ command: "/tmp/my-tool" });
+    await expect(bypassTransport.start()).rejects.toThrow("not allowed");
+
+    vi.unstubAllEnvs();
+  });
+
   it("allows npx MCP server commands", async () => {
     const child = new MockChildProcess();
     spawnMock.mockReturnValue(child);

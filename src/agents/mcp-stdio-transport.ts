@@ -32,8 +32,16 @@ function getAllowedMcpCommands(): ReadonlySet<string> {
 }
 
 function validateMcpCommand(command: string): boolean {
-  const baseName = command.split("/").pop() ?? command;
-  return getAllowedMcpCommands().has(baseName);
+  // Bare-name match only: any path separator (POSIX `/` or Windows `\`) is
+  // rejected so attackers cannot smuggle an arbitrary binary (e.g.
+  // `/tmp/evil/node`, `./node`, `node.exe`) past the allowlist by relying on
+  // the trailing segment. The resolved binary still comes from PATH because
+  // spawn() runs with shell:false and args are an array. `node.exe` must not
+  // match `node`, so the match is exact.
+  if (command.length === 0 || command.includes("/") || command.includes("\\")) {
+    return false;
+  }
+  return getAllowedMcpCommands().has(command);
 }
 
 export type OpenClawStdioServerParameters = {
