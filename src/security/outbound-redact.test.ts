@@ -29,9 +29,35 @@ describe("outbound redaction", () => {
 
     it("redacts private keys", () => {
       const redactor = createOutboundRedactor();
-      expect(redactor.redact("-----BEGIN RSA PRIVATE KEY-----\nMIIE...")).toContain(
-        "***REDACTED***",
-      );
+      const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----";
+      expect(redactor.redact(`key: ${pem}`)).toContain("***REDACTED***");
+    });
+
+    // PEM bodies are base64 key material. The full BEGIN..END block must be
+    // redacted, not just the header line (otherwise the body leaks).
+    it("redacts the full PEM block including body and END marker", () => {
+      const redactor = createOutboundRedactor();
+      const pem =
+        "-----BEGIN OPENSSH PRIVATE KEY-----\n" +
+        "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQy\n" +
+        "NTUxOQAAACAbodySECRETbase64dataSECRETbase64data==\n" +
+        "-----END OPENSSH PRIVATE KEY-----";
+      const redacted = redactor.redact(pem);
+      expect(redacted).toContain("***REDACTED***");
+      expect(redacted).not.toContain("b3BlbnNza");
+      expect(redacted).not.toContain("NTUxOQ");
+      expect(redacted).not.toContain("END OPENSSH");
+    });
+
+    it("redacts bare PKCS#8 and ENCRYPTED PEM blocks", () => {
+      const redactor = createOutboundRedactor();
+      const bare =
+        "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgdata\n-----END PRIVATE KEY-----";
+      const enc =
+        "-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIHjME4GCSqGSIb3DQEFDTBBMC8GCSsGAQQBl2U\n-----END ENCRYPTED PRIVATE KEY-----";
+      const redacted = redactor.redact(`${bare}\n${enc}`);
+      expect(redacted).not.toContain("MIGHAgEAMBMG");
+      expect(redacted).not.toContain("MIHjME4GCSqG");
     });
 
     it("redacts generic api_key params", () => {
