@@ -179,6 +179,8 @@ describe("handleControlUiHttpRequest", () => {
     return {
       mode: "trusted-proxy",
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
       trustedProxy: {
         userHeader: "x-forwarded-user",
       },
@@ -371,7 +373,13 @@ describe("handleControlUiHttpRequest", () => {
         const { res, handled } = await runAssistantMediaRequest({
           url: `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}&token=test-token`,
           method: "GET",
-          auth: { mode: "token", token: "test-token", allowTailscale: false },
+          auth: {
+            mode: "token",
+            token: "test-token",
+            allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
+          },
         });
         expect(handled).toBe(true);
         expect(res.statusCode).toBe(200);
@@ -390,7 +398,13 @@ describe("handleControlUiHttpRequest", () => {
       const { res, handled } = await runAssistantMediaRequest({
         url: `/__openclaw__/assistant-media?source=${encodeURIComponent(`media://inbound/${id}`)}&token=test-token`,
         method: "GET",
-        auth: { mode: "token", token: "test-token", allowTailscale: false },
+        auth: {
+          mode: "token",
+          token: "test-token",
+          allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
+        },
       });
       expect(handled).toBe(true);
       expect(res.statusCode).toBe(200);
@@ -410,7 +424,13 @@ describe("handleControlUiHttpRequest", () => {
       const { res, handled, end } = await runAssistantMediaRequest({
         url: `/__openclaw__/assistant-media?meta=1&source=${encodeURIComponent(`media://inbound/${id}`)}&token=test-token`,
         method: "GET",
-        auth: { mode: "token", token: "test-token", allowTailscale: false },
+        auth: {
+          mode: "token",
+          token: "test-token",
+          allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
+        },
       });
       expect(handled).toBe(true);
       expect(res.statusCode).toBe(200);
@@ -435,7 +455,13 @@ describe("handleControlUiHttpRequest", () => {
       const { res, handled, end } = await runAssistantMediaRequest({
         url: `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}&token=test-token`,
         method: "GET",
-        auth: { mode: "token", token: "test-token", allowTailscale: false },
+        auth: {
+          mode: "token",
+          token: "test-token",
+          allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
+        },
       });
       expectNotFoundResponse({ handled, res, end });
     } finally {
@@ -452,7 +478,13 @@ describe("handleControlUiHttpRequest", () => {
         const { res, handled, end } = await runAssistantMediaRequest({
           url: `/__openclaw__/assistant-media?meta=1&source=${encodeURIComponent(filePath)}&token=test-token`,
           method: "GET",
-          auth: { mode: "token", token: "test-token", allowTailscale: false },
+          auth: {
+            mode: "token",
+            token: "test-token",
+            allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
+          },
         });
         expect(handled).toBe(true);
         expect(res.statusCode).toBe(200);
@@ -479,7 +511,13 @@ describe("handleControlUiHttpRequest", () => {
           const { res, handled, end } = await runAssistantMediaRequest({
             url: `/__openclaw__/assistant-media?meta=1&source=${encodeURIComponent(filePath)}&token=test-token`,
             method: "GET",
-            auth: { mode: "token", token: "test-token", allowTailscale: false },
+            auth: {
+              mode: "token",
+              token: "test-token",
+              allowTailscale: false,
+              allowLocalDirectNoAuth: true,
+              toolsInvokeMaxBodyBytes: 256 * 1024,
+            },
           });
           expect(handled).toBe(true);
           expect(res.statusCode).toBe(200);
@@ -507,7 +545,13 @@ describe("handleControlUiHttpRequest", () => {
         const meta = await runAssistantMediaRequest({
           url: `/__openclaw__/assistant-media?meta=1&source=${encodeURIComponent(filePath)}`,
           method: "GET",
-          auth: { mode: "token", token: "test-token", allowTailscale: false },
+          auth: {
+            mode: "token",
+            token: "test-token",
+            allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
+          },
           headers: {
             authorization: "Bearer test-token",
           },
@@ -522,7 +566,13 @@ describe("handleControlUiHttpRequest", () => {
         const media = await runAssistantMediaRequest({
           url: `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}&mediaTicket=${encodeURIComponent(payload.mediaTicket ?? "")}`,
           method: "GET",
-          auth: { mode: "token", token: "test-token", allowTailscale: false },
+          auth: {
+            mode: "token",
+            token: "test-token",
+            allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
+          },
         });
         expect(media.handled).toBe(true);
         expect(media.res.statusCode).toBe(200);
@@ -539,7 +589,13 @@ describe("handleControlUiHttpRequest", () => {
         const meta = await runAssistantMediaRequest({
           url: `/__openclaw__/assistant-media?meta=1&source=${encodeURIComponent(filePath)}`,
           method: "GET",
-          auth: { mode: "token", token: "test-token", allowTailscale: false },
+          auth: {
+            mode: "token",
+            token: "test-token",
+            allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
+          },
           headers: {
             authorization: "Bearer test-token",
           },
@@ -551,7 +607,13 @@ describe("handleControlUiHttpRequest", () => {
         const refresh = await runAssistantMediaRequest({
           url: `/__openclaw__/assistant-media?meta=1&source=${encodeURIComponent(filePath)}&mediaTicket=${encodeURIComponent(payload.mediaTicket ?? "")}`,
           method: "GET",
-          auth: { mode: "token", token: "test-token", allowTailscale: false },
+          auth: {
+            mode: "token",
+            token: "test-token",
+            allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
+          },
         });
         expect(refresh.handled).toBe(true);
         expect(refresh.res.statusCode).toBe(401);
@@ -569,7 +631,13 @@ describe("handleControlUiHttpRequest", () => {
         const { res, handled, end } = await runAssistantMediaRequest({
           url: `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}&mediaTicket=v1.invalid.invalid`,
           method: "GET",
-          auth: { mode: "token", token: "test-token", allowTailscale: false },
+          auth: {
+            mode: "token",
+            token: "test-token",
+            allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
+          },
         });
         expect(handled).toBe(true);
         expect(res.statusCode).toBe(401);
@@ -582,7 +650,13 @@ describe("handleControlUiHttpRequest", () => {
     const { res, handled, end } = await runAssistantMediaRequest({
       url: `/__openclaw__/assistant-media?meta=1&source=${encodeURIComponent("/Users/test/Documents/private.pdf")}&token=test-token`,
       method: "GET",
-      auth: { mode: "token", token: "test-token", allowTailscale: false },
+      auth: {
+        mode: "token",
+        token: "test-token",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
     });
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(200);
@@ -602,7 +676,13 @@ describe("handleControlUiHttpRequest", () => {
         const { res, handled, end } = await runAssistantMediaRequest({
           url: `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}`,
           method: "GET",
-          auth: { mode: "token", token: "test-token", allowTailscale: false },
+          auth: {
+            mode: "token",
+            token: "test-token",
+            allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
+          },
         });
         expect(handled).toBe(true);
         expect(res.statusCode).toBe(401);
@@ -622,7 +702,13 @@ describe("handleControlUiHttpRequest", () => {
             const { res, handled } = await runAssistantMediaRequest({
               url: `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}`,
               method: "GET",
-              auth: { mode: "token", token: "shared-token", allowTailscale: false },
+              auth: {
+                mode: "token",
+                token: "shared-token",
+                allowTailscale: false,
+                allowLocalDirectNoAuth: true,
+                toolsInvokeMaxBodyBytes: 256 * 1024,
+              },
               headers: {
                 authorization: `Bearer ${operatorToken}`,
               },
@@ -640,6 +726,8 @@ describe("handleControlUiHttpRequest", () => {
       mode: "token",
       token: "shared-token",
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
     } satisfies ResolvedGatewayAuth;
     const issuerGeneration = resolveSharedGatewaySessionGeneration(auth);
     expect(typeof issuerGeneration).toBe("string");
@@ -679,7 +767,13 @@ describe("handleControlUiHttpRequest", () => {
             const { res, handled } = await runAssistantMediaRequest({
               url: `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}&token=${encodeURIComponent(operatorToken)}`,
               method: "GET",
-              auth: { mode: "token", token: "shared-token", allowTailscale: false },
+              auth: {
+                mode: "token",
+                token: "shared-token",
+                allowTailscale: false,
+                allowLocalDirectNoAuth: true,
+                toolsInvokeMaxBodyBytes: 256 * 1024,
+              },
             });
             expect(handled).toBe(true);
             expect(res.statusCode).toBe(200);
@@ -821,7 +915,13 @@ describe("handleControlUiHttpRequest", () => {
       fn: async (tmp) => {
         const { res, handled, end } = await runBootstrapConfigRequest({
           rootPath: tmp,
-          auth: { mode: "token", token: "test-token", allowTailscale: false },
+          auth: {
+            mode: "token",
+            token: "test-token",
+            allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
+          },
         });
         expect(handled).toBe(true);
         expect(res.statusCode).toBe(401);
@@ -835,7 +935,13 @@ describe("handleControlUiHttpRequest", () => {
       fn: async (tmp) => {
         const { res, handled, end } = await runBootstrapConfigRequest({
           rootPath: tmp,
-          auth: { mode: "token", token: "test-token", allowTailscale: false },
+          auth: {
+            mode: "token",
+            token: "test-token",
+            allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
+          },
           headers: {
             authorization: "Bearer test-token",
           },
@@ -855,7 +961,13 @@ describe("handleControlUiHttpRequest", () => {
           fn: async (tmp) => {
             const { res, handled, end } = await runBootstrapConfigRequest({
               rootPath: tmp,
-              auth: { mode: "token", token: "shared-token", allowTailscale: false },
+              auth: {
+                mode: "token",
+                token: "shared-token",
+                allowTailscale: false,
+                allowLocalDirectNoAuth: true,
+                toolsInvokeMaxBodyBytes: 256 * 1024,
+              },
               headers: {
                 authorization: `Bearer ${operatorToken}`,
               },
@@ -1111,7 +1223,13 @@ describe("handleControlUiHttpRequest", () => {
       const { res, handled } = await runAvatarRequest({
         url: "/avatar/main",
         method: "GET",
-        auth: { mode: "token", token: "test-token", allowTailscale: false },
+        auth: {
+          mode: "token",
+          token: "test-token",
+          allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
+        },
         headers: {
           authorization: "Bearer test-token",
         },
@@ -1136,7 +1254,13 @@ describe("handleControlUiHttpRequest", () => {
           const { res, handled, end } = await runAvatarRequest({
             url: "/avatar/main",
             method: "GET",
-            auth: { mode: "token", token: "shared-token", allowTailscale: false },
+            auth: {
+              mode: "token",
+              token: "shared-token",
+              allowTailscale: false,
+              allowLocalDirectNoAuth: true,
+              toolsInvokeMaxBodyBytes: 256 * 1024,
+            },
             headers: {
               authorization: `Bearer ${operatorToken}`,
             },
@@ -1157,7 +1281,13 @@ describe("handleControlUiHttpRequest", () => {
     const { res, end, handled } = await runAvatarRequest({
       url: "/avatar/main?meta=1",
       method: "GET",
-      auth: { mode: "token", token: "test-token", allowTailscale: false },
+      auth: {
+        mode: "token",
+        token: "test-token",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       headers: {
         authorization: "Bearer test-token",
       },
@@ -1203,7 +1333,13 @@ describe("handleControlUiHttpRequest", () => {
     const { res, handled, end } = await runAvatarRequest({
       url: "/avatar/main",
       method: "GET",
-      auth: { mode: "token", token: "test-token", allowTailscale: false },
+      auth: {
+        mode: "token",
+        token: "test-token",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       resolveAvatar: () => ({ kind: "remote", url: "https://example.com/avatar.png" }),
     });
 

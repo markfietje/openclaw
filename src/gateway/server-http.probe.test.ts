@@ -197,6 +197,8 @@ describe("gateway probe endpoints", () => {
           resolvedAuth: {
             mode: "trusted-proxy",
             allowTailscale: false,
+            allowLocalDirectNoAuth: true,
+            toolsInvokeMaxBodyBytes: 256 * 1024,
             trustedProxy: { userHeader: "x-forwarded-user" },
           },
           overrides: {

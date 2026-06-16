@@ -74,7 +74,12 @@ describe("attachGatewayWsConnectionHandler startup readiness", () => {
       preauthConnectionBudget: { release: vi.fn() } as never,
       authenticatedConnectionBudget: { acquire: vi.fn(), release: vi.fn() } as never,
       port: 19001,
-      resolvedAuth: { mode: "none", allowTailscale: false },
+      resolvedAuth: {
+        mode: "none",
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
       isStartupPending: () => true,
       gatewayMethods: [],
       events: [],

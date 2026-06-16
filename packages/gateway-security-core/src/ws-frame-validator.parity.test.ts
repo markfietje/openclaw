@@ -3,6 +3,7 @@ import {
   RequestFrameSchema as TypeBoxRequestFrameSchema,
   ResponseFrameSchema as TypeBoxResponseFrameSchema,
 } from "@openclaw/gateway-protocol/schema";
+import type { TSchema } from "typebox";
 import { Value } from "typebox/value";
 // Contract parity test: the zod schemas in @openclaw/gateway-security-core
 // and the TypeBox schemas in @openclaw/gateway-protocol both describe the
@@ -26,7 +27,7 @@ function zodVerdict(
   return schema.safeParse(value).success ? "accept" : "reject";
 }
 
-function typeboxVerdict(schema: typeof TypeBoxGatewayFrameSchema, value: unknown): Verdict {
+function typeboxVerdict(schema: TSchema, value: unknown): Verdict {
   return Value.Check(schema, value) ? "accept" : "reject";
 }
 

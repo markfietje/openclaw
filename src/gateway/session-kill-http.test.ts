@@ -53,7 +53,13 @@ let server: ReturnType<typeof createServer> | undefined;
 beforeAll(async () => {
   server = createServer((req, res) => {
     void handleSessionKillHttpRequest(req, res, {
-      auth: { mode: "token", token: TEST_GATEWAY_TOKEN, allowTailscale: false },
+      auth: {
+        mode: "token",
+        token: TEST_GATEWAY_TOKEN,
+        allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 256 * 1024,
+      },
     }).then((handled) => {
       if (!handled) {
         res.statusCode = 404;

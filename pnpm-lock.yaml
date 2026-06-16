@@ -1838,6 +1838,10 @@ importers:
       '@openclaw/net-policy':
         specifier: workspace:*
         version: link:../net-policy
+    devDependencies:
+      '@openclaw/gateway-protocol':
+        specifier: workspace:*
+        version: link:../gateway-protocol
 
   packages/llm-core:
     dependencies:

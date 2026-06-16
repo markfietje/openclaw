@@ -107,7 +107,12 @@ async function expectIdlePreauthSocketClose() {
 describe("gateway pre-auth hardening", () => {
   it("rejects upgrades before websocket handlers attach (pre-auth budget enforced, then released)", async () => {
     const clients = new Set<GatewayWsClient>();
-    const resolvedAuth: ResolvedGatewayAuth = { mode: "none", allowTailscale: false };
+    const resolvedAuth: ResolvedGatewayAuth = {
+      mode: "none",
+      allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
+    };
     const httpServer = createGatewayHttpServer({
       clients,
       controlUiEnabled: false,

@@ -23,7 +23,9 @@ function createMockReq(
   } as IncomingMessage;
 }
 
-function makeConfig(security: OpenClawConfig["gateway"]["security"] = {}): OpenClawConfig {
+function makeConfig(
+  security: NonNullable<OpenClawConfig["gateway"]>["security"] = {},
+): OpenClawConfig {
   return { gateway: { security } } as OpenClawConfig;
 }
 

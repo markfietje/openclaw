@@ -232,7 +232,12 @@ beforeAll(async () => {
   sharedServer = createServer((req, res) => {
     void (async () => {
       const handled = await handleToolsInvokeHttpRequest(req, res, {
-        auth: { mode: "none", allowTailscale: false },
+        auth: {
+          mode: "none",
+          allowTailscale: false,
+          allowLocalDirectNoAuth: true,
+          toolsInvokeMaxBodyBytes: 256 * 1024,
+        },
       });
       if (handled) {
         return;

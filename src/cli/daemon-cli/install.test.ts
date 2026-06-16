@@ -28,6 +28,8 @@ const resolveGatewayAuthMock = vi.hoisted(() =>
     token: undefined,
     password: undefined,
     allowTailscale: false,
+    allowLocalDirectNoAuth: true,
+    toolsInvokeMaxBodyBytes: 256 * 1024,
   })),
 );
 const resolveSecretRefValuesMock = vi.hoisted(() => vi.fn());
@@ -297,6 +299,8 @@ describe("runDaemonInstall", () => {
       token: undefined,
       password: undefined,
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
     });
     resolveSecretRefValuesMock.mockResolvedValue(new Map());
     randomTokenMock.mockReturnValue("generated-token");
@@ -446,6 +450,8 @@ describe("runDaemonInstall", () => {
       token: "durable-token",
       password: undefined,
       allowTailscale: false,
+      allowLocalDirectNoAuth: true,
+      toolsInvokeMaxBodyBytes: 256 * 1024,
     });
 
     await runDaemonInstall({ json: true });
