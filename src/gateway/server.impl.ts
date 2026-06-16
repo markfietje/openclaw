@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import path from "node:path";
 // Gateway server implementation builds runtime state, method registries, HTTP
 // and WebSocket surfaces, config reload hooks, and graceful restart/shutdown.
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
@@ -45,7 +46,7 @@ import {
   setRuntimeConfigSnapshot,
   type ReadConfigFileSnapshotWithPluginMetadataResult,
 } from "../config/io.js";
-import { isNixMode, normalizeStateDirEnv } from "../config/paths.js";
+import { isNixMode, normalizeStateDirEnv, resolveStateDir } from "../config/paths.js";
 import { captureConfigOverrideApplier } from "../config/runtime-overrides.js";
 import { resolveMainSessionKey } from "../config/sessions.js";
 import type { GatewayAuthConfig } from "../config/types.gateway.js";
@@ -1100,6 +1101,9 @@ export async function startGatewayServer(
   // Auth audit log: records accepted/rejected connect attempts to the gateway. Disabled by
   // default; turn on with gateway.security.authAudit.enabled or OPENCLAW_AUTH_AUDIT=1.
   const { readGatewayToken } = await import("../config/io.hmac-integrity.js");
+  // Audit loggers require an explicit log directory; resolve it from the app
+  // state dir rather than letting the low-level package reach up into src/.
+  const auditLogDir = path.join(resolveStateDir(), "logs");
   const authAuditLogger: AuthAuditLogger | undefined = (() => {
     const envOn = process.env.OPENCLAW_AUTH_AUDIT === "1";
     const configOn = cfgAtStart.gateway?.security?.authAudit?.enabled === true;
@@ -1107,7 +1111,7 @@ export async function startGatewayServer(
       return undefined;
     }
     const token = readGatewayToken() ?? undefined;
-    return token ? createAuthAuditLogger({ token }) : createAuthAuditLogger();
+    return createAuthAuditLogger({ logDir: auditLogDir, token });
   })();
   // Tool audit log: records every tools/invoke surface call to a structured append-only file.
   // Disabled by default; turn on with gateway.security.toolAudit.enabled.
@@ -1117,7 +1121,7 @@ export async function startGatewayServer(
       return undefined;
     }
     const token = readGatewayToken() ?? undefined;
-    return token ? createToolAuditLogger({ token }) : createToolAuditLogger();
+    return createToolAuditLogger({ logDir: auditLogDir, token });
   })();
 
   const controlUiRootState = await startupTrace.measure("control-ui.root", () =>

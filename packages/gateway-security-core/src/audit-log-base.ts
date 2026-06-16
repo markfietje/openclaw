@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import { appendFile, chmod, mkdir, rename, stat } from "node:fs/promises";
 import path from "node:path";
-import { resolveStateDir } from "../../../src/config/paths.js";
+
+// Note: this package intentionally does NOT import the app's state-dir resolver.
+// The log directory is a caller responsibility (dependency injection), keeping
+// this low-level package free of any upward dependency into main `src/`.
+// Callers must supply `config.logDir`; createAuditLogBase fails fast if absent.
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -120,12 +124,24 @@ export type AuditLogBaseParams = {
   stampEntry: (entry: AuditLogEntry) => AuditLogEntry;
 };
 
+// Caller-supplied log directory is mandatory; the package does not resolve the
+// app state dir itself. Returns `never` so callers' `logDir ?? missingLogDir()`
+// narrows to a definite `string`.
+function missingLogDir(): never {
+  throw new Error(
+    "createAuditLogBase requires config.logDir; the caller must resolve the state/log directory.",
+  );
+}
+
 export function createAuditLogBase<T extends AuditLogEntry>(
   params: AuditLogBaseParams,
 ): AuditLogger<T> {
   const maxBytes = params.config?.maxBytes ?? DEFAULT_MAX_BYTES;
   const maxFiles = params.config?.maxFiles ?? DEFAULT_MAX_FILES;
-  const logDir = params.config?.logDir ?? path.join(resolveStateDir(), "logs");
+  // Caller must supply the log directory; this low-level package does not know
+  // how to resolve the app state dir. `missingLogDir` is `never`, so logDir is
+  // narrowed to `string` (including inside nested closures below).
+  const logDir: string = params.config?.logDir ?? missingLogDir();
   // Auto-generate a per-process HMAC token when none is configured so audit
   // logs are always integrity-protected. The token is ephemeral — rotated on
   // gateway restart — which is acceptable for local single-process deployments.
