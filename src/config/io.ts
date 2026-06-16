@@ -1799,7 +1799,7 @@ export function createConfigIO(
         return {};
       }
       const raw = deps.fs.readFileSync(configPath, "utf-8");
-      const hmacResult = verifyConfigHmacSync(configPath, raw);
+      const hmacResult = verifyConfigHmacSync(configPath, raw, deps.env);
       // OWASP A04:2025 / A08:2025 — fail closed on any integrity failure except
       // `no_token` (first run before a gateway token exists). Tampered content,
       // a missing/removed signature, or a verification error must not load.
@@ -2017,7 +2017,7 @@ export function createConfigIO(
       // OWASP A04:2025 — Cryptographic Failures / A08:2025 — Data Integrity Failures.
       // Fail closed on any integrity failure except `no_token` (first run before
       // a gateway token exists); tampered/unsigned-after-sig/error must not load.
-      const hmacResult = verifyConfigHmacSync(configPath, raw);
+      const hmacResult = verifyConfigHmacSync(configPath, raw, deps.env);
       if (!hmacResult.ok && hmacResult.kind !== "no_token") {
         deps.logger.error(
           `[config-integrity] HMAC ${hmacResult.kind} on ${configPath}. Config may have been tampered with.`,
