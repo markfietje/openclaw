@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { resolve, normalize } from "node:path";
 
 /**
@@ -12,9 +12,20 @@ const ALLOWED_SECRET_FILE_DIRS: ReadonlySet<string> = new Set([
 ]);
 
 function isAllowedSecretFilePath(filePath: string): boolean {
+  // resolve() normalizes lexical ".." traversal (defense in depth).
   const resolved = resolve(filePath);
+  // Canonicalize symlinks: a path that appears to live inside an allowed dir
+  // but is a symlink to a target outside (e.g. /run/secrets/legit -> /etc/shadow)
+  // must be rejected by checking the REAL path. Fail closed (reject) when
+  // realpath throws — broken/dangling links cannot be safely read.
+  let realPath: string;
+  try {
+    realPath = realpathSync(resolved);
+  } catch {
+    return false;
+  }
   return [...ALLOWED_SECRET_FILE_DIRS].some(
-    (dir) => resolved.startsWith(dir + "/") || resolved.startsWith(dir + "\\"),
+    (dir) => realPath.startsWith(dir + "/") || realPath.startsWith(dir + "\\"),
   );
 }
 
