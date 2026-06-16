@@ -1,5 +1,6 @@
 // Covers best-effort config IO reads and warning behavior.
 import fs from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   readBestEffortConfig,
@@ -7,6 +8,7 @@ import {
   readConfigFileSnapshot,
   readSourceConfigBestEffort,
 } from "./config.js";
+import { writeConfigHmacSigSync } from "./io.hmac-integrity.js";
 import { withTempHome, writeOpenClawConfig } from "./test-helpers.js";
 
 describe("readBestEffortConfig", () => {
@@ -61,6 +63,10 @@ describe("readBestEffortConfig", () => {
           env: { vars: { [key]: "config-token" } },
           gateway: { auth: { mode: "token", token: `\${${key}}` }, mode: "local" },
         });
+        // Sign the config so it passes the fail-closed HMAC integrity check;
+        // this test is about env precedence, not config integrity.
+        const configPath = path.join(home, ".openclaw", "openclaw.json");
+        writeConfigHmacSigSync(configPath, await fs.readFile(configPath, "utf-8"), "shell-token");
 
         const snapshot = await readConfigFileSnapshot({
           isolateEnv: true,

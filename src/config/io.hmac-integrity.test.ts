@@ -78,6 +78,21 @@ describe("config HMAC integrity", () => {
       }
     });
 
+    // G2: a malformed (non-hex / wrong-length) signature must be rejected as a
+    // mismatch without leaking length via timingSafeEqual, mirroring audit-log.
+    it("rejects malformed signatures as mismatch", () => {
+      const dir = makeTestDir();
+      const configPath = path.join(dir, "openclaw.json");
+      writeFileSync(configPath, CONTENT, "utf-8");
+      writeFileSync(`${configPath}.sig`, "not-a-valid-hex-signature", "utf-8");
+
+      const result = verifyConfigHmacSync(configPath, CONTENT);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.kind).toBe("mismatch");
+      }
+    });
+
     it("detects missing signature file as suspicious for large configs", () => {
       const dir = makeTestDir();
       const configPath = path.join(dir, "openclaw.json");

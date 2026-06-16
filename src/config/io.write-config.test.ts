@@ -9,6 +9,7 @@ import { clearLoadPluginMetadataSnapshotMemo } from "../plugins/plugin-metadata-
 import { createSuiteTempRootTracker } from "../test-helpers/temp-dir.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { hashConfigIncludeRaw } from "./includes.js";
+import { writeConfigHmacSigSync } from "./io.hmac-integrity.js";
 import {
   createConfigIO,
   getRuntimeConfigSourceSnapshot,
@@ -1253,21 +1254,21 @@ describe("config io write", () => {
     await withSuiteHome(async (home) => {
       const configPath = path.join(home, ".openclaw", "openclaw.json");
       await fs.mkdir(path.dirname(configPath), { recursive: true });
-      await fs.writeFile(
-        configPath,
-        `${JSON.stringify(
-          {
-            gateway: {
-              mode: "local",
-              auth: { mode: "token", token: "${OPENCLAW_GATEWAY_TOKEN}" },
-            },
-            channels: { "test-plugin-channel": { enabled: true } },
+      // Sign the config so it passes the fail-closed HMAC integrity check;
+      // this test is about env-snapshot capture, not config integrity.
+      const raw = `${JSON.stringify(
+        {
+          gateway: {
+            mode: "local",
+            auth: { mode: "token", token: "${OPENCLAW_GATEWAY_TOKEN}" },
           },
-          null,
-          2,
-        )}\n`,
-        "utf-8",
-      );
+          channels: { "test-plugin-channel": { enabled: true } },
+        },
+        null,
+        2,
+      )}\n`;
+      await fs.writeFile(configPath, raw, "utf-8");
+      writeConfigHmacSigSync(configPath, raw, "gateway-token-at-read");
       const io = createConfigIO({
         env: {
           OPENCLAW_GATEWAY_TOKEN: "gateway-token-at-read",
@@ -1290,21 +1291,21 @@ describe("config io write", () => {
     await withSuiteHome(async (home) => {
       const configPath = path.join(home, ".openclaw", "openclaw.json");
       await fs.mkdir(path.dirname(configPath), { recursive: true });
-      await fs.writeFile(
-        configPath,
-        `${JSON.stringify(
-          {
-            gateway: {
-              mode: "local",
-              auth: { mode: "token", token: "${OPENCLAW_GATEWAY_TOKEN}" },
-            },
-            channels: { "test-plugin-channel": { enabled: true } },
+      // Sign the config so it passes the fail-closed HMAC integrity check;
+      // this test is about env-snapshot capture, not config integrity.
+      const raw = `${JSON.stringify(
+        {
+          gateway: {
+            mode: "local",
+            auth: { mode: "token", token: "${OPENCLAW_GATEWAY_TOKEN}" },
           },
-          null,
-          2,
-        )}\n`,
-        "utf-8",
-      );
+          channels: { "test-plugin-channel": { enabled: true } },
+        },
+        null,
+        2,
+      )}\n`;
+      await fs.writeFile(configPath, raw, "utf-8");
+      writeConfigHmacSigSync(configPath, raw, "gateway-token-at-read");
       mockLoadPluginManifestRegistry.mockImplementationOnce(() => {
         throw new Error("plugin metadata failed");
       });
@@ -1838,6 +1839,9 @@ describe("config io write", () => {
         "utf-8",
       );
       const originalRootRaw = await fs.readFile(configPath, "utf-8");
+      // Sign the config so it passes the fail-closed HMAC integrity check;
+      // this test is about $include flattening, not config integrity.
+      writeConfigHmacSigSync(configPath, originalRootRaw, "gateway-token-runtime");
       const io = createConfigIO({
         env: {
           OPENCLAW_GATEWAY_TOKEN: "gateway-token-runtime",
@@ -2260,6 +2264,13 @@ describe("config io write", () => {
           2,
         )}\n`,
         "utf-8",
+      );
+      // Sign the config so it passes the fail-closed HMAC integrity check;
+      // this test is about env-ref restoration, not config integrity.
+      writeConfigHmacSigSync(
+        configPath,
+        await fs.readFile(configPath, "utf-8"),
+        "gateway-token-runtime",
       );
       const observedSources: unknown[] = [];
       const unsubscribe = registerConfigWriteListener((event) => {
