@@ -81,6 +81,32 @@ describe("outbound redaction", () => {
         "***REDACTED***",
       );
     });
+
+    // C1: specific prefixes and dynamic secrets must match case-insensitively
+    // so uppercased variants (SK-..., AKIA..., GHP_...) do not leak.
+    it("redacts case-variant OpenAI keys", () => {
+      const redactor = createOutboundRedactor();
+      expect(redactor.redact("key: SK-abc123def456ghi789jkl012mno345")).toContain("***REDACTED***");
+    });
+
+    it("redacts case-variant AWS access key IDs", () => {
+      const redactor = createOutboundRedactor();
+      expect(redactor.redact("id: akiaIOSFODNN7EXAMPLE")).toContain("***REDACTED***");
+    });
+
+    it("redacts case-variant dynamic secrets", () => {
+      const redactor = createOutboundRedactor();
+      redactor.addSensitiveValue("My-Gateway-Token-Value");
+      expect(redactor.redact("token is my-gateway-token-value here")).toContain("***REDACTED***");
+    });
+
+    // C1: the generic param-style char class stops at quotes, so JSON-string
+    // secret values must be matched by a dedicated pattern.
+    it("redacts JSON-quoted secret values", () => {
+      const redactor = createOutboundRedactor();
+      expect(redactor.redact('{"token":"sk-abc123def456ghi789"}')).toContain("***REDACTED***");
+      expect(redactor.redact("{'api_key':'supersecretvalue123'}")).toContain("***REDACTED***");
+    });
   });
 
   describe("isOutboundRedactionEnabled", () => {

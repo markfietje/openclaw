@@ -9,6 +9,9 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
  *
  * Pattern compilation happens once at init. Dynamic secrets are stored in a
  * Set and compiled lazily on the next `redact()` call.
+ *
+ * NOTE: regex redaction is best-effort defense-in-depth, not a complete
+ * security boundary; never rely on it as the sole control for secrets.
  */
 
 // Minimum length for dynamically-added secrets to avoid false positives.
@@ -25,22 +28,23 @@ const SENTINEL = "&REDACTED&";
 // ── Static patterns for common secret formats ──────────────────────────────
 
 // Specific high-signal patterns — applied first to avoid generic patterns
-// consuming the distinctive prefix portion of structured secrets.
+// consuming the distinctive prefix portion of structured secrets. The `i` flag
+// is safe here: these are high-entropy, case-insensitive prefixes/values.
 const SPECIFIC_PATTERNS: readonly RegExp[] = [
-  /sk_live_[a-zA-Z0-9]{20,}/g, // Stripe live keys (before generic sk-)
-  /sk_test_[a-zA-Z0-9]{20,}/g, // Stripe test keys (before generic sk-)
-  /sk-[a-zA-Z0-9]{20,}/g, // OpenAI API keys
-  /sk-ant-api03-[a-zA-Z0-9\-_]{20,}/g, // Anthropic API keys
-  /AKIA[0-9A-Z]{16}/g, // AWS access key IDs
-  /AIza[0-9A-Za-z\-_]{35}/g, // Google API keys
-  /ghp_[a-zA-Z0-9]{36}/g, // GitHub PATs
-  /gho_[a-zA-Z0-9]{36}/g, // GitHub OAuth tokens
-  /ghs_[a-zA-Z0-9]{36}/g, // GitHub app tokens
-  /xox[bpras]-[a-zA-Z0-9-]+/g, // Slack tokens
+  /sk_live_[a-zA-Z0-9]{20,}/gi, // Stripe live keys (before generic sk-)
+  /sk_test_[a-zA-Z0-9]{20,}/gi, // Stripe test keys (before generic sk-)
+  /sk-[a-zA-Z0-9]{20,}/gi, // OpenAI API keys
+  /sk-ant-api03-[a-zA-Z0-9\-_]{20,}/gi, // Anthropic API keys
+  /AKIA[0-9A-Z]{16}/gi, // AWS access key IDs
+  /AIza[0-9A-Za-z\-_]{35}/gi, // Google API keys
+  /ghp_[a-zA-Z0-9]{36}/gi, // GitHub PATs
+  /gho_[a-zA-Z0-9]{36}/gi, // GitHub OAuth tokens
+  /ghs_[a-zA-Z0-9]{36}/gi, // GitHub app tokens
+  /xox[bpras]-[a-zA-Z0-9-]+/gi, // Slack tokens
   /BOT_TOKEN=[^\s&"'`,;]+/gi, // Bot tokens in URLs/params
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g, // Private keys (RSA, EC, OpenSSH)
-  /-----BEGIN ENCRYPTED PRIVATE KEY-----/g, // PKCS#8 encrypted private keys
-  /-----BEGIN PRIVATE KEY-----/g, // PKCS#8 bare private keys (Ed25519, etc.)
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/gi, // Private keys (RSA, EC, OpenSSH)
+  /-----BEGIN ENCRYPTED PRIVATE KEY-----/gi, // PKCS#8 encrypted private keys
+  /-----BEGIN PRIVATE KEY-----/gi, // PKCS#8 bare private keys (Ed25519, etc.)
 ];
 
 // Generic param-style patterns — applied after specific patterns so that
@@ -50,6 +54,9 @@ const GENERIC_PATTERNS: readonly RegExp[] = [
   /token[=:]\s*[^\s&"'`,;]{8,}/gi,
   /password[=:]\s*[^\s&"'`,;]{8,}/gi,
   /secret[_-]?key[=:]\s*[^\s&"'`,;]{8,}/gi,
+  // JSON-string secret values, e.g. {"token":"sk-abc123..."}. The param-style
+  // patterns above stop at quotes, so quoted JSON values would otherwise leak.
+  /["'](?:api[_-]?key|token|password|secret[_-]?key|secret|authorization)["']\s*:\s*["'][^"']{8,}["']/gi,
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -117,7 +124,8 @@ export function createOutboundRedactor(config?: OutboundRedactorConfig): Outboun
     const escaped = Array.from(dynamicSecrets).map(escapeRegExp);
     // Sort by length descending so longer secrets match first.
     escaped.sort((a, b) => b.length - a.length);
-    dynamicRegex = new RegExp(escaped.join("|"), "g");
+    // `gi` — case-insensitive so dynamic secrets match regardless of casing.
+    dynamicRegex = new RegExp(escaped.join("|"), "gi");
     dynamicRegexDirty = false;
   }
 
