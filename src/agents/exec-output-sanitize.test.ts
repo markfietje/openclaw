@@ -65,4 +65,33 @@ describe("sanitizeExecOutput", () => {
       expect(sanitizeExecOutput("PASSWORD='hunter2secret'")).toBe("PASSWORD=[REDACTED]");
     });
   });
+
+  describe("PEM private-key block redaction", () => {
+    it("redacts a full PEM block from `cat id_rsa` output", () => {
+      const pem =
+        "-----BEGIN RSA PRIVATE KEY-----\n" +
+        "MIIEpAIBAAKCAQEAsecretbase64bodydataSECRETSECRET==\n" +
+        "-----END RSA PRIVATE KEY-----";
+      const result = sanitizeExecOutput(pem);
+      expect(result).toBe("[REDACTED]");
+      expect(result).not.toContain("MIIEpAIBAAKCAQEA");
+      expect(result).not.toContain("END RSA");
+    });
+
+    it("reduces a PRIVATE_KEY=<block> assignment to PRIVATE_KEY=[REDACTED]", () => {
+      const pem =
+        "PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n" +
+        "bodydataSECRETbodydataSECRET==\n" +
+        "-----END PRIVATE KEY-----";
+      const result = sanitizeExecOutput(pem);
+      expect(result).toBe("PRIVATE_KEY=[REDACTED]");
+      expect(result).not.toContain("bodydata");
+    });
+
+    it("still redacts a header-only fragment without END marker", () => {
+      // No END marker: PEM-block pattern does not match, falls through to the
+      // assignment-style ENV pattern so the header value is still redacted.
+      expect(sanitizeExecOutput("PRIVATE_KEY=-----BEGIN")).toBe("PRIVATE_KEY=[REDACTED]");
+    });
+  });
 });

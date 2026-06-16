@@ -42,9 +42,11 @@ const SPECIFIC_PATTERNS: readonly RegExp[] = [
   /ghs_[a-zA-Z0-9]{36}/gi, // GitHub app tokens
   /xox[bpras]-[a-zA-Z0-9-]+/gi, // Slack tokens
   /BOT_TOKEN=[^\s&"'`,;]+/gi, // Bot tokens in URLs/params
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/gi, // Private keys (RSA, EC, OpenSSH)
-  /-----BEGIN ENCRYPTED PRIVATE KEY-----/gi, // PKCS#8 encrypted private keys
-  /-----BEGIN PRIVATE KEY-----/gi, // PKCS#8 bare private keys (Ed25519, etc.)
+  // Full PEM private-key block: header + base64 body + END marker. The lazy
+  // `[\s\S]*?` is bounded by the END marker, so there is no ReDoS risk.
+  // Redacting only the header (as before) left the base64 body and END marker
+  // visible, leaking the key material.
+  /-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |)PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |)PRIVATE KEY-----/gi,
 ];
 
 // Generic param-style patterns — applied after specific patterns so that

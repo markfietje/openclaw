@@ -7,16 +7,27 @@ const FILE_MODE = 0o600;
 
 const ENV_KEY = "OPENCLAW_PASSPHRASE";
 
+// Envelope version this code writes. v2 binds `v`+`alg` as AES-GCM AAD so the
+// ciphertext is cryptographically tied to the envelope shape. v1 envelopes
+// (written by older code, no AAD) are still accepted on read for compatibility.
+const CURRENT_SEALED_VERSION = 2 as const;
+
 // ── Envelope types ──────────────────────────────────────────────────────────
 
 type SealedEnvelope = {
-  readonly v: 1;
+  readonly v: 1 | 2;
   readonly alg: "aes-256-gcm";
   readonly salt: string;
   readonly iv: string;
   readonly tag: string;
   readonly ciphertext: string;
 };
+
+/** Build the AES-GCM AAD that binds the envelope version + algorithm to the
+ *  ciphertext, preventing silent downgrade or alg swaps (OWASP A02). */
+function envelopeAad(v: number, alg: string): Buffer {
+  return Buffer.from(`${v}:${alg}`, "utf8");
+}
 
 // ── Error ───────────────────────────────────────────────────────────────────
 
@@ -62,13 +73,17 @@ function encryptJson(data: unknown, passphrase: string): string {
   const key = deriveKey(passphrase, salt);
   const plaintext = Buffer.from(JSON.stringify(data), "utf8");
 
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const alg = "aes-256-gcm";
+  const cipher = createCipheriv(alg, key, iv);
+  // v2 binds the envelope version + algorithm into the GCM auth tag so the
+  // ciphertext cannot be replayed under a different v/alg.
+  cipher.setAAD(envelopeAad(CURRENT_SEALED_VERSION, alg));
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const tag = cipher.getAuthTag();
 
   const envelope: SealedEnvelope = {
-    v: 1,
-    alg: "aes-256-gcm",
+    v: CURRENT_SEALED_VERSION,
+    alg,
     salt: salt.toString("base64"),
     iv: iv.toString("base64"),
     tag: tag.toString("base64"),
@@ -105,7 +120,7 @@ function parseEnvelope(raw: string): SealedEnvelope | null {
   }
 
   const obj = json as Record<string, unknown>;
-  if (obj.v !== 1 || obj.alg !== "aes-256-gcm") {
+  if ((obj.v !== 1 && obj.v !== 2) || obj.alg !== "aes-256-gcm") {
     return null;
   }
 
@@ -119,7 +134,7 @@ function parseEnvelope(raw: string): SealedEnvelope | null {
   }
 
   return {
-    v: 1,
+    v: obj.v,
     alg: "aes-256-gcm",
     salt: obj.salt,
     iv: obj.iv,
@@ -135,8 +150,13 @@ function decryptEnvelope(envelope: SealedEnvelope, passphrase: string): unknown 
   const ciphertext = Buffer.from(envelope.ciphertext, "base64");
   const key = deriveKey(passphrase, salt);
 
-  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  const decipher = createDecipheriv(envelope.alg, key, iv);
   decipher.setAuthTag(tag);
+  // v1 predates AAD binding and must decrypt without it; v2+ reproduces the
+  // same `v:alg` AAD used at seal time or the GCM auth tag check fails.
+  if (envelope.v >= 2) {
+    decipher.setAAD(envelopeAad(envelope.v, envelope.alg));
+  }
   const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 
   return JSON.parse(plaintext.toString("utf8")) as unknown;

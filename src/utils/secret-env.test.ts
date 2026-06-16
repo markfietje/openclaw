@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -60,6 +60,43 @@ describe("resolveSecretEnvValue", () => {
       expect(result).toEqual({ value: "secret-value", source: "file", envVar: "MY_KEY" });
     } finally {
       rmSync(secretPath, { force: true });
+    }
+  });
+
+  // Symlink escape: a path that lexically lives inside an allowed dir but
+  // resolves to a target outside it (e.g. /run/secrets/legit -> /etc/shadow)
+  // must be rejected after canonicalizing the link via realpath.
+  it("rejects *_FILE symlinks that escape an allowed directory", () => {
+    const homeDir = process.env.HOME ?? "/tmp";
+    const credDir = path.join(homeDir, ".openclaw", "credentials");
+    mkdirSync(credDir, { recursive: true });
+    // Target file OUTSIDE any allowed secret dir.
+    const targetDir = mkdtempSync(path.join(tmpdir(), "secret-escape-"));
+    const targetFile = path.join(targetDir, "shadow");
+    writeFileSync(targetFile, "stolen-secret\n", "utf8");
+    const linkPath = path.join(credDir, `escape-${Date.now()}`);
+    try {
+      symlinkSync(targetFile, linkPath);
+      const result = resolveSecretEnvValue("MY_KEY", { MY_KEY_FILE: linkPath });
+      expect(result).toBeNull();
+    } finally {
+      rmSync(linkPath, { force: true });
+      rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null for a dangling *_FILE symlink (fail closed)", () => {
+    const homeDir = process.env.HOME ?? "/tmp";
+    const credDir = path.join(homeDir, ".openclaw", "credentials");
+    mkdirSync(credDir, { recursive: true });
+    const linkPath = path.join(credDir, `dangling-${Date.now()}`);
+    try {
+      // Symlink to a nonexistent target — realpath throws.
+      symlinkSync(path.join(tmpdir(), `no-such-target-${Date.now()}`), linkPath);
+      const result = resolveSecretEnvValue("MY_KEY", { MY_KEY_FILE: linkPath });
+      expect(result).toBeNull();
+    } finally {
+      rmSync(linkPath, { force: true });
     }
   });
 });

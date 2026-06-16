@@ -1,3 +1,4 @@
+import { createCipheriv, randomBytes, scryptSync } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -154,11 +155,52 @@ describe("sealed-json-file", () => {
     const envelope = JSON.parse(
       Buffer.from(raw.slice("openclaw-sealed-json-v1:".length), "base64").toString("utf-8"),
     );
-    expect(envelope.v).toBe(1);
+    expect(envelope.v).toBe(2);
     expect(envelope.alg).toBe("aes-256-gcm");
     expect(envelope.salt).toBeDefined();
     expect(envelope.iv).toBeDefined();
     expect(envelope.tag).toBeDefined();
     expect(envelope.ciphertext).toBeDefined();
+  });
+
+  // Backward compatibility: v1 envelopes were written WITHOUT AAD by older
+  // code. The reader must still decrypt them (no AAD) so existing sealed files
+  // on disk keep working after the v2/AAD upgrade.
+  it("still decrypts legacy v1 envelopes written without AAD", () => {
+    const dir = makeTestDir();
+    const filePath = path.join(dir, "legacy.json");
+
+    // Reproduce the legacy v1 encryption path (no setAAD).
+    const salt = randomBytes(16);
+    const iv = randomBytes(12);
+    const key = scryptSync(PASSPHRASE, salt, 32, {
+      N: 131072,
+      maxmem: 128 * 131072 * 8 * 2,
+    });
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const data = { legacy: true };
+    const plaintext = Buffer.from(JSON.stringify(data), "utf8");
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const tag = cipher.getAuthTag();
+
+    const legacyEnvelope = {
+      v: 1,
+      alg: "aes-256-gcm",
+      salt: salt.toString("base64"),
+      iv: iv.toString("base64"),
+      tag: tag.toString("base64"),
+      ciphertext: ciphertext.toString("base64"),
+    };
+    writeFileSync(
+      filePath,
+      "openclaw-sealed-json-v1:" +
+        Buffer.from(JSON.stringify(legacyEnvelope), "utf8").toString("base64"),
+      "utf8",
+    );
+
+    const loaded = loadSealedJsonFile(filePath, {
+      env: { OPENCLAW_PASSPHRASE: PASSPHRASE },
+    });
+    expect(loaded).toEqual(data);
   });
 });
