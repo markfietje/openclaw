@@ -42,16 +42,18 @@ type PackageOverrideFields = {
   overrides?: unknown;
 };
 
-const BLOCKED_INSTALL_DEPENDENCY_PACKAGE_NAME_SET = new Set<string>(
-  BLOCKED_INSTALL_DEPENDENCY_PACKAGE_NAMES,
-);
-
 const BLOCKED_INSTALL_DEPENDENCY_PACKAGE_NAME_LOWER_SET = new Set<string>(
   BLOCKED_INSTALL_DEPENDENCY_PACKAGE_NAMES.map((packageName) => packageName.toLowerCase()),
 );
 
+// Manifest package-name checks must be case-insensitive: npm names are
+// case-insensitive on the registry, so `Crossenv`, `BABELCLI`, or `Dns-Sync`
+// would otherwise bypass the manifest block. Path checks already lowercase
+// via isBlockedInstallDependencyPackagePathName; this mirrors them for
+// manifest name/dependencies/optionalDependencies/peerDependencies/overrides/
+// npm-alias target surfaces.
 function isBlockedInstallDependencyPackageName(packageName: string): boolean {
-  return BLOCKED_INSTALL_DEPENDENCY_PACKAGE_NAME_SET.has(packageName);
+  return BLOCKED_INSTALL_DEPENDENCY_PACKAGE_NAME_LOWER_SET.has(packageName.toLowerCase());
 }
 
 function isBlockedInstallDependencyPackagePathName(packageName: string): boolean {
@@ -153,7 +155,7 @@ function collectBlockedOverrideFindings(
     if (!aliasTargetPackageName) {
       return [];
     }
-    if (!BLOCKED_INSTALL_DEPENDENCY_PACKAGE_NAME_SET.has(aliasTargetPackageName)) {
+    if (!isBlockedInstallDependencyPackageName(aliasTargetPackageName)) {
       return [];
     }
     return [
@@ -172,7 +174,7 @@ function collectBlockedOverrideFindings(
     const overrideSelectorPackageName = parsePackageNameFromOverrideSelector(overrideKey);
     if (
       overrideSelectorPackageName &&
-      BLOCKED_INSTALL_DEPENDENCY_PACKAGE_NAME_SET.has(overrideSelectorPackageName)
+      isBlockedInstallDependencyPackageName(overrideSelectorPackageName)
     ) {
       findings.push({
         dependencyName: overrideSelectorPackageName,

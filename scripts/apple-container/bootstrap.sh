@@ -300,7 +300,11 @@ cmd_install() {
     "$IMAGE" \
     sh -c "
       if [ -f /app/openclaw.mjs ]; then
-        exec '$CONTAINER_RUNTIME' /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 --token \"\$(cat /token-key/token 2>/dev/null || true)\"
+        token_file_args=()
+        if [ -f /token-key/token ]; then
+          token_file_args=(--token-file /token-key/token)
+        fi
+        exec '$CONTAINER_RUNTIME' /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 "${token_file_args[@]}"
       else
         echo 'Gateway not found in image.' && exit 1
       fi
@@ -446,7 +450,11 @@ cmd_upgrade() {
     "$IMAGE" \
     sh -c "
       if [ -f /app/openclaw.mjs ]; then
-        exec '$CONTAINER_RUNTIME' /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 --token \"\$(cat /token-key/token 2>/dev/null || true)\"
+        token_file_args=()
+        if [ -f /token-key/token ]; then
+          token_file_args=(--token-file /token-key/token)
+        fi
+        exec '$CONTAINER_RUNTIME' /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 "${token_file_args[@]}"
       else
         echo 'Gateway not found in image.' && exit 1
       fi
