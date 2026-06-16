@@ -337,6 +337,59 @@ describe("connection-rate-limit", () => {
     });
   });
 
+  describe("maxEntries cap (DoS bound)", () => {
+    it("never exceeds maxEntries when flooded with distinct IPs", () => {
+      // Reproduces G3: distinct-IP floods (IPv6 rotation / CGNAT) must not grow
+      // the tracking map without bound. Insertion runs through store.reserve(),
+      // which evicts the oldest non-locked entry once the cap is reached.
+      const maxEntries = 50;
+      const limiter = createConnectionRateLimiter({
+        maxAttempts: 5,
+        maxEntries,
+        pruneIntervalMs: 0, // disable auto-prune so reserve() eviction is the only bound
+      });
+
+      const flood = maxEntries * 4;
+      for (let i = 0; i < flood; i++) {
+        limiter.recordAttempt(`198.51.${Math.floor(i / 256)}.${i % 256}`);
+      }
+
+      // Before the fix this was `flood` (200); the cap was silently ignored.
+      expect(limiter.size()).toBeLessThanOrEqual(maxEntries);
+      expect(limiter.size()).toBe(maxEntries);
+
+      limiter.dispose();
+    });
+
+    it("keeps locked entries and briefly exceeds the cap only when all are locked", () => {
+      // When every entry is locked, reserve() cannot evict (in-flight lockouts
+      // are preserved); the cap is reclaimed on the next prune.
+      const maxEntries = 5;
+      const limiter = createConnectionRateLimiter({
+        maxAttempts: 1,
+        lockoutMs: 60_000,
+        maxEntries,
+        pruneIntervalMs: 0,
+      });
+
+      // Each distinct IP is locked on its first recorded attempt.
+      const flood = maxEntries * 3;
+      for (let i = 0; i < flood; i++) {
+        limiter.recordAttempt(`198.51.100.${i % 256}`);
+      }
+
+      // Locked entries are never evicted, so size grows with the flood.
+      expect(limiter.size()).toBe(flood);
+
+      // Advance past lockout and prune: the map reclaims down within the cap.
+      vi.advanceTimersByTime(60_001);
+      limiter.prune();
+      expect(limiter.size()).toBeLessThanOrEqual(maxEntries);
+
+      limiter.dispose();
+    });
+  });
+
   describe("dispose()", () => {
     it("clears all entries and stops the prune timer", () => {
       const limiter = createConnectionRateLimiter({ maxAttempts: 5 });

@@ -18,7 +18,7 @@
 import { normalizeIpAddress } from "@openclaw/net-policy/ip";
 import { isLoopbackAddress } from "./ip.js";
 import { applyIpv6SubnetMask } from "./ipv6-subnet.js";
-import { createSlidingWindowStore, type SlidingWindowBucket } from "./sliding-window-store.js";
+import { createSlidingWindowStore } from "./sliding-window-store.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +35,12 @@ export interface ConnectionRateLimitConfig {
   exemptLoopback?: boolean;
   /** Background prune interval in milliseconds; set <= 0 to disable auto-prune.  @default 30_000 */
   pruneIntervalMs?: number;
+  /**
+   * Hard cap on tracked non-loopback client IPs. When the cap is reached the
+   * oldest non-locked entry is evicted to make room, bounding memory against
+   * distinct-IP floods (IPv6 rotation / CGNAT).  @default 100_000
+   */
+  maxEntries?: number;
   /**
    * IPv6 subnet mask for rate-limit key generation.
    * ISPs assign ranges via subnet mask; malicious users could iterate addresses.
@@ -72,6 +78,7 @@ const DEFAULT_MAX_ATTEMPTS = 30;
 const DEFAULT_WINDOW_MS = 10_000; // 10 seconds
 const DEFAULT_LOCKOUT_MS = 60_000; // 1 minute
 const DEFAULT_PRUNE_INTERVAL_MS = 30_000; // prune stale entries every 30 seconds
+const DEFAULT_MAX_ENTRIES = 100_000; // bound tracked IPs against distinct-IP floods
 const DEFAULT_IPV6_SUBNET = 56; // OWASP recommended /56 for IPv6 rate limiting
 
 // ---------------------------------------------------------------------------
@@ -86,9 +93,10 @@ export function createConnectionRateLimiter(
   const lockoutMs = config?.lockoutMs ?? DEFAULT_LOCKOUT_MS;
   const exemptLoopback = config?.exemptLoopback ?? true;
   const pruneIntervalMs = config?.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
+  const maxEntries = config?.maxEntries ?? DEFAULT_MAX_ENTRIES;
   const ipv6SubnetMask = config?.ipv6SubnetMask ?? DEFAULT_IPV6_SUBNET;
 
-  const store = createSlidingWindowStore({ windowMs, pruneIntervalMs });
+  const store = createSlidingWindowStore({ windowMs, pruneIntervalMs, maxEntries });
 
   function isExempt(ip: string): boolean {
     return exemptLoopback && isLoopbackAddress(ip);
@@ -150,12 +158,10 @@ export function createConnectionRateLimiter(
     }
 
     const now = Date.now();
-    let entry: SlidingWindowBucket | undefined = store.entries.get(key);
-
-    if (!entry) {
-      entry = { timestamps: [] };
-      store.entries.set(key, entry);
-    }
+    // Route insertion through store.reserve() so the maxEntries cap is enforced
+    // via evictOldestNonLocked(). A direct store.entries.set would bypass
+    // eviction and allow unbounded growth from attacker-controlled distinct IPs.
+    const entry = store.reserve(key, now);
 
     if (entry.lockedUntil && now < entry.lockedUntil) {
       return;
