@@ -39,6 +39,12 @@ You should see a version number. If not, restart Terminal and try again.
 Open Terminal. Paste this. Press Enter.
 
 ```bash
+curl -fsSL https://markfietje.github.io/openclaw/install | bash
+```
+
+Prefer the auditable raw script (no short-URL wrapper)? Same thing:
+
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/markfietje/openclaw/main/scripts/apple-container/bootstrap.sh)
 ```
 
@@ -64,6 +70,8 @@ When it finishes, you'll see:
 
 The script also installs itself to `~/.openclaw/bin/openclaw-container.sh` for convenience.
 
+> **What you get:** a hardened, read-only, sandboxed gateway running in one command. Its config lives **inside the container** (on a persisted volume), so you add providers and channels with an in-container command — step 2 below. Your host `~/.openclaw/` is not shared with the container, and it doesn't need to be.
+
 > **If something goes wrong:** see the [Troubleshooting](#troubleshooting) section below.
 
 ---
@@ -84,29 +92,23 @@ Wait for the ✓. The gateway runs in the background — you can close Terminal 
 
 ### 2. Add your AI provider
 
-Edit the config file:
+The gateway's config lives **inside the container**, on a persisted volume mounted at `/home/node/.openclaw`. You configure it by running the onboarding wizard _inside_ the container — it writes straight to that volume, and the config survives restarts and upgrades.
 
 ```bash
-nano ~/.openclaw/openclaw.json
+container exec -it openclaw openclaw onboard --mode local
 ```
 
-Find the `models` → `providers` section and add your API key. For example, with OpenAI:
+The wizard walks you through: pick one provider (OpenAI, Anthropic, or Google), paste your API key, and optionally add messaging channels. `--mode local` sets `gateway.mode=local`, which is what lets the gateway start cleanly.
 
-```json
-{
-  "models": {
-    "providers": {
-      "openai": {
-        "apiKey": "sk-your-key-here"
-      }
-    }
-  }
-}
+Then restart so the new config loads:
+
+```bash
+~/.openclaw/bin/openclaw-container.sh stop && ~/.openclaw/bin/openclaw-container.sh run
 ```
 
-You only need one provider. Save and exit (`Ctrl+X`, `Y`, `Enter`).
-
-> **The gateway must be running** for this config to take effect. If you edited the file while the gateway was stopped, start it with step 1 — it reads the config on startup.
+> **Why inside the container?** The container runs a **read-only** root filesystem, so config can't live just anywhere. It lives on the `openclaw-state` volume, which is mounted at the gateway's config path and stays writable even though the root is read-only. Editing your host `~/.openclaw/openclaw.json` has no effect on the container — and it doesn't need to, because `onboard` runs inside.
+>
+> To edit config directly instead of the wizard: `container exec -it openclaw nano /home/node/.openclaw/openclaw.json`, then restart.
 
 ### 3. Chat
 
@@ -166,9 +168,20 @@ oc-upgrade    # update to latest version
 
 ## Connect to Telegram, Discord, WhatsApp
 
-Edit `~/.openclaw/openclaw.json` and add channel credentials under the `channels` section. See the [OpenClaw docs](https://docs.openclaw.ai) for provider-specific setup guides.
+Run the same in-container onboarding wizard again — it walks you through adding channels so you can reach your AI from your phone:
 
-Once configured, your AI is reachable from your phone, desktop, or browser — anywhere you use those apps.
+```bash
+container exec -it openclaw openclaw onboard --mode local
+~/.openclaw/bin/openclaw-container.sh stop && ~/.openclaw/bin/openclaw-container.sh run
+```
+
+Or edit the in-container config directly and add credentials under `channels`, then restart:
+
+```bash
+container exec -it openclaw nano /home/node/.openclaw/openclaw.json
+```
+
+See the [OpenClaw docs](https://docs.openclaw.ai) for provider-specific setup guides. Once configured, your AI is reachable from your phone, desktop, or browser — anywhere you use those apps.
 
 ---
 
@@ -206,9 +219,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/markfietje/openclaw/main/scr
 ### Runtime problems
 
 | Problem                          | Cause                                         | Fix                                                                                                                                                                                                                           |
-| -------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| **Gateway won't start**          | Config error or port conflict                 | Run the `logs` command. Common cause: invalid JSON in `~/.openclaw/openclaw.json`. Validate it with `cat ~/.openclaw/openclaw.json                                                                                            | python3 -m json.tool`. |
-| **"AI doesn't respond"**         | No provider configured                        | Edit `~/.openclaw/openclaw.json` and add an API key under `models.providers` (see step 2 above).                                                                                                                              |
+| -------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Gateway won't start**          | Config error or port conflict                 | Run the `logs` command. Common cause: invalid JSON in the in-container config. Check it with `container exec openclaw cat /home/node/.openclaw/openclaw.json \| python3 -m json.tool`.                                        |
+| **"AI doesn't respond"**         | No provider configured                        | Run `container exec -it openclaw openclaw onboard --mode local`, then restart the gateway.                                                                                                                                    |
 | **"Connection refused" in TUI**  | Gateway isn't running                         | Run `oc-run` first, wait for the ✓, then `oc`.                                                                                                                                                                                |
 | **Nothing works after a reboot** | Gateway doesn't auto-start                    | Run `oc-run` again.                                                                                                                                                                                                           |
 | **Keychain prompts every time**  | You clicked "Allow" instead of "Always Allow" | Next time the dialog appears, click **Always Allow**. Or: open Keychain Access → find "ai.openclaw.apple-container.gateway-token" → double-click → Access Control → add `/usr/bin/security`.                                  |
@@ -349,7 +362,7 @@ Even after a successful WebSocket handshake, sensitive operations are gated by c
 - **`config.set_protected`** — requires `admin:config` capability. Prevents auth config changes from any client that happens to be authenticated.
 - **Node-role gating** — methods like `node.event` and `node.invoke.result` require `role === "node"`. An operator client cannot invoke node methods.
 
-Enable with `gateway.security.messageAuth.enabled: true` in your config. The lite installer leaves this off by default for compatibility; the full installer enables it.
+Enable with `gateway.security.messageAuth.enabled: true` in your config. It ships off by default for compatibility; turn it on with `container exec -it openclaw nano /home/node/.openclaw/openclaw.json`, then restart.
 
 ### Startup security checks
 
@@ -395,33 +408,92 @@ The module defaults to enabled (`gateway.security.enableOutboundRedaction !== fa
 
 ---
 
-## Two install paths
+## Don't want a container? (npm / pnpm)
 
-The one-liner above is the **lite installer** — a single 600-line bash script, easy to audit, pulls a pre-built image from GitHub Container Registry. It stores the gateway token in a container volume that the gateway reads at startup.
+Two distinct things to keep straight, because the npm package is **not** this fork:
 
-For production or shared-host use, the repo also ships a **full installer** (`scripts/apple-container/setup.sh` + `run.sh`) that:
+### Upstream OpenClaw (official, no hardening)
 
-- **Builds the image locally** from source (takes 5–15 minutes, verifies everything)
-- **Delivers the token over a localhost Keychain bridge** — a tiny HTTP server on the host reads the token from macOS Keychain and serves it to the container via bearer-authenticated HTTP. The token never sits on disk inside the container.
-- **Applies stricter defaults**: `--user 1000:1000`, `127.0.0.1` port binding, `--cpus 2`, `--memory 1g`, tmpfs for caches
-- **Supports running behind a reverse proxy** ([Caddy](https://github.com/markfietje/openclaw/blob/main/docs/gateway/caddy-proxy.md) or [Tailscale Serve](https://github.com/markfietje/openclaw/blob/main/docs/gateway/security/examples/secure-tailscale-serve.json)) while preserving untrusted-proxy-header rejection and origin validation
+The `openclaw` package on npm is the official upstream project (`github.com/openclaw/openclaw`). It is **not** this fork — none of the container hardening or Keychain token work is in it. If you just want OpenClaw running on your host with zero ceremony and you trust your own machine, this is the fastest path:
 
-Both paths share the same container hardening (`--read-only`, `--cap-drop ALL`, non-root, loopback-only port). The lite path is a quick start; the full path is for when you want maximum security or need reverse proxy support.
+```bash
+# Requires Node.js 22.19 or newer. Pick one:
+npm install -g openclaw        # npm  → upstream openclaw
+pnpm add -g openclaw           # pnpm → upstream openclaw
+# or run once with no install:
+npx openclaw chat
+```
+
+```bash
+openclaw onboard          # add a provider + messaging channels
+openclaw gateway          # start the gateway (foreground)
+openclaw chat             # chat from another window
+```
+
+**Upgrade:**
+
+```bash
+npm update -g openclaw     # npm
+pnpm update -g openclaw    # pnpm
+```
+
+The tradeoff: it runs as **your user** with full filesystem and network access — no sandbox, no read-only root, no dropped capabilities, no Keychain token. That hardening is exactly what this fork adds.
+
+### This fork from source (hardened code, no container)
+
+This fork is **not published to npm**. To run its code on your host without the Apple Container, build it from source (needs Node 22.19+ and pnpm):
+
+```bash
+git clone https://github.com/markfietje/openclaw && cd openclaw
+corepack enable                       # enables the pinned pnpm
+pnpm install
+pnpm build
+pnpm openclaw onboard                 # add a provider + channels
+pnpm openclaw gateway                 # start the gateway
+pnpm openclaw chat                    # chat from another window
+```
+
+**Upgrade:**
+
+```bash
+git pull
+pnpm install
+pnpm build
+```
+
+> You get the fork's code, but **without** the OS-level isolation. The read-only root, dropped caps, loopback-only bind, resource caps, and off-disk Keychain token only exist in the container image. Running from source on the host is a middle ground: hardened gateway logic, ordinary process privileges.
+
+---
+
+## Build the image from source (optional)
+
+The one-liner pulls a **prebuilt** image from GitHub Container Registry. If you'd rather build the image yourself — to audit the build, pin a custom version, or run behind a reverse proxy — the repo ships `scripts/apple-container/setup.sh` + `run.sh`, which:
+
+- **Build the image locally** from source (10–20 minutes, you verify everything)
+- **Deliver the token over a localhost Keychain bridge** — a tiny HTTP server on the host reads the token from macOS Keychain and serves it to the container via bearer-authenticated HTTP, so the token never sits on disk inside the container
+- **Support running behind a reverse proxy** ([Caddy](https://github.com/markfietje/openclaw/blob/main/docs/gateway/caddy-proxy.md) or [Tailscale Serve](https://github.com/markfietje/openclaw/blob/main/docs/gateway/security/examples/secure-tailscale-serve.json)) while preserving untrusted-proxy-header rejection and origin validation
+
+```bash
+git clone https://github.com/markfietje/openclaw && cd openclaw
+scripts/apple-container/setup.sh    # build the image + write config
+scripts/apple-container/run.sh      # start (seeds host config + Keychain bridge)
+```
+
+With the build-from-source path, config edits work differently: `run.sh` copies your **host** `~/.openclaw/openclaw.json` into the container's state volume on each start, so you edit the host file and re-run. Both paths share the same container hardening (`--read-only`, `--cap-drop ALL`, non-root, loopback-only port, 2 CPU / 1 GB caps).
 
 ### Quick comparison
 
-|                             | Lite (`bootstrap.sh`)         | Full (`setup.sh` + `run.sh`)                 |
-| --------------------------- | ----------------------------- | -------------------------------------------- |
-| **Setup time**              | 2–5 minutes                   | 10–20 minutes (builds from source)           |
-| **Token delivery**          | Volume mount                  | Keychain bridge over localhost HTTP          |
-| **Port binding**            | All interfaces (`0.0.0.0`)    | Loopback only (`127.0.0.1`)                  |
-| **User in container**       | Default (image's `USER node`) | Explicit `--user 1000:1000`                  |
-| **Resource limits**         | None                          | CPU 2 cores, memory 1 GB                     |
-| **Reverse proxy support**   | Manual config needed          | Auto-detects Tailscale, syncs trustedProxies |
-| **Requires repo clone**     | No (curl pipe)                | Yes                                          |
-| **Requires `node` on host** | No                            | Yes                                          |
+|                             | One-liner (`bootstrap.sh`)                       | Build from source (`setup.sh` + `run.sh`)     |
+| --------------------------- | ------------------------------------------------ | --------------------------------------------- |
+| **Image**                   | Prebuilt pull from GHCR                          | Built locally from source (10–20 min)         |
+| **Setup time**              | 2–5 minutes                                      | 10–20 minutes                                 |
+| **Token delivery**          | Token volume (on disk)                           | Keychain bridge over localhost HTTP           |
+| **Config editing**          | `container exec … onboard` (in-container volume) | Edit host `~/.openclaw/openclaw.json`, re-run |
+| **Requires repo clone**     | No                                               | Yes                                           |
+| **Requires `node` on host** | No                                               | Yes                                           |
+| **Reverse proxy support**   | Manual                                           | Auto-detects Tailscale, syncs trustedProxies  |
 
-> **If you're only using this on your personal Mac on loopback**, the lite installer is fine. If you're exposing it through a reverse proxy, VPS, or Tailscale, use the full installer.
+> **Which one?** Use the **one-liner** for a personal Mac on loopback — it's the path this post is about. Use **build-from-source** if you want to verify the image, need an off-disk token, or are exposing the gateway through a reverse proxy, VPS, or Tailscale.
 
 ---
 
@@ -466,6 +538,23 @@ For a deep dive on the threat model, attacker surface, and proof-of-concept expl
 ## What is OpenClaw?
 
 [OpenClaw](https://github.com/openclaw/openclaw) is an open-source AI gateway. It connects AI models (OpenAI, Anthropic, Google) to your messaging apps (Telegram, Discord, WhatsApp). You run it on your own Mac — no cloud, no third-party servers, your API keys stay local.
+
+## How this build differs from upstream `openclaw/openclaw`
+
+Upstream OpenClaw is the CLI/gateway you get from `npm install -g openclaw`. It does **not** ship an Apple Container image or these defaults. This fork adds the packaging and hardening layer:
+
+| Area                   | Upstream (npm install)                           | This Apple Container build                                                                                                                       |
+| ---------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Isolation**          | Runs as your user, full host access              | Sandboxed Linux container, read-only root, `--cap-drop ALL`, non-root (`1000:1000`)                                                              |
+| **Network**            | Binds however you configure it                   | Loopback-only (`127.0.0.1:18789`) by default                                                                                                     |
+| **Gateway token**      | Stored in config/env on disk                     | Generated, stored in **macOS Keychain**; staged in a container volume (build-from-source path keeps it off disk via a localhost Keychain bridge) |
+| **Resource limits**    | None                                             | CPU capped at 2 cores, memory 1 GB                                                                                                               |
+| **Image base**         | n/a                                              | `node:24-bookworm-slim`, pinned by **SHA256 digest** (not a floating tag)                                                                        |
+| **Install**            | `npm install -g openclaw` + manual gateway setup | One curl pipe; auto preflight, token, volumes, container create                                                                                  |
+| **Config integrity**   | Standard                                         | HMAC-SHA256 config verification; optional AES-256-GCM secrets at rest (`OPENCLAW_PASSPHRASE`)                                                    |
+| **Hardening defaults** | You opt in                                       | `--read-only`, dropped caps, `umask 0027`, init process — always on                                                                              |
+
+Same OpenClaw inside; the value is the **hardened, zero-Docker, Keychain-backed packaging** for a personal Mac.
 
 ## Disclaimer
 
