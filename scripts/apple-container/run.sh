@@ -111,6 +111,7 @@ show_help() {
   echo "  OPENCLAW_APPLE_CONTAINER_IMAGE            Image name (default: openclaw:apple-arm64)"
   echo "  OPENCLAW_APPLE_CONTAINER_NAME             Container name (default: openclaw)"
   echo "  OPENCLAW_APPLE_CONTAINER_NETWORK          Network name (default: openclaw-net)"
+  echo "  OPENCLAW_APPLE_CONTAINER_NETWORK_SUBNET   Pinned IPv4 CIDR for the network (default: 172.31.224.0/24; empty = auto)"
   echo "  OPENCLAW_APPLE_CONTAINER_HOST_PORT        Host port (default: 18789)"
   echo "  OPENCLAW_APPLE_CONTAINER_CPUS             CPU limit (default: 2)"
   echo "  OPENCLAW_APPLE_CONTAINER_MEMORY           Memory limit (default: 1g)"
@@ -163,6 +164,11 @@ OPENCLAW_IMAGE="${OPENCLAW_APPLE_CONTAINER_IMAGE:-openclaw:apple-arm64}"
 OPENCLAW_CONTAINER_NAME="${OPENCLAW_APPLE_CONTAINER_NAME:-openclaw}"
 BRIDGE_LAUNCH_LABEL="${OPENCLAW_APPLE_CONTAINER_KEYCHAIN_BRIDGE_LABEL:-ai.openclaw.apple-container.keychain-bridge.${OPENCLAW_CONTAINER_NAME}}"
 OPENCLAW_NETWORK_NAME="${OPENCLAW_APPLE_CONTAINER_NETWORK:-openclaw-net}"
+# Optional deterministic subnet pinned at `container network create` time
+# (see setup.sh). When set, this is the most authoritative source for the
+# container subnet — it does not require any running container or network
+# inspect call. Empty means Apple Container auto-allocates the subnet.
+OPENCLAW_NETWORK_SUBNET="${OPENCLAW_APPLE_CONTAINER_NETWORK_SUBNET:-}"
 HOST_PORT="${OPENCLAW_APPLE_CONTAINER_HOST_PORT:-18789}"
 CONTAINER_PORT="${OPENCLAW_APPLE_CONTAINER_PORT:-18789}"
 CONTAINER_CPUS="${OPENCLAW_APPLE_CONTAINER_CPUS:-2}"
@@ -328,10 +334,37 @@ require_tailscale() {
   info "Tailscale: running, serve configured for 127.0.0.1:${HOST_PORT}"
 }
 
-# Detect the container's IPv4 gateway CIDR (e.g. 192.168.64.0/24) from
-# the running container's network configuration via `container inspect`.
+# Detect the IPv4 subnet CIDR the container traffic egresses through.
+#
+# Preferred source: the network's subnet from `container network inspect`,
+# because it is fixed at `container network create` time and is stable across
+# container rebuilds/restarts/IP changes. Falls back to the runtime container
+# address from `container inspect` (derived from the live lease) when the
+# named network cannot be inspected (e.g. using the implicit default network).
+#
+# This CIDR is what gateway.trustedProxies must contain so the vmnet NAT
+# gateway (first usable IP in the subnet) is recognised when forwarding
+# browser WebSocket upgrades to the in-container gateway.
 detect_container_gateway_cidr() {
-  parse_container_gateway_cidr "$OPENCLAW_CONTAINER_NAME"
+  local cidr=""
+  # 1. Pinned subnet env var (authoritative; set by setup.sh from
+  #    `container network create --subnet`). Survives rebuilds and does not
+  #    depend on any running container or inspect call.
+  if [[ -n "$OPENCLAW_NETWORK_SUBNET" ]]; then
+    cidr="$OPENCLAW_NETWORK_SUBNET"
+  fi
+  # 2. Live network subnet from `container network inspect`.
+  if [[ -z "$cidr" && -n "${NETWORK_ARGS:-}" ]]; then
+    cidr="$(parse_container_network_subnet "${NETWORK_ARGS[1]}")"
+  fi
+  if [[ -z "$cidr" ]]; then
+    cidr="$(parse_container_network_subnet "$OPENCLAW_NETWORK_NAME")"
+  fi
+  # 3. Runtime container address from `container inspect` (live lease).
+  if [[ -z "$cidr" ]]; then
+    cidr="$(parse_container_gateway_cidr "$OPENCLAW_CONTAINER_NAME")"
+  fi
+  printf '%s' "$cidr"
 }
 
 # Detect the Tailscale Serve origin (e.g. https://machine.tail12345.ts.net)
@@ -352,10 +385,23 @@ detect_tailscale_origin() {
   printf '%s' "$origin"
 }
 
-# Synchronise gateway.trustedProxies and gateway.controlUi.allowedOrigins in both
-# the host config and the container volume config so they match the live
-# container subnet and Tailscale origin.  Returns 0 when a restart is needed
-# (config changed on the host, so the volume was already re-staged), 1 otherwise.
+# Synchronise gateway.trustedProxies, gateway.controlUi.allowedOrigins, and
+# gateway.remote.url in the host config so they match the live container
+# subnet and reachable origin. The host config is then re-staged into the
+# container volume. Returns 0 when a restart is needed (config changed on the
+# host, so the volume will be re-staged by the caller), 1 otherwise.
+#
+# What gets normalised and why:
+#  - trustedProxies: must contain the live container subnet CIDR so the vmnet
+#    NAT gateway is recognised when forwarding browser WS upgrades. Stale
+#    Apple-Container-managed subnets (192.168.6x.0/24, 192.168.7x.0/24) and
+#    RFC5737 doc IPs are pruned so the list tracks the single live subnet.
+#  - allowedOrigins: ensure the Tailscale Serve origin is present so the
+#    dashboard works over Tailscale.
+#  - remote.url: ensure it points at a reachable gateway URL instead of a
+#    stale container-internal IP (e.g. wss://192.168.6x.x:18789) that no
+#    client can dial. Prefers the Tailscale origin when serving, else the
+#    loopback forwarded URL.
 sync_trusted_proxies() {
   local gateway_cidr=""
   gateway_cidr="$(detect_container_gateway_cidr)"
@@ -370,30 +416,54 @@ sync_trusted_proxies() {
     tailscale_origin="$(detect_tailscale_origin)"
   fi
 
-  local changed=""
-  changed="$(node - "$CONFIG_JSON" "$gateway_cidr" "${tailscale_origin}" <<'SYNCNODE'
+  # The reachable remote gateway URL: Tailscale Serve origin when present,
+  # otherwise the loopback port-forward the host browser uses. Never a
+  # container-internal 192.168.x.x address, which is unreachable from host /
+  # remote clients. Origin scheme maps to the WS scheme (https->wss, http->ws).
+  local desired_remote_url=""
+  if [[ -n "$tailscale_origin" ]]; then
+    desired_remote_url="${tailscale_origin%/}/gateway"
+    desired_remote_url="${desired_remote_url/#http:\/\//ws:\/\/}"
+    desired_remote_url="${desired_remote_url/#https:\/\//wss:\/\/}"
+  else
+    desired_remote_url="ws://127.0.0.1:${HOST_PORT}/gateway"
+  fi
+
+  local result=""
+  result="$(node - "$CONFIG_JSON" "$gateway_cidr" "$tailscale_origin" "$desired_remote_url" <<'SYNCNODE'
 const fs = require("node:fs");
 const cfgPath = process.argv[2];
 const desiredCidr = process.argv[3];
 const tailscaleOrigin = process.argv[4] || "";
+const desiredRemoteUrl = process.argv[5] || "";
 let raw;
 try { raw = fs.readFileSync(cfgPath, "utf8"); } catch { process.exit(1); }
 let cfg;
 try { cfg = JSON.parse(raw); } catch { process.exit(1); }
-let changed = false;
+const changes = [];
 
 cfg.gateway ??= {};
 
-// Sync trustedProxies — ensure the container subnet CIDR is present.
+// Sync trustedProxies — ensure the live container subnet CIDR is present and
+// prune stale Apple-Container-managed subnets plus duplicate loopback entries.
+const STALE_SUBNET = /^192\.168\.(6[4-9]|7[0-9]|8[0-9]|9[0-9])\.0\/24$/;
+const STALE_CONTAINER_HOST = /^wss?:\/\/192\.168\.(6[4-9]|7[0-9]|8[0-9]|9[0-9])\./;
 cfg.gateway.trustedProxies ??= [];
 if (!Array.isArray(cfg.gateway.trustedProxies)) cfg.gateway.trustedProxies = [];
-if (!cfg.gateway.trustedProxies.includes(desiredCidr)) {
-  // Remove any stale 192.168.6x.0/24 entries that are not the current subnet.
-  cfg.gateway.trustedProxies = cfg.gateway.trustedProxies.filter(
-    (e) => e !== desiredCidr && !/^192\.168\.(6[4-9]|7[0-9])\.0\/24$/.test(e)
-  );
-  cfg.gateway.trustedProxies.push(desiredCidr);
-  changed = true;
+const wantsCidr = !cfg.gateway.trustedProxies.includes(desiredCidr);
+// Rebuild: single canonical loopback entry, any non-stale operator entries,
+// then the live subnet. Dedup preserves first-seen order.
+const seen = new Set();
+const rebuilt = [];
+for (const e of ["127.0.0.1", ...cfg.gateway.trustedProxies, desiredCidr]) {
+  if (!e || seen.has(e)) continue;
+  if (STALE_SUBNET.test(e) && e !== desiredCidr) continue;
+  seen.add(e);
+  rebuilt.push(e);
+}
+if (wantsCidr || rebuilt.join(",") !== cfg.gateway.trustedProxies.join(",")) {
+  cfg.gateway.trustedProxies = rebuilt;
+  changes.push(`trustedProxies=${desiredCidr}`);
 }
 
 // Sync allowedOrigins — ensure the Tailscale origin is present.
@@ -403,23 +473,35 @@ if (tailscaleOrigin) {
   if (!Array.isArray(cfg.gateway.controlUi.allowedOrigins)) cfg.gateway.controlUi.allowedOrigins = [];
   if (!cfg.gateway.controlUi.allowedOrigins.includes(tailscaleOrigin)) {
     cfg.gateway.controlUi.allowedOrigins.push(tailscaleOrigin);
-    changed = true;
+    changes.push(`allowedOrigins+=${tailscaleOrigin}`);
   }
 }
 
-if (changed) {
+// Sync remote.url — replace stale container-internal host URLs with a
+// reachable one. Only rewrite when the current value is missing OR points at
+// an unreachable Apple-Container-managed subnet, so an operator's deliberate
+// external URL is never silently clobbered.
+if (desiredRemoteUrl) {
+  cfg.gateway.remote ??= {};
+  const current = typeof cfg.gateway.remote.url === "string" ? cfg.gateway.remote.url.trim() : "";
+  const isStale = !current || STALE_CONTAINER_HOST.test(current);
+  if (isStale && current !== desiredRemoteUrl) {
+    cfg.gateway.remote.url = desiredRemoteUrl;
+    changes.push(`remote.url=${desiredRemoteUrl}`);
+  }
+}
+
+if (changes.length > 0) {
   const tmp = cfgPath + ".tmp-" + process.pid;
   fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 });
   fs.renameSync(tmp, cfgPath);
-  process.stdout.write("1");
-} else {
-  process.stdout.write("0");
+  process.stdout.write(changes.join(" "));
 }
 SYNCNODE
   )" || true
 
-  if [[ "$changed" == "1" ]]; then
-    info "Updated host config: added subnet ${gateway_cidr} to trustedProxies${tailscale_origin:+, added ${tailscale_origin} to allowedOrigins}."
+  if [[ -n "$result" ]]; then
+    info "Updated host config: ${result}."
     return 0
   fi
   return 1
@@ -785,7 +867,7 @@ do_status() {
   echo "Container: ${OPENCLAW_CONTAINER_NAME}"
   echo "Image:     ${OPENCLAW_IMAGE}"
   echo "Runtime:   ${CONTAINER_RUNTIME}"
-  echo "Network:   ${NETWORK_ARGS[*]:-<default>}"
+  echo "Network:   ${NETWORK_ARGS[*]:-<default>}${OPENCLAW_NETWORK_SUBNET:+ (pinned subnet ${OPENCLAW_NETWORK_SUBNET})}"
   echo "Port:      127.0.0.1:${HOST_PORT} -> :${CONTAINER_PORT}"
   echo "Resources: ${CONTAINER_CPUS} CPUs, ${CONTAINER_MEMORY} RAM"
   echo "Config:    ${CONFIG_JSON}"
