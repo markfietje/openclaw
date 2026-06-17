@@ -156,7 +156,7 @@ export type GatewaySecurityConfig = {
 
   /**
    * Max WebSocket message payload in bytes.
-   * Clamped to [64 KB, 100 MB]. Pre-auth limit is always 64 KB.
+   * Clamped to <= 25 MB at runtime (you can lower it, not raise it). Pre-auth limit is always 64 KB.
    * FORK_SECURITY.md § Operational Hardening. CWE-770.
    * @default 26_214_400 (25 MB)
    * @see src/gateway/server-constants.ts — resolveMaxPayloadBytes
@@ -171,6 +171,23 @@ export type GatewaySecurityConfig = {
    * @default true
    */
   enableHandshakeTokens?: boolean;
+
+  /**
+   * Per-message replay protection: reject request frames whose `id` was already
+   * seen on this connection within the TTL window. Implements the OWASP
+   * WebSocket Security Cheat Sheet "Prevent message replay attacks" recommendation.
+   * One guard per connection; bounded LRU + TTL so it cannot grow without limit.
+   * FORK_SECURITY.md § OWASP Gap Analysis. CWE-294.
+   * @default true
+   */
+  enableMessageReplayProtection?: boolean;
+
+  /**
+   * How long a remembered request id blocks reuses, in milliseconds.
+   * Only effective when enableMessageReplayProtection is true.
+   * @default 60_000 (60 s)
+   */
+  messageReplayProtectionTtlMs?: number;
 
   // ─── Layer 3: Authorization ────────────────────────────────────────
 
