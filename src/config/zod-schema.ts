@@ -720,7 +720,11 @@ const GatewaySecurityConfigSchema = z
     requireSubprotocol: z.boolean().default(true),
     maxWebSocketConnections: z.number().int().min(0).max(10_000).optional(),
     connectionRateLimit: GatewayConnectionRateLimitSchema.optional(),
-    maxPayloadBytes: z.number().int().min(65_536).max(104_857_600).optional(),
+    // Upper bound mirrors resolveMaxPayloadBytes() in server-constants.ts, which
+    // clamps to MAX_PAYLOAD_BYTES (25 MB). Validating the same ceiling here means
+    // an over-large value fails fast at config load instead of being silently
+    // clamped at runtime. No lower bound: the resolver accepts any positive value.
+    maxPayloadBytes: z.number().int().min(1).max(26_214_400).optional(),
 
     // ─── Layer 2: Authentication ────
     enableHandshakeTokens: z.boolean().default(true),
