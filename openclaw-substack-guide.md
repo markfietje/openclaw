@@ -543,7 +543,7 @@ Every feature below exists in the codebase. The status reflects whether it's act
 
 **Per-message auth**
 
-- ⚙️ **Capability checks for `secrets.*` / `config.set_protected` / `node.*`** — opt-in via `gateway.security.messageAuth.enabled`. Source: `packages/gateway-security-core/src/message-auth.ts`.
+- ⚙️ **Capability checks for `secrets.*` / `config.set_protected` / `node.*`** — opt-in via `gateway.security.messageAuth.enabled`. Source: `src/gateway/message-auth.ts`.
 
 > **Earlier drafts of this post listed three hardening items as "not yet wired" (pre-handshake verifyClient, outbound redaction, and startup security gating). All three are now live:** verifyClient runs on every upgrade via `server-runtime-state.ts` → `server-http.ts`; outbound redaction runs on every chat payload via `server-chat.ts`; and `server.impl.ts` calls `assertStartupSecurityFindingsAllowed(...)` so critical startup findings (e.g. missing TLS on a network-exposed bind) now block startup unless explicitly allowed via env.
 
