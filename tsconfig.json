@@ -107,6 +107,9 @@
       "@openclaw/gateway-security-core/ip-restriction-policy": [
         "./packages/gateway-security-core/src/ip-restriction-policy.ts"
       ],
+      "@openclaw/gateway-security-core/message-replay-guard": [
+        "./packages/gateway-security-core/src/message-replay-guard.ts"
+      ],
       "@openclaw/gateway-security-core/ip": [
         "./packages/gateway-security-core/src/ip.ts"
       ],

@@ -533,6 +533,16 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: "@openclaw/gateway-security-core/message-replay-guard",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "message-replay-guard.ts",
+        ),
+      },
+      {
         find: "@openclaw/gateway-security-core/ip",
         replacement: path.join(repoRoot, "packages", "gateway-security-core", "src", "ip.ts"),
       },

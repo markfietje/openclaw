@@ -297,6 +297,9 @@
       "@openclaw/gateway-security-core/ip-restriction-policy": [
         "../dist/plugin-sdk/packages/gateway-security-core/src/ip-restriction-policy.d.ts"
       ],
+      "@openclaw/gateway-security-core/message-replay-guard": [
+        "../dist/plugin-sdk/packages/gateway-security-core/src/message-replay-guard.d.ts"
+      ],
       "@openclaw/gateway-security-core/request-rate-limit": [
         "../dist/plugin-sdk/packages/gateway-security-core/src/request-rate-limit.d.ts"
       ],
