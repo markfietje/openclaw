@@ -22,7 +22,7 @@ Security hardening status for the `markfietje/openclaw` fork relative to the
 | Package split | 2026-06-03 | 0          | 13      | 1      | 0       |
 | Schema harden | 2026-06-03 | 0          | 13      | 1      | 0       |
 
-**OWASP coverage:** self-assessed against the [OWASP WebSocket Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html). The cheat sheet's core WS-specific recommendations are **met**: WSS/TLS enforcement, Origin-header allowlisting (CSWSH), per-action authorization, and handshake nonce authentication. General appsec controls layered on top include payload limits, multi-layer rate limiting, input validation, and HTTP security headers. **Not met:** the cheat sheet's literal "prevent message replay" pattern (per-message nonce/timestamp validation) — see [Remaining hardening opportunities](#remaining-hardening-opportunities). This is a self-assessment, not a third-party audit or certification.
+**OWASP coverage:** self-assessed against the [OWASP WebSocket Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html). The cheat sheet's core WS-specific recommendations are **met**: WSS/TLS enforcement, Origin-header allowlisting (CSWSH), per-action authorization, handshake nonce authentication, and per-message replay protection (`message-replay-guard`). General appsec controls layered on top include payload limits, multi-layer rate limiting, input validation, and HTTP security headers. This is a self-assessment, not a third-party audit or certification.
 
 > **Methodology note (2026-06-17):** the 13/14 BLOCKED status below is a **code-level defense verification**, not a re-run of `poc-realworld.py`. For each test, the cited defense file/function was confirmed to exist and be wired into the live gateway path. The actual PoC script result may differ in edge cases — most notably test_11 (see below).
 
@@ -1153,22 +1153,23 @@ clients are expected to negotiate the gateway subprotocol. Legacy direct-local
 clients that cannot do that must explicitly opt out with
 `gateway.security.requireSubprotocol = false`.
 
-| Change                            | Breaking?                                     | Opt-out                             |
-| --------------------------------- | --------------------------------------------- | ----------------------------------- |
-| `rejectUntrustedProxyHeaders`     | Only if proxy headers sent from untrusted IP  | `false`                             |
-| `autoDisableLocalhostBehindProxy` | Only if proxy headers present                 | `false`                             |
-| `enforceOriginCheckForAllClients` | No (default `false`)                          | N/A — opt-in                        |
-| `strictHeaderValidation`          | Only if duplicate/chained headers sent        | `false`                             |
-| `requireSubprotocol`              | Yes for legacy clients without subprotocol    | `false`                             |
-| `perMessageDeflate` disabled      | Slightly higher bandwidth                     | Cannot re-enable                    |
-| `secrets:read` capability         | Only if client lacks `*` scope                | N/A                                 |
-| `admin:config` capability         | Only if client lacks `*` scope                | N/A                                 |
-| `maxPayloadBytes` clamping        | Only if set above 25 MB                       | N/A                                 |
-| `timingSafeEqual`                 | No (transparent)                              | N/A                                 |
-| `validateCredentialStrength`      | Network-exposed: rejects weak creds at boot   | `auth.mode=none` or loopback bind   |
-| `TAILSCALE_WHOIS_TIMEOUT_MS`      | No (transparent timeout, fail-closed)         | N/A                                 |
-| Dynamic method params → DENY      | Only if dynamic params cannot be parsed       | N/A (handler returns precise error) |
-| Rate limit attempt map cleanup    | No (background timer, no user-visible effect) | N/A                                 |
+| Change                            | Breaking?                                                                           | Opt-out                                                  |
+| --------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `rejectUntrustedProxyHeaders`     | Only if proxy headers sent from untrusted IP                                        | `false`                                                  |
+| `autoDisableLocalhostBehindProxy` | Only if proxy headers present                                                       | `false`                                                  |
+| `enforceOriginCheckForAllClients` | No (default `false`)                                                                | N/A — opt-in                                             |
+| `strictHeaderValidation`          | Only if duplicate/chained headers sent                                              | `false`                                                  |
+| `requireSubprotocol`              | Yes for legacy clients without subprotocol                                          | `false`                                                  |
+| `perMessageDeflate` disabled      | Slightly higher bandwidth                                                           | Cannot re-enable                                         |
+| `secrets:read` capability         | Only if client lacks `*` scope                                                      | N/A                                                      |
+| `admin:config` capability         | Only if client lacks `*` scope                                                      | N/A                                                      |
+| `maxPayloadBytes` clamping        | Only if set above 25 MB                                                             | N/A                                                      |
+| Per-message replay protection     | Only if a client reuses a request `id` on the same connection within the TTL window | `gateway.security.enableMessageReplayProtection = false` |
+| `timingSafeEqual`                 | No (transparent)                                                                    | N/A                                                      |
+| `validateCredentialStrength`      | Network-exposed: rejects weak creds at boot                                         | `auth.mode=none` or loopback bind                        |
+| `TAILSCALE_WHOIS_TIMEOUT_MS`      | No (transparent timeout, fail-closed)                                               | N/A                                                      |
+| Dynamic method params → DENY      | Only if dynamic params cannot be parsed                                             | N/A (handler returns precise error)                      |
+| Rate limit attempt map cleanup    | No (background timer, no user-visible effect)                                       | N/A                                                      |
 
 ---
 
@@ -1180,12 +1181,12 @@ Self-assessed against the [OWASP WebSocket Security Cheat Sheet](https://cheatsh
 
 These are the WS-specific recommendations from the cheat sheet.
 
-| Cheat-sheet recommendation          | Implementation                                                                     | Status                                                                                   |
-| ----------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Use WSS** (transport encryption)  | `tlsMinVersion: "TLSv1.3"`, Docker `NODE_TLS_REJECT_UNAUTHORIZED=0` bypass removed | ✅ Met                                                                                   |
-| **Validate Origin headers** (CSWSH) | `checkBrowserOrigin()` with explicit allowlist, wildcard `*` rejected              | ✅ Met                                                                                   |
-| **Per-action authorization**        | `message-auth.ts` — 80+ methods mapped to capabilities                             | ✅ Met                                                                                   |
-| **Prevent message replay**          | Nonce used for **handshake** auth; **no per-message nonce/timestamp replay check** | ⚠️ Partial — see [Remaining hardening opportunities](#remaining-hardening-opportunities) |
+| Cheat-sheet recommendation          | Implementation                                                                                                                                                      | Status |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| **Use WSS** (transport encryption)  | `tlsMinVersion: "TLSv1.3"`, Docker `NODE_TLS_REJECT_UNAUTHORIZED=0` bypass removed                                                                                  | ✅ Met |
+| **Validate Origin headers** (CSWSH) | `checkBrowserOrigin()` with explicit allowlist, wildcard `*` rejected                                                                                               | ✅ Met |
+| **Per-action authorization**        | `message-auth.ts` — 80+ methods mapped to capabilities                                                                                                              | ✅ Met |
+| **Prevent message replay**          | Per-connection `message-replay-guard` rejects request frames reusing an `id` within the TTL window (default 60s); bounded LRU + TTL. OWASP WS CS § replay. CWE-294. | ✅ Met |
 
 ### Additional appsec controls layered on top
 
@@ -1222,11 +1223,10 @@ These are general application-security controls (not WS-cheat-sheet items) the f
 
 ### Remaining hardening opportunities
 
-The OWASP WebSocket baseline is met except for per-message replay protection (see below). The following are genuine remaining gaps / future improvements:
+All core OWASP WebSocket Cheat Sheet recommendations are now met (including per-message replay protection). The remaining items are improvements beyond the baseline:
 
-| Item                           | Current state                                                                                                     | Recommendation                                                         | Priority |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------- |
-| Per-message replay protection  | Nonce used for **handshake** auth only; no per-message nonce/timestamp replay check (OWASP WS CS recommends this) | Add per-message nonce/idempotency-key tracking in `message-handler.ts` | P3       |
-| CSP inline script hash support | `'unsafe-inline'` for styles                                                                                      | Add per-build script hash for tighter CSP                              | P5       |
+| Item                           | Current state                | Recommendation                            | Priority |
+| ------------------------------ | ---------------------------- | ----------------------------------------- | -------- |
+| CSP inline script hash support | `'unsafe-inline'` for styles | Add per-build script hash for tighter CSP | P5       |
 
-> **Previously listed as remaining, now completed:** the per-message Zod frame validator (`validateInboundFrame()`) **is now wired** — `message-handler.ts:766` calls it on every parsed inbound frame. Moved out of this table on 2026-06-17.
+> **Recently completed:** per-message replay protection is now implemented — `packages/gateway-security-core/src/message-replay-guard.ts` (bounded LRU + TTL, default 60s), wired in `message-handler.ts` to reject request frames that reuse an `id` on the same connection (OWASP WS CS § "Prevent message replay attacks", CWE-294). Opt out with `gateway.security.enableMessageReplayProtection = false`. Completed 2026-06-17.

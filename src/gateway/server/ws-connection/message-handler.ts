@@ -5,6 +5,7 @@ import type { IncomingMessage } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import type { DeviceSessionAuthorityTracker } from "@openclaw/gateway-security-core/device-session-authority";
+import { createMessageReplayGuard } from "@openclaw/gateway-security-core/message-replay-guard";
 import { validateInboundFrame } from "@openclaw/gateway-security-core/ws-frame-validator";
 import {
   checkRateLimit,
@@ -643,6 +644,16 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
   const unauthorizedFloodGuard = new UnauthorizedFloodGuard();
   const MAX_MALFORMED_FRAMES_BEFORE_CLOSE = 3;
   let malformedFrameCount = 0;
+  // Per-connection replay guard: rejects request frames that reuse an id already
+  // seen on this connection within the TTL window (OWASP WS Cheat Sheet § replay).
+  // Skip (no-op guard) when security.enableMessageReplayProtection === false.
+  const replayGuardConfig = configSnapshot.gateway?.security;
+  const replayGuard =
+    replayGuardConfig?.enableMessageReplayProtection === false
+      ? null
+      : createMessageReplayGuard({
+          ttlMs: replayGuardConfig?.messageReplayProtectionTtlMs,
+        });
   let deviceCredentialMutationBarrier: Promise<void> | undefined;
   const browserSecurity = resolveHandshakeBrowserSecurityContext({
     requestOrigin,
@@ -795,6 +806,28 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
           : undefined;
       if (frameType || frameMethod || frameId) {
         setLastFrameMeta({ type: frameType, method: frameMethod, id: frameId });
+      }
+
+      // OWASP WebSocket Cheat Sheet § "Prevent message replay attacks": reject
+      // request frames that reuse an id already seen on this connection within
+      // the TTL window. Excludes the `connect` handshake (one-time, pre-auth) and
+      // frames without an id. Disabled when enableMessageReplayProtection === false.
+      if (
+        replayGuard &&
+        frameType === "req" &&
+        frameMethod !== "connect" &&
+        typeof frameId === "string" &&
+        frameId.length > 0
+      ) {
+        const replayCheck = replayGuard.checkAndRecord(frameId);
+        if (!replayCheck.ok) {
+          logWsControl.warn(
+            `message replay detected conn=${connId} method=${formatForLog(frameMethod)} id=${formatForLog(frameId)} remote=${remoteAddr ?? "?"}`,
+          );
+          setCloseCause("message-replay", { method: frameMethod, id: frameId });
+          close(1008, "replay detected");
+          return;
+        }
       }
 
       const client = getClient();

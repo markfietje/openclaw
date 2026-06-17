@@ -103,6 +103,11 @@
       "types": "./dist/ipv6-subnet.d.mts",
       "import": "./dist/ipv6-subnet.mjs",
       "default": "./dist/ipv6-subnet.mjs"
+    },
+    "./message-replay-guard": {
+      "types": "./dist/message-replay-guard.d.mts",
+      "import": "./dist/message-replay-guard.mjs",
+      "default": "./dist/message-replay-guard.mjs"
     }
   },
   "dependencies": {

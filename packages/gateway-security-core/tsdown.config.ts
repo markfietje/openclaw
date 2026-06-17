@@ -28,6 +28,7 @@ export default defineConfig({
     "src/ws-frame-validator.ts",
     "src/ws-keepalive.ts",
     "src/security-config.ts",
+    "src/message-replay-guard.ts",
   ],
   platform: "node",
   format: "esm",

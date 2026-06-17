@@ -534,6 +534,8 @@ const GatewaySecurityConfigSchema = z
 
     // ─── Layer 2: Authentication ────
     enableHandshakeTokens: z.boolean().default(true),
+    enableMessageReplayProtection: z.boolean().default(true),
+    messageReplayProtectionTtlMs: z.number().int().min(1_000).max(3_600_000).optional(),
 
     // ─── Layer 3: Authorization ────
     enableMessageAuthorization: z.boolean().default(true),
