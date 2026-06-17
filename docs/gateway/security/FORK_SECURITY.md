@@ -222,8 +222,8 @@ Runs after the WebSocket is established. Each message is checked individually.
   │ 10. Payload size enforcement             │
   │     • Pre-auth: 64 KB max                │
   │     • Post-auth: 25 MB default           │
-  │     • Configurable with safe clamping    │
-  │       [64 KB, 100 MB]                    │
+  │     • Configurable, clamped to ≤ 25 MB   │
+  │       (you can lower it, not raise it)   │
   ├─────────────────────────────────────────┤
   │ 11. Keep-alive                           │
   │     • Ping every 25s, pong timeout 10s   │
@@ -307,7 +307,7 @@ A failed step writes a failure response, logs `ip_blocked` to the auth audit log
 
 ### Stage E — Payload + frame limits (`@openclaw/gateway-security-core/ws-protocol`, `ws-frame-validator`)
 
-1. Pre-auth payload cap 64 KB; post-auth 25 MB default (clamped to [64 KB, 100 MB]).
+1. Pre-auth payload cap 64 KB; post-auth 25 MB default (configurable, clamped to ≤ 25 MB — you can lower it, not raise it).
 2. Per-connection frame/message rate limits (1000 frames/s, 500 messages/s) and a cumulative byte budget (50 MB/min).
 3. `validateInboundFrame` (defense-in-depth Zod) + malformed-frame counter (3 strikes → close 1008).
 
@@ -727,7 +727,7 @@ All options live under `gateway.security`. Gateway-level options are under
       },
 
       // Max WebSocket message payload in bytes.
-      // Clamped to [64 KB, 100 MB]. Pre-auth limit always 64 KB.
+      // Clamped to ≤ 25 MB (you can lower it, not raise it). Pre-auth limit always 64 KB.
       // CWE-770. Default: 26_214_400 (25 MB)
       maxPayloadBytes: 25 * 1024 * 1024,
 
@@ -1115,7 +1115,7 @@ These genuinely do not exist upstream (verified: no equivalent found).
 | Endpoint isolation (4 endpoints)          | Capability per endpoint        | CWE-284  | `ws-endpoint.ts` (package)                      |
 | Env var secret validation                 | empty/whitespace/quotes        | CWE-7    | `secret-env.ts`                                 |
 | Cumulative byte budget (50 MB/min)        | Per-connection per-minute      | CWE-770  | `ws-protocol.ts` (package)                      |
-| Zod schema defaults + bounds              | 17 defaults + bounds           | CWE-20   | `zod-schema.ts`                                 |
+| Zod schema defaults + bounds              | 18 defaults + bounds           | CWE-20   | `zod-schema.ts`                                 |
 | CIDR format validation                    | `CidrOrIpSchema`               | CWE-20   | `zod-schema.ts`                                 |
 | Per-message Zod frame validator           | `validateInboundFrame()`       | CWE-20   | `ws-frame-validator.ts` (package)               |
 | Startup security checks (fail-closed)     | Critical findings block boot   | CWE-1188 | `startup-security-checks.ts` → `server.impl.ts` |
@@ -1128,12 +1128,12 @@ These were previously listed here as fork-only but **upstream implements them to
 
 | Feature                         | Upstream reality (verified 2026-06-17)                                                                            | Fork delta (if any)                                                                                 |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Pre-handshake connection gating | `attachGatewayUpgradeHandler` (`server-http.ts`) runs before `handleUpgrade` — functional verifyClient equivalent | Fork uses the ws `verifyClient` path + an 6-step pipeline                                           |
+| Pre-handshake connection gating | `attachGatewayUpgradeHandler` (`server-http.ts`) runs before `handleUpgrade` — functional verifyClient equivalent | Fork uses the ws `verifyClient` path + a 6-step pipeline                                            |
 | Per-IP connection limiting      | `preauth-connection-budget.ts` — 32 concurrent unauth sockets/IP                                                  | Fork adds a sliding-window **rate** limit (30/10s) on top                                           |
 | Per-message authorization       | `method-scopes.ts` + `message-handler.ts` — default-deny, role+scope, audit-logged                                | Fork adds a `message-auth.ts` capability-string map (`secrets:read`, `admin:config`, …)             |
 | Ping/pong keep-alive            | 25s ping (`ws-connection.ts`)                                                                                     | Fork shares this; not a differentiator                                                              |
 | Close-code-aware reconnect      | `gateway-client/client.ts` — 1013/1006 handling, backoff                                                          | Shared with upstream; not a differentiator                                                          |
-| Payload size cap                | `maxPayload: MAX_PREAUTH_PAYLOAD_BYTES` on the ws server                                                          | Fork adds safe clamping to [64 KB, 100 MB]                                                          |
+| Payload size cap                | `maxPayload: MAX_PREAUTH_PAYLOAD_BYTES` on the ws server                                                          | Fork clamps configured maxPayload to ≤ 25 MB                                                        |
 | Secret redaction                | `logging/redact.ts` — API keys, PEM, Bearer, etc. (logs + transcripts)                                            | Fork additionally wires it into the live delivery path                                              |
 | Startup auth checks             | Throws on missing token/password + known-weak placeholder secrets                                                 | Fork additionally fail-closes on critical audit findings via `assertStartupSecurityFindingsAllowed` |
 | Trusted-proxy validation        | `auth.ts::authorizeTrustedProxy` — rejects loopback proxy sources, required headers, user allowlist               | Both solid; fork adds cross-header consistency                                                      |
@@ -1164,7 +1164,7 @@ clients that cannot do that must explicitly opt out with
 | `perMessageDeflate` disabled      | Slightly higher bandwidth                     | Cannot re-enable                    |
 | `secrets:read` capability         | Only if client lacks `*` scope                | N/A                                 |
 | `admin:config` capability         | Only if client lacks `*` scope                | N/A                                 |
-| `maxPayloadBytes` clamping        | Only if set outside [64 KB, 100 MB]           | N/A                                 |
+| `maxPayloadBytes` clamping        | Only if set above 25 MB                       | N/A                                 |
 | `timingSafeEqual`                 | No (transparent)                              | N/A                                 |
 | `validateCredentialStrength`      | Network-exposed: rejects weak creds at boot   | `auth.mode=none` or loopback bind   |
 | `TAILSCALE_WHOIS_TIMEOUT_MS`      | No (transparent timeout, fail-closed)         | N/A                                 |
@@ -1202,7 +1202,7 @@ Security Cheat Sheet (2025) via Context7 MCP on 2026-06-03.
 | Item                                    | Was                                  | Now                                                                                                  | Priority |
 | --------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------- | -------- |
 | IPv6 /56 subnet masking                 | Incorrect zero-fill, no :: expansion | Bitwise AND + `expandIPv6()`, loopback never masked                                                  | P1 ✅    |
-| Zod `.default()` on security booleans   | Defaults in JSDoc only               | 17 fields with `.default()`, enforced at parse time                                                  | P2 ✅    |
+| Zod `.default()` on security booleans   | Defaults in JSDoc only               | 18 fields with `.default()`, enforced at parse time                                                  | P2 ✅    |
 | Zod `.min()`/`.max()` on numeric fields | `z.number().int().positive()`        | Bounded ranges on all numeric fields                                                                 | P2 ✅    |
 | CIDR format validation in Zod           | `z.array(z.string())`                | `CidrOrIpSchema` with `superRefine` for IPv4/IPv6                                                    | P2 ✅    |
 | HTTP security headers                   | Configurable HSTS only               | `XCTO: nosniff`, `Referrer-Policy`, `Permissions-Policy` already in `http-common.ts`                 | P3 ✅    |
