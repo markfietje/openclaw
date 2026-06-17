@@ -16,6 +16,13 @@ OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-${OPENCLAW_HOME}/.openclaw}"
 OPENCLAW_IMAGE="${OPENCLAW_APPLE_CONTAINER_IMAGE:-openclaw:apple-arm64}"
 OPENCLAW_CONTAINER_NAME="${OPENCLAW_APPLE_CONTAINER_NAME:-openclaw}"
 OPENCLAW_NETWORK_NAME="${OPENCLAW_APPLE_CONTAINER_NETWORK:-openclaw-net}"
+# Pin the isolated network to a deterministic subnet so the container's
+# subnet (and therefore gateway.trustedProxies + the vmnet NAT gateway IP)
+# stays identical across rebuilds, reinstalls, and `container network delete`.
+# Default is an RFC5737 documentation range that will not collide with the
+# 192.168.64-79.0/24 blocks Apple Container auto-allocates. Set
+# OPENCLAW_APPLE_CONTAINER_NETWORK_SUBNET empty to let Apple Container pick.
+OPENCLAW_NETWORK_SUBNET="${OPENCLAW_APPLE_CONTAINER_NETWORK_SUBNET:-172.31.224.0/24}"
 OPENCLAW_HOST_PORT="${OPENCLAW_APPLE_CONTAINER_HOST_PORT:-18789}"
 OPENCLAW_CONTAINER_RUNTIME="${OPENCLAW_APPLE_CONTAINER_RUNTIME:-node}"
 OPENCLAW_EXTENSIONS="${OPENCLAW_EXTENSIONS:-}"
@@ -610,6 +617,7 @@ remove_env_var "$ENV_FILE" "OPENCLAW_APPLE_CONTAINER_TOKEN_KEY_VOLUME"
 upsert_env_var "$ENV_FILE" "OPENCLAW_APPLE_CONTAINER_IMAGE" "$OPENCLAW_IMAGE"
 upsert_env_var "$ENV_FILE" "OPENCLAW_APPLE_CONTAINER_NAME" "$OPENCLAW_CONTAINER_NAME"
 upsert_env_var "$ENV_FILE" "OPENCLAW_APPLE_CONTAINER_NETWORK" "$OPENCLAW_NETWORK_NAME"
+upsert_env_var "$ENV_FILE" "OPENCLAW_APPLE_CONTAINER_NETWORK_SUBNET" "$OPENCLAW_NETWORK_SUBNET"
 upsert_env_var "$ENV_FILE" "OPENCLAW_APPLE_CONTAINER_HOST_PORT" "$OPENCLAW_HOST_PORT"
 upsert_env_var "$ENV_FILE" "OPENCLAW_APPLE_CONTAINER_RUNTIME" "$OPENCLAW_CONTAINER_RUNTIME"
 upsert_env_var "$ENV_FILE" "OPENCLAW_APPLE_CONTAINER_STATE_VOLUME" "$OPENCLAW_STATE_VOLUME"
@@ -622,11 +630,63 @@ sync_keychain_gateway_token_config "$CONFIG_JSON" "$OPENCLAW_HOST_PORT"
 echo "==> Configured gateway.auth.token as macOS Keychain SecretRef in ${CONFIG_JSON}"
 
   if EXISTING_NETWORK="$(container network list --quiet 2>/dev/null)"; then
+    # Validate the pinned subnet, if any. Accept empty (auto-allocate) or a
+    # strict a.b.c.d/mask IPv4 CIDR.
+    if [[ -n "$OPENCLAW_NETWORK_SUBNET" ]]; then
+      if [[ ! "$OPENCLAW_NETWORK_SUBNET" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$ ]]; then
+        fail "Invalid OPENCLAW_APPLE_CONTAINER_NETWORK_SUBNET: '$OPENCLAW_NETWORK_SUBNET' (expected empty or IPv4 CIDR like 172.31.224.0/24)."
+      fi
+    fi
+
     if echo "$EXISTING_NETWORK" | grep -qx "$OPENCLAW_NETWORK_NAME"; then
       echo "==> Network '${OPENCLAW_NETWORK_NAME}' already exists."
-    else
-      echo "==> Creating isolated network '${OPENCLAW_NETWORK_NAME}'..."
-      if ! container network create "$OPENCLAW_NETWORK_NAME" 2>&1; then
+      # Reconcile subnet: if a deterministic subnet is pinned and the existing
+      # network's subnet differs, recreate the network so the subnet (and
+      # therefore gateway.trustedProxies) stays stable across rebuilds. Any
+      # running containers must be stopped first; container networks are
+      # immutable once created, so delete + recreate is the only path.
+      if [[ -n "$OPENCLAW_NETWORK_SUBNET" ]]; then
+        local existing_subnet=""
+        existing_subnet="$(parse_container_network_subnet "$OPENCLAW_NETWORK_NAME")"
+        if [[ -n "$existing_subnet" && "$existing_subnet" != "$OPENCLAW_NETWORK_SUBNET" ]]; then
+          echo "==> Network subnet is ${existing_subnet}, pinned subnet is ${OPENCLAW_NETWORK_SUBNET}; reconciling."
+          # Networks cannot be deleted while a container is attached, and the
+          # container VM needs a moment to release after `stop` before `delete`
+          # succeeds. Stop+wait, then delete with a short retry.
+          if container ls --quiet 2>/dev/null | grep -qx "$OPENCLAW_CONTAINER_NAME"; then
+            echo "==> Stopping container '$OPENCLAW_CONTAINER_NAME' to recreate network."
+            container stop "$OPENCLAW_CONTAINER_NAME" >/dev/null 2>&1 || true
+            local reconcile_wait=0
+            while container ls --quiet 2>/dev/null | grep -qx "$OPENCLAW_CONTAINER_NAME" && (( reconcile_wait < 15 )); do
+              sleep 1
+              reconcile_wait=$((reconcile_wait + 1))
+            done
+            container delete "$OPENCLAW_CONTAINER_NAME" >/dev/null 2>&1 || true
+          fi
+          local net_deleted=0
+          if container network delete "$OPENCLAW_NETWORK_NAME" >/dev/null 2>&1; then
+            net_deleted=1
+          else
+            # Retry once after a beat: the VM teardown can lag the stop call.
+            sleep 2
+            if container network delete "$OPENCLAW_NETWORK_NAME" >/dev/null 2>&1; then
+              net_deleted=1
+            fi
+          fi
+          if [[ "$net_deleted" != "1" ]]; then
+            echo "    (could not delete network '${OPENCLAW_NETWORK_NAME}' (still in use?); keeping existing subnet ${existing_subnet})" >&2
+          fi
+          # Fall through to the create path below.
+          EXISTING_NETWORK="$(container network list --quiet 2>/dev/null || true)"
+        fi
+      fi
+    fi
+
+    if ! echo "$EXISTING_NETWORK" | grep -qx "$OPENCLAW_NETWORK_NAME"; then
+      echo "==> Creating isolated network '${OPENCLAW_NETWORK_NAME}'"${OPENCLAW_NETWORK_SUBNET:+ (subnet ${OPENCLAW_NETWORK_SUBNET})}"..."
+      local create_args=("$OPENCLAW_NETWORK_NAME")
+      [[ -n "$OPENCLAW_NETWORK_SUBNET" ]] && create_args=(--subnet "$OPENCLAW_NETWORK_SUBNET" "${create_args[@]}")
+      if ! container network create "${create_args[@]}" 2>&1; then
         echo "    (network creation failed; using default network at run time)" >&2
       fi
     fi
