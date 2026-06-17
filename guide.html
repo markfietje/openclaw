@@ -155,11 +155,12 @@
   <ul>
     <li>A Mac with an <strong>Apple Silicon</strong> chip (M1, M2, M3, or M4)</li>
     <li><strong>macOS 26</strong> or later (Apple Container requirement)</li>
-    <li>About <strong>3 minutes</strong></li>
+    <li>About <strong>5 minutes</strong></li>
+    <li>An API key for one AI provider (OpenAI, Anthropic, or Google)</li>
   </ul>
 
   <h2>1. Open Terminal</h2>
-  <p>Press <kbd>⌘ Space</kbd>, type <strong>Terminal</strong>, then press <strong>Return</strong>.</p>
+  <p>Press <kbd>&#8984; Space</kbd>, type <strong>Terminal</strong>, then press <strong>Return</strong>.</p>
 
   <h2>2. Install Apple Container</h2>
   <p>Open the
@@ -175,7 +176,7 @@
   </div>
 
   <div class="note">
-    <strong>What this does:</strong> downloads the OpenClaw installer, pulls the container image, creates a few small files inside <code>~/.openclaw/</code>, and stores a secure random token in your Mac's Keychain. The gateway is <em>not</em> started yet — that's the next step.
+    <strong>What this does:</strong> pulls the prebuilt container image, creates a hardened read-only container, stores a secure random gateway token in your Mac's Keychain, and saves a control script at <code>~/.openclaw/bin/openclaw-container.sh</code>. The gateway is <em>not</em> started yet — that's the next step.
   </div>
 
   <h2>4. Start the gateway</h2>
@@ -184,25 +185,53 @@
 <pre><code id="cmd2">~/.openclaw/bin/openclaw-container.sh run</code></pre>
     <button class="copy" type="button" data-target="cmd2" aria-label="Copy command">Copy</button>
   </div>
+  <p class="muted">Wait for the checkmark. The gateway runs in the background; you can close Terminal. After a reboot, run this command again.</p>
+
+  <h2>5. Add your AI provider</h2>
+  <p>The gateway's config lives <strong>inside the container</strong>, so you add your provider by running the onboarding wizard inside it. This writes straight to a persisted volume and survives restarts:</p>
+  <div class="code-wrap">
+<pre><code id="cmd3">container exec -it openclaw openclaw onboard --mode local</code></pre>
+    <button class="copy" type="button" data-target="cmd3" aria-label="Copy command">Copy</button>
+  </div>
+  <p>Pick one provider (OpenAI, Anthropic, or Google), paste your API key, and optionally add messaging channels. Then restart so the new config loads:</p>
+  <div class="code-wrap">
+<pre><code id="cmd4">~/.openclaw/bin/openclaw-container.sh stop &amp;&amp; ~/.openclaw/bin/openclaw-container.sh run</code></pre>
+    <button class="copy" type="button" data-target="cmd4" aria-label="Copy command">Copy</button>
+  </div>
+
+  <h2>6. Chat</h2>
+  <p>In a Terminal window, connect the chat UI to your gateway (the token is read from your Keychain):</p>
+  <div class="code-wrap">
+<pre><code id="cmd5">npx openclaw chat --url ws://localhost:18789 --token "$(security find-generic-password -s ai.openclaw.apple-container.gateway-token -w)"</code></pre>
+    <button class="copy" type="button" data-target="cmd5" aria-label="Copy command">Copy</button>
+  </div>
+  <p class="muted">The first <code>npx</code> run downloads the OpenClaw CLI (~10 seconds). Click <strong>Always Allow</strong> on the Keychain prompt so you're not asked every time.</p>
 
   <h2>After that</h2>
   <ul>
-    <li>Open <a href="http://localhost:18789" target="_blank" rel="noopener">http://localhost:18789</a> in your browser to use the dashboard.</li>
-    <li>Run <code>~/.openclaw/bin/openclaw-container.sh upgrade</code> to get the latest version later.</li>
-    <li>Run <code>~/.openclaw/bin/openclaw-container.sh stop</code> to stop the gateway.</li>
     <li>Run <code>~/.openclaw/bin/openclaw-container.sh status</code> any time to check whether it's running.</li>
+    <li>Run <code>~/.openclaw/bin/openclaw-container.sh logs</code> to read the gateway logs.</li>
+    <li>Run <code>~/.openclaw/bin/openclaw-container.sh upgrade</code> to get the latest version later (preserves your config and data).</li>
+    <li>Run <code>~/.openclaw/bin/openclaw-container.sh stop</code> to stop the gateway.</li>
   </ul>
 
   <details>
     <summary>Make the commands shorter</summary>
     <p>Add these to your shell (Terminal → <em>Settings → Profiles → Shell → Startup → Run command</em>, or paste into <code>~/.zshrc</code>):</p>
     <div class="code-wrap">
-<pre><code id="cmd-alias">alias oc='~/.openclaw/bin/openclaw-container.sh'</code></pre>
+<pre><code id="cmd-alias">alias oc-run='~/.openclaw/bin/openclaw-container.sh run'
+alias oc-stop='~/.openclaw/bin/openclaw-container.sh stop'
+alias oc-upgrade='~/.openclaw/bin/openclaw-container.sh upgrade'
+alias oc='npx openclaw chat --url ws://localhost:18789 --token "$(security find-generic-password -s ai.openclaw.apple-container.gateway-token -w)"'</code></pre>
     <button class="copy" type="button" data-target="cmd-alias" aria-label="Copy command">Copy</button>
     </div>
-    <p>Then you can just type <code>oc run</code>, <code>oc stop</code>, <code>oc upgrade</code>.</p>
+    <p>Then your daily flow is: <code>oc-run</code> (start), <code>oc</code> (chat), <code>oc-stop</code> (done), <code>oc-upgrade</code> (update).</p>
   </details>
 
+  <details>
+    <summary>The AI doesn't respond</summary>
+    <p>No provider is configured. Run <code>container exec -it openclaw openclaw onboard --mode local</code>, pick a provider, paste your API key, then restart with <code>~/.openclaw/bin/openclaw-container.sh stop &amp;&amp; ~/.openclaw/bin/openclaw-container.sh run</code>.</p>
+  </details>
   <details>
     <summary>I get a "command not found" error</summary>
     <p>Make sure you opened a fresh Terminal window after installing Apple Container. If it still fails, restart your Mac and try again.</p>
@@ -213,9 +242,9 @@
   </details>
   <details>
     <summary>How do I uninstall?</summary>
-    <p>Run <code>~/.openclaw/bin/openclaw-container.sh uninstall</code>. It removes the container and the saved script. Your configuration in <code>~/.openclaw/</code> is kept unless you also delete that folder.</p>
+    <p>Run <code>~/.openclaw/bin/openclaw-container.sh uninstall</code>. It removes the container, its volumes (including your config and data), the Keychain token, and the <code>~/.openclaw/</code> folder. This deletes everything — there's no kept state.</p>
   </details>
-</main>
+
 <script>
   document.querySelectorAll('.copy').forEach(function (btn) {
     btn.addEventListener('click', function () {
