@@ -17,22 +17,26 @@
 #
 # If you have the repo cloned, use scripts/apple-container/setup.sh instead.
 #
-# ── Design note: lite installer vs full setup ───────────────────
-# This file is the single-file "lite" installer. It is self-contained
-# and easy to audit (one script, one token volume, one inline sh -c).
-# The token is staged in a container volume (/token-key/token) and
-# read at container start.
+# ── Design note: one installer, one config path ────────────────
+# This is the single-file installer: self-contained, easy to audit
+# (one script, one token volume, one inline sh -c). It pulls a
+# prebuilt image and creates a hardened, read-only container.
 #
-# The full Apple Container experience (scripts/apple-container/setup.sh
-# + run.sh) takes a different path: it spins up a host-side Keychain
-# bridge process and delivers the token over localhost HTTP with
-# bearer auth, so the token never sits on disk. Power users and
-# production deployments should prefer setup.sh.
+# The gateway token is staged in a container volume
+# (/token-key/token) and read at container start.
 #
-# Both paths share the same hardening: --read-only, --cap-drop ALL,
-# --init, non-root user, read-only /workspace + /state volumes,
-# 127.0.0.1-only port binding. The difference is only in how the
-# gateway token reaches the gateway process.
+# Config: the state volume is mounted at /home/node/.openclaw (the
+# gateway's default config dir, via OPENCLAW_STATE_DIR/
+# OPENCLAW_CONFIG_PATH). Users add providers/channels with
+# `container exec <name> openclaw onboard --mode local`, which writes
+# into that volume and persists across restarts. Host
+# ~/.openclaw/openclaw.json is NOT shared with the container.
+#
+# scripts/apple-container/setup.sh + run.sh remain available as the
+# "build the image from source" path (power users, reverse-proxy,
+# off-disk Keychain bridge token delivery). Both paths share the same
+# hardening: --read-only, --cap-drop ALL, --init, non-root user,
+# 127.0.0.1-only port binding.
 
 set -euo pipefail
 
@@ -288,9 +292,14 @@ cmd_install() {
     --name "$CONTAINER_NAME" \
     --network "$NETWORK_NAME" \
     --publish "127.0.0.1:${HOST_PORT}:18789" \
-    --volume "$STATE_VOLUME:/state" \
+    --volume "$STATE_VOLUME:/home/node/.openclaw" \
     --volume "$TOKEN_KEY_VOLUME:/token-key" \
-    --volume "$WORKSPACE_VOLUME:/workspace" \
+    --volume "$WORKSPACE_VOLUME:/home/node/.openclaw/workspace" \
+    --env "HOME=/home/node" \
+    --env "OPENCLAW_STATE_DIR=/home/node/.openclaw" \
+    --env "OPENCLAW_CONFIG_PATH=/home/node/.openclaw/openclaw.json" \
+    --tmpfs /tmp \
+    --tmpfs /home/node/.cache \
     --read-only \
     --cap-drop ALL \
     --init \
@@ -304,7 +313,7 @@ cmd_install() {
         if [ -f /token-key/token ]; then
           token_file_args=(--token-file /token-key/token)
         fi
-        exec '$CONTAINER_RUNTIME' /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 "${token_file_args[@]}"
+        exec '$CONTAINER_RUNTIME' /app/openclaw.mjs gateway --allow-unconfigured --host 0.0.0.0 --port 18789 "${token_file_args[@]}"
       else
         echo 'Gateway not found in image.' && exit 1
       fi
@@ -343,11 +352,15 @@ cmd_install() {
   echo "  ${BOLD}1. Start the gateway:${RESET}"
   echo "     ${LOCAL_SCRIPT} run"
   echo ""
-  echo "  ${BOLD}2. Configure channels (Telegram, Discord, etc.):${RESET}"
-  echo "     nano ~/.openclaw/openclaw.json"
+  echo "  ${BOLD}2. Add an AI provider (OpenAI, Anthropic, Google) + channels:${RESET}"
+  echo "     container exec -it ${CONTAINER_NAME} openclaw onboard --mode local"
+  echo "     ${DIM}(writes config into the container volume; persists across restarts)${RESET}"
   echo ""
-  echo "  ${BOLD}3. Add AI providers (OpenAI, Anthropic, Google):${RESET}"
-  echo "     Edit ~/.openclaw/openclaw.json — add your API keys under models.providers"
+  echo "  ${BOLD}3. Restart so the new config takes effect:${RESET}"
+  echo "     ${LOCAL_SCRIPT} stop && ${LOCAL_SCRIPT} run"
+  echo ""
+  echo "  ${BOLD}4. Chat:${RESET}"
+  echo "     npx openclaw chat --url ws://localhost:${HOST_PORT} --token \"\$(security find-generic-password -s ${KEYCHAIN_SERVICE} -w)\""
   echo ""
   info "Add aliases for quick access:"
   echo "     alias oc-run='${LOCAL_SCRIPT} run'"
@@ -376,13 +389,15 @@ cmd_run() {
       ok "Gateway is running on port ${HOST_PORT}"
       echo ""
       echo "  Health:  http://localhost:${HOST_PORT}/health"
-      echo "  Config:  ${CONFIG_DIR}/openclaw.json"
+      echo "  Config:  inside the container at /home/node/.openclaw/openclaw.json"
       echo ""
-      info "Connect with the TUI (requires repo clone):"
-      echo "  ${BOLD}scripts/apple-container/openclaw-tui.sh${RESET}"
+      info "First time? Add an AI provider + channels:"
+      echo "  ${BOLD}container exec -it ${CONTAINER_NAME} openclaw onboard --mode local${RESET}"
       echo ""
-      info "Or connect any WebSocket client to:"
-      echo "  ${BOLD}ws://localhost:${HOST_PORT}${RESET}"
+      info "Then chat:"
+      echo "  ${BOLD}npx openclaw chat --url ws://localhost:${HOST_PORT} --token \"\$(security find-generic-password -s ${KEYCHAIN_SERVICE} -w)\"${RESET}"
+      echo ""
+      info "Or connect any WebSocket client to ws://localhost:${HOST_PORT}"
       return 0
     fi
     retries=$((retries + 1))
@@ -434,13 +449,19 @@ cmd_upgrade() {
     source "$ENV_FILE"
   fi
 
+  # Recreate container with same settings
   container create \
     --name "$CONTAINER_NAME" \
     --network "$NETWORK_NAME" \
     --publish "127.0.0.1:${HOST_PORT}:18789" \
-    --volume "$STATE_VOLUME:/state" \
+    --volume "$STATE_VOLUME:/home/node/.openclaw" \
     --volume "$TOKEN_KEY_VOLUME:/token-key" \
-    --volume "$WORKSPACE_VOLUME:/workspace" \
+    --volume "$WORKSPACE_VOLUME:/home/node/.openclaw/workspace" \
+    --env "HOME=/home/node" \
+    --env "OPENCLAW_STATE_DIR=/home/node/.openclaw" \
+    --env "OPENCLAW_CONFIG_PATH=/home/node/.openclaw/openclaw.json" \
+    --tmpfs /tmp \
+    --tmpfs /home/node/.cache \
     --read-only \
     --cap-drop ALL \
     --init \
@@ -454,7 +475,7 @@ cmd_upgrade() {
         if [ -f /token-key/token ]; then
           token_file_args=(--token-file /token-key/token)
         fi
-        exec '$CONTAINER_RUNTIME' /app/openclaw.mjs gateway --host 0.0.0.0 --port 18789 "${token_file_args[@]}"
+        exec '$CONTAINER_RUNTIME' /app/openclaw.mjs gateway --allow-unconfigured --host 0.0.0.0 --port 18789 "${token_file_args[@]}"
       else
         echo 'Gateway not found in image.' && exit 1
       fi
@@ -573,11 +594,12 @@ cmd_status() {
     warn "Gateway: not responding on port ${HOST_PORT}"
   fi
 
-  # Config
-  if [[ -f "${CONFIG_DIR}/openclaw.json" ]]; then
-    ok "Config: ${CONFIG_DIR}/openclaw.json"
+  # Config (lives inside the container volume, not on the host)
+  if container list --quiet --all 2>/dev/null | grep -qx "$CONTAINER_NAME" \
+    && container exec "$CONTAINER_NAME" test -f /home/node/.openclaw/openclaw.json 2>/dev/null; then
+    ok "Config: /home/node/.openclaw/openclaw.json (in container)"
   else
-    warn "Config: not found — run 'bootstrap.sh install' first"
+    warn "Config: not yet created — run: container exec -it $CONTAINER_NAME openclaw onboard --mode local"
   fi
 
   echo ""
