@@ -314,17 +314,18 @@ The container is locked down at two levels — the container runtime and the gat
 
 ### Authentication & origin gating
 
-The codebase implements a 7-stage pre-handshake security gate (`verify-client.ts`) designed to accept or reject WebSocket connections **before any payload is parsed**. The stages are:
+The codebase implements a 6-step pre-handshake security gate (`verify-client.ts`) that accepts or rejects WebSocket connections **before any payload is parsed** — before the HTTP 101 upgrade completes. The steps (in check order):
 
-1. **Connection rate limit** — max 30 connections per 10 seconds per IP (sliding window). Loopback is exempt.
-2. **Strict header validation** — every required WebSocket upgrade header (`Upgrade`, `Connection`, `Sec-WebSocket-*`) must be present and well-formed. Duplicate or chained sensitive headers (`Host`, `Origin`, `X-Forwarded-*`) are rejected.
-3. **Cross-header consistency** — `Host`, `X-Forwarded-Host`, and `Origin` must agree. Contradictions indicate header spoofing and are rejected.
-4. **Untrusted proxy header rejection** — if you put a reverse proxy in front, `X-Forwarded-*` headers from non-trusted IPs are silently dropped. Only explicitly trusted proxies may set forwarding headers.
-5. **Origin validation** — browser clients must present a matching `Origin` against an explicit allowlist. Wildcard `*` is **rejected** — there is no way to allow all origins.
-6. **IP allowlist / blocklist** — CIDR-aware (supports `192.168.1.0/24`, `fd00::/48`, etc.). Blocklist takes precedence over allowlist. Default-deny on unknown ranges if you configure an allowlist.
-7. **Subprotocol enforcement** — clients must advertise the `openclaw-gateway-v1` WebSocket subprotocol or the upgrade is rejected.
+1. **Connection limits** — reject when the max-connection cap is reached, or when an IP exceeds the per-IP connection rate limit (30 per 10s). Loopback is exempt.
+2. **Strict header validation** — required WebSocket upgrade headers must be present and well-formed; duplicate or chained sensitive headers (`Host`, `Origin`, `X-Forwarded-*`) are rejected.
+3. **Untrusted proxy header rejection** — `X-Forwarded-*` headers from non-trusted IPs are rejected (HTTP 403). Only explicitly trusted proxies may set forwarding headers.
+4. **Origin validation** — browser clients must present a matching `Origin` against an explicit allowlist. Wildcard `*` is **rejected** — there is no way to allow all origins.
+5. **IP allowlist / blocklist** — CIDR-aware (supports `192.168.1.0/24`, `fd00::/48`, etc.). Blocklist takes precedence over allowlist; default-deny on unknown ranges if an allowlist is configured.
+6. **Subprotocol enforcement** — clients must advertise the `openclaw-gateway-v1` WebSocket subprotocol or the upgrade is rejected.
 
-> **Wiring note:** This pipeline is implemented in `verify-client.ts` but is not yet wired through `server.impl.ts` into the production gateway (see [audit summary](#what-is-hardened-audit-summary) for status). The origin validation (stage 5) and forwarded header checks (stages 3–4) are also enforced post-handshake in `message-handler.ts` and `origin-check.ts`, which are active.
+> **Wiring:** this pipeline **is live in the production gateway.** `server-runtime-state.ts` builds the verifyClient via `createRuntimeVerifyClient(...)` (default; tests can inject an override) and passes it as `verifyUpgradeRequest`; `server-http.ts` runs it on every WebSocket upgrade via `runGatewayUpgradePreflight(...)` and rejects the upgrade (writes a failure response, logs `ip_blocked`, destroys the socket) when a step fails — all before the handshake completes.
+>
+> Defense in depth: origin validation and forwarded-header checks are **also** enforced post-handshake in `message-handler.ts` (via `origin-check.ts`'s `checkBrowserOrigin` and the `hasForwardedRequestHeaders` / `isTrustedProxyAddress` helpers), so a missed pre-handshake signal still gets caught.
 
 After the handshake:
 
@@ -361,7 +362,7 @@ On every gateway start, a battery of checks runs against the resolved bind addre
 - **Auth disabled warning** — logs a critical warning for network-exposed starts with `auth.mode === "none"` unless `OPENCLAW_DANGEROUSLY_ALLOW_INSECURE_GATEWAY_EXPOSURE=1` is set.
 - **Bind-all warning** — warns when bound to `0.0.0.0` / `::` (you almost always want loopback).
 
-All findings are logged on every startup. The `assertStartupSecurityFindingsAllowed` function (which would block startup on critical findings) is available but not yet called from the main gateway start path — so the gateway will currently start even with critical findings. The checks serve as operational warnings for now.
+All findings are logged on every startup, and `server.impl.ts` then calls `assertStartupSecurityFindingsAllowed(findings, process.env)` — so **critical findings now block startup** (throw) unless explicitly allowed via env. The checks are fail-closed on critical severity, not just operational warnings.
 
 ### Exec approval (shell command gating)
 
@@ -383,15 +384,15 @@ Two optional audit logs, both HMAC-chained to the gateway token:
 
 Both logs use HMAC-SHA256 with timing-safe verification. Each entry is individually signed — editing a line breaks its HMAC and is detectable. Note: entries are not chained to each other, so deletion or reordering of entries would not be detected. Log files are written with mode `0600` (owner-only).
 
-### Outbound redaction (module ready, not yet wired)
+### Outbound redaction
 
-A regex-based redaction module (`outbound-redact.ts`) can strip secrets from AI responses before they reach channels (TUI, Telegram, Discord, WhatsApp). It covers:
+A regex-based redaction module (`outbound-redact.ts`) strips secrets from AI responses before they reach channels (TUI, Telegram, Discord, WhatsApp). It's wired into the chat delivery path via `server-chat.ts` (`createOutboundDeliveryPayloadRedactor`), which runs every outbound chat payload through it before broadcast. It covers:
 
 - **Specific patterns** (applied first): OpenAI keys (`sk-...`), Anthropic keys (`sk-ant-...`), Google keys (`AIza...`), Stripe keys (`sk_live_...`), GitHub PATs (`ghp_`, `gho_`, `ghs_`), Slack tokens (`xox[bpras]-...`), private key blocks (`-----BEGIN ... PRIVATE KEY-----`)
 - **Generic patterns** (applied last): `api_key=`, `token=`, `password=` with 8+ character values
 - **Dynamic secrets**: runtime-known values (gateway token, config passwords) are added to the redaction set automatically
 
-The module defaults to enabled (`gateway.security.enableOutboundRedaction !== false`) and uses a multi-pass sentinel approach to prevent partial-match bypass. However, **the function is not yet called from the live delivery pipeline** — `createOutboundDeliveryPayloadRedactor` is exported but has zero importers in the response path. See the [audit summary](#what-is-hardened-audit-summary) for wiring status.
+The module defaults to enabled (`gateway.security.enableOutboundRedaction !== false`) and uses a multi-pass sentinel approach to prevent partial-match bypass. It runs on every chat payload in the live delivery path — see the [audit summary](#what-is-hardened-audit-summary).
 
 ---
 
@@ -502,11 +503,11 @@ Every feature below exists in the codebase. The status reflects whether it's act
 
 **Startup checks**
 
-- ✅ **TLS required, token ≥ 32, password ≥ 12, no-auth warns, bind-all warns** — runs on every start and logs warnings. Source: `packages/gateway-security-core/src/startup-security-checks.ts`.
+- ✅ **TLS required, token ≥ 32, password ≥ 12, no-auth warns, bind-all warns** — runs on every start, logs all findings, and **blocks startup on critical findings** via `assertStartupSecurityFindingsAllowed`. Source: `packages/gateway-security-core/src/startup-security-checks.ts` (called from `src/gateway/server.impl.ts`).
 
 **Pre-handshake**
 
-- ⚠️ **verifyClient with rate limiting, header validation, origin, IP, and subprotocol checks** — the code exists but isn't wired into the production gateway. Source: `src/gateway/server/verify-client.ts`.
+- ✅ **verifyClient pipeline: connection limits, strict header validation, untrusted-proxy rejection, origin, IP allow/block, subprotocol** — always on, runs on every upgrade before the HTTP 101. Sources: `src/gateway/server/verify-client.ts`, wired via `src/gateway/server-runtime-state.ts` (`createRuntimeVerifyClient`) → `src/gateway/server-http.ts` (`runGatewayUpgradePreflight`).
 
 **WebSocket**
 
@@ -530,7 +531,7 @@ Every feature below exists in the codebase. The status reflects whether it's act
 
 **Outbound**
 
-- ⚠️ **Regex-based secret stripping (API keys, tokens, private keys)** — the module exists but isn't wired into the delivery pipeline. Source: `src/security/outbound-redact.ts`, `src/infra/outbound/redaction.ts`.
+- ✅ **Regex-based secret stripping (API keys, tokens, private keys)** — enabled by default, wired into the chat delivery path. Sources: `src/security/outbound-redact.ts`, `src/infra/outbound/redaction.ts`, called from `src/gateway/server-chat.ts` (`createOutboundDeliveryPayloadRedactor`).
 
 **Origin**
 
@@ -544,11 +545,7 @@ Every feature below exists in the codebase. The status reflects whether it's act
 
 - ⚙️ **Capability checks for `secrets.*` / `config.set_protected` / `node.*`** — opt-in via `gateway.security.messageAuth.enabled`. Source: `packages/gateway-security-core/src/message-auth.ts`.
 
-> **Three items need attention before this hardening is production-complete:**
->
-> 1. **Pre-handshake verifyClient** — the 7-stage pipeline exists in `verify-client.ts` but `server.impl.ts` never passes `verifyClient` to the runtime state. Wiring it in requires passing the factory through `createGatewayRuntimeState({ verifyClient: ... })`.
-> 2. **Outbound redaction** — the redactor module is complete but `createOutboundDeliveryPayloadRedactor` has zero callers in the live delivery path. It needs to be wired into the WebSocket response and channel send pipelines.
-> 3. **Startup security checks** — the checks run and log warnings, but `assertStartupSecurityFindingsAllowed` (which throws and blocks startup on critical findings) is not called from `server.impl.ts`. The gateway will start even with critical findings like missing TLS on a network-exposed bind.
+> **Earlier drafts of this post listed three hardening items as "not yet wired" (pre-handshake verifyClient, outbound redaction, and startup security gating). All three are now live:** verifyClient runs on every upgrade via `server-runtime-state.ts` → `server-http.ts`; outbound redaction runs on every chat payload via `server-chat.ts`; and `server.impl.ts` calls `assertStartupSecurityFindingsAllowed(...)` so critical startup findings (e.g. missing TLS on a network-exposed bind) now block startup unless explicitly allowed via env.
 
 For a deep dive on the threat model, attacker surface, and proof-of-concept exploits this hardening closes, see:
 
