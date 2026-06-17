@@ -22,18 +22,17 @@ Security hardening status for the `markfietje/openclaw` fork relative to the
 | Package split | 2026-06-03 | 0          | 13      | 1      | 0       |
 | Schema harden | 2026-06-03 | 0          | 13      | 1      | 0       |
 
-**OWASP Compliance:** 100% against OWASP WebSocket Security Cheat Sheet (2025) —
-origin allowlisting, per-action authorization, input validation, payload limits,
-rate limiting (3 layers + byte budget), TLS enforcement, HTTP security headers,
-and `verifyClient` pre-handshake gating. Zod schema enforces defaults and
-bounds at parse time. IPv6 subnet masking uses correct bitwise AND. See
-§ OWASP Gap Analysis for remaining hardening opportunities.
+**OWASP coverage:** self-assessed against the [OWASP WebSocket Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html). The cheat sheet's core WS-specific recommendations are **met**: WSS/TLS enforcement, Origin-header allowlisting (CSWSH), per-action authorization, and handshake nonce authentication. General appsec controls layered on top include payload limits, multi-layer rate limiting, input validation, and HTTP security headers. **Not met:** the cheat sheet's literal "prevent message replay" pattern (per-message nonce/timestamp validation) — see [Remaining hardening opportunities](#remaining-hardening-opportunities). This is a self-assessment, not a third-party audit or certification.
+
+> **Methodology note (2026-06-17):** the 13/14 BLOCKED status below is a **code-level defense verification**, not a re-run of `poc-realworld.py`. For each test, the cited defense file/function was confirmed to exist and be wired into the live gateway path. The actual PoC script result may differ in edge cases — most notably test_11 (see below).
 
 test_11 (config.set auth persistence): the specific attack path — calling
 `config.set` to disable auth — is fully blocked via `admin:config` capability
 gating on protected paths. The PoC script may still report PARTIALLY BLOCKED
 because it probes `config.get` reachability rather than the actual `config.set`
-exploit, but the real-world attack is closed.
+exploit, but the real-world attack is closed. (This is why the Summary counts
+test_11 as BLOCKED by real-world attack path, even though a naive PoC re-run
+might print PARTIAL.)
 
 ---
 
@@ -1175,27 +1174,35 @@ clients that cannot do that must explicitly opt out with
 
 ## OWASP Gap Analysis
 
-Verified against OWASP WebSocket Security Cheat Sheet (2025) and OWASP REST
-Security Cheat Sheet (2025) via Context7 MCP on 2026-06-03.
+Self-assessed against the [OWASP WebSocket Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html) and OWASP REST Security Cheat Sheet (current as of 2026-06-17; cheat sheet content verified via OWASP's official source). This is a self-assessment, not a third-party audit.
 
-### Implemented OWASP requirements
+### OWASP WebSocket Cheat Sheet — core recommendations
 
-| OWASP Recommendation                      | Implementation                                                                                         | Status |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------ |
-| **Always use WSS** (transport encryption) | `tlsMinVersion: "TLSv1.3"`, Docker TLS bypass removed                                                  | ✅     |
-| **Origin header validation** (CSWSH)      | `checkBrowserOrigin()` with explicit allowlist                                                         | ✅     |
-| **Per-action authorization**              | `message-auth.ts` — 80+ methods mapped to capabilities                                                 | ✅     |
-| **Input validation** (message structure)  | Zod schema with defaults, bounds, CIDR validation + defense-in-depth frame validator                   | ✅     |
-| **Rate limiting** (message flooding)      | 4 layers: pre-handshake, post-handshake, HTTP REST, byte budget                                        | ✅     |
-| **Payload size limits**                   | `maxPayload` on WebSocketServer, clamped [64KB, 100MB]                                                 | ✅     |
-| **Cumulative byte budget**                | `maxBytesPerMinute: 50MB` per connection per minute                                                    | ✅     |
-| **Authentication** (handshake auth)       | Nonce challenge, `timingSafeEqual`, signed tokens                                                      | ✅     |
-| **CSRF tokens in handshake**              | Nonce-based signed tokens, HMAC-verified                                                               | ✅     |
-| **Subprotocol enforcement**               | `requireSubprotocol: true`                                                                             | ✅     |
-| **HTTP security headers**                 | `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, HSTS, `X-Frame-Options: DENY` (API) | ✅     |
-| **Content-Security-Policy**               | Strict CSP for Control UI, `frame-ancestors` for canvas embedding                                      | ✅     |
-| **IPv6 rate limiting**                    | Correct bitwise AND subnet masking (/56), loopback exempt                                              | ✅     |
-| **Audit logging**                         | HMAC-signed append-only auth + tool audit, JSONL format                                                | ✅     |
+These are the WS-specific recommendations from the cheat sheet.
+
+| Cheat-sheet recommendation          | Implementation                                                                     | Status                                                                                   |
+| ----------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Use WSS** (transport encryption)  | `tlsMinVersion: "TLSv1.3"`, Docker `NODE_TLS_REJECT_UNAUTHORIZED=0` bypass removed | ✅ Met                                                                                   |
+| **Validate Origin headers** (CSWSH) | `checkBrowserOrigin()` with explicit allowlist, wildcard `*` rejected              | ✅ Met                                                                                   |
+| **Per-action authorization**        | `message-auth.ts` — 80+ methods mapped to capabilities                             | ✅ Met                                                                                   |
+| **Prevent message replay**          | Nonce used for **handshake** auth; **no per-message nonce/timestamp replay check** | ⚠️ Partial — see [Remaining hardening opportunities](#remaining-hardening-opportunities) |
+
+### Additional appsec controls layered on top
+
+These are general application-security controls (not WS-cheat-sheet items) the fork applies to the gateway surface.
+
+| Control                  | Implementation                                                                                         | Status |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ | ------ |
+| Input validation         | Zod schema with defaults, bounds, CIDR validation + defense-in-depth frame validator                   | ✅     |
+| Rate limiting            | 4 layers: pre-handshake, post-handshake, HTTP REST, byte budget                                        | ✅     |
+| Payload size limits      | `maxPayload` on WebSocketServer, clamped to ≤ 25 MB; pre-auth 64 KB                                    | ✅     |
+| Cumulative byte budget   | `maxBytesPerMinute: 50MB` per connection per minute                                                    | ✅     |
+| Handshake authentication | Nonce challenge, `timingSafeEqual`, signed tokens                                                      | ✅     |
+| Subprotocol enforcement  | `requireSubprotocol: true` (default)                                                                   | ✅     |
+| HTTP security headers    | `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, HSTS, `X-Frame-Options: DENY` (API) | ✅     |
+| Content-Security-Policy  | Strict CSP for Control UI, `frame-ancestors` for canvas embedding                                      | ✅     |
+| IPv6-aware rate limiting | Bitwise AND subnet masking (/56), loopback exempt                                                      | ✅     |
+| Audit logging            | HMAC-signed append-only auth + tool audit, JSONL format                                                | ✅     |
 
 ### Completed hardening (this release)
 
@@ -1209,16 +1216,17 @@ Security Cheat Sheet (2025) via Context7 MCP on 2026-06-03.
 | Per-connection byte budget              | Per-message size only                | `maxBytesPerMinute: 50MB` in `ws-protocol.ts`                                                        | P3 ✅    |
 | Audit log JSON format option            | JSONL only                           | `AuditLogFormat` type added, JSONL kept for HMAC safety                                              | P4 ✅    |
 | Per-message Zod frame validation        | Capability gating only               | `ws-frame-validator.ts` — defense-in-depth Zod schemas mirroring TypeBox protocol schemas            | P3 ✅    |
-| Property-based tests for verify-client  | 227 unit/integration tests           | 15 property-based invariant tests covering pipeline ordering, crash safety, CIDR, and config toggles | P4 ✅    |
+| Property-based tests for verify-client  | Unit/integration tests only          | 15 property-based invariant tests covering pipeline ordering, crash safety, CIDR, and config toggles | P4 ✅    |
 | `X-Frame-Options` header                | Omitted (canvas framing)             | `X-Frame-Options: DENY` on all API responses via `setApiSecurityHeaders()`                           | P4 ✅    |
 | `Content-Security-Policy` header        | Not set                              | `setControlUiSecurityHeaders()` with strict CSP for Control UI, `frame-ancestors` for canvas         | P4 ✅    |
 
 ### Remaining hardening opportunities
 
-All items from the original gap analysis have been completed. The following
-are future improvements that go beyond the OWASP baseline:
+The OWASP WebSocket baseline is met except for per-message replay protection (see below). The following are genuine remaining gaps / future improvements:
 
-| Item                                      | Current state                       | Recommendation                                                          | Priority |
-| ----------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------- | -------- |
-| Frame validator wiring in message handler | Validator exists but not yet called | Wire `validateInboundFrame()` in message-handler.ts as defense-in-depth | P4       |
-| CSP inline script hash support            | `'unsafe-inline'` for styles        | Add per-build script hash for tighter CSP                               | P5       |
+| Item                           | Current state                                                                                                     | Recommendation                                                         | Priority |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------- |
+| Per-message replay protection  | Nonce used for **handshake** auth only; no per-message nonce/timestamp replay check (OWASP WS CS recommends this) | Add per-message nonce/idempotency-key tracking in `message-handler.ts` | P3       |
+| CSP inline script hash support | `'unsafe-inline'` for styles                                                                                      | Add per-build script hash for tighter CSP                              | P5       |
+
+> **Previously listed as remaining, now completed:** the per-message Zod frame validator (`validateInboundFrame()`) **is now wired** — `message-handler.ts:766` calls it on every parsed inbound frame. Moved out of this table on 2026-06-17.
