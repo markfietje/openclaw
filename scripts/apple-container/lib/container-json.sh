@@ -85,8 +85,15 @@ process.stdin.on("end", () => {
 ' 2>/dev/null || true
 }
 
-# Extract the container's IPv4 gateway CIDR (e.g. 192.168.64.0/24) from
+# Extract the container's IPv4 subnet CIDR (e.g. 192.168.64.0/24) from
 # `container inspect <name>` JSON. Returns empty on any error.
+#
+# Apple Container's `container inspect` nests runtime networks under
+# `.status.networks` (NOT top-level `.networks`). Reading the wrong path
+# silently returns empty, which made sync_trusted_proxies no-op and left
+# stale subnets in openclaw.json — breaking browser WS upgrades (1006)
+# because the vmnet NAT gateway fell outside trustedProxies.
+#
 # Empty output is normal (container stopped, no networks) so this parser
 # does not warn.
 parse_container_gateway_cidr() {
@@ -99,12 +106,39 @@ process.stdin.on("data", (c) => d += c);
 process.stdin.on("end", () => {
   try {
     const arr = JSON.parse(d);
-    const nets = arr && arr[0] && arr[0].networks;
+    // Runtime networks live under .status.networks in the Apple Container
+    // inspect schema. Fall back to the legacy top-level path for safety.
+    const nets = arr && arr[0] && (arr[0].status?.networks || arr[0].networks);
     if (Array.isArray(nets) && nets.length > 0 && nets[0].ipv4Address) {
       const addr = nets[0].ipv4Address;
       const parts = addr.split(".");
       const mask = addr.split("/")[1] || "24";
       if (parts.length >= 3) process.stdout.write(parts[0] + "." + parts[1] + "." + parts[2] + ".0/" + mask);
+    }
+  } catch {}
+});
+' 2>/dev/null || true
+}
+
+# Extract the network's IPv4 subnet CIDR (e.g. 192.168.64.0/24) directly from
+# `container network inspect <name>` JSON. This is the AUTHORITATIVE subnet
+# source: it is fixed at `container network create` time and does not depend
+# on any running container. Preferred over parse_container_gateway_cidr for
+# trustedProxies sync because it is stable across container rebuilds/restarts.
+# Empty output is normal (network missing) so this parser does not warn.
+parse_container_network_subnet() {
+  local name="${1:-}"
+  [[ -z "$name" ]] && return 0
+  container network inspect "$name" 2>/dev/null | node -e '
+let d="";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (c) => d += c);
+process.stdin.on("end", () => {
+  try {
+    const arr = JSON.parse(d);
+    const subnet = arr && arr[0] && arr[0].status && arr[0].status.ipv4Subnet;
+    if (typeof subnet === "string" && /^\d+\.\d+\.\d+\.\d+\/\d+$/.test(subnet)) {
+      process.stdout.write(subnet);
     }
   } catch {}
 });
