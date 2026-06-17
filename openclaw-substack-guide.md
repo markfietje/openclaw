@@ -4,14 +4,12 @@
 
 ## Prerequisites
 
-| Requirement                         | Why                                                                                       | How to check                                    |
-| ----------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| **Apple Silicon Mac** (M1/M2/M3/M4) | Apple Container only supports ARM                                                         | `sysctl -n hw.optional.arm64` → prints `1`      |
-| **macOS 26 Tahoe**                  | Apple Container requires it                                                               | Apple menu → About This Mac                     |
-| **Apple Container CLI**             | Runtime for sandboxed Linux containers                                                    | `container --version` — if not found, see below |
-| **~2 GB free disk**                 | Image (~500 MB download, ~1.2 GB uncompressed) + volumes + state                          | Finder → Storage                                |
-| **Internet connection**             | Image pull + AI provider API                                                              | Obvious, but noted                              |
-| **Node.js** (optional)              | For `npx openclaw tui` on the host; not needed if you use the container-based TUI instead | `node --version`                                |
+- **Apple Silicon Mac (M1/M2/M3/M4)** — Apple Container only supports ARM. Check: `sysctl -n hw.optional.arm64` → prints `1`.
+- **macOS 26 Tahoe** — Apple Container requires it. Check: Apple menu → About This Mac.
+- **Apple Container CLI** — the runtime for sandboxed Linux containers. Check: `container --version` (if not found, see below).
+- **~2 GB free disk** — image (~500 MB download, ~1.2 GB uncompressed) + volumes + state. Check: Finder → Storage.
+- **Internet connection** — for the image pull and the AI provider API.
+- **Node.js (optional)** — only needed for `npx openclaw tui` on the host; not needed if you use the container-based TUI instead. Check: `node --version`.
 
 ### Install Apple Container (if you don't have it)
 
@@ -207,26 +205,22 @@ bash <(curl -fsSL https://raw.githubusercontent.com/markfietje/openclaw/main/scr
 
 ### Installation problems
 
-| Problem                                             | Cause                                     | Fix                                                                                                                                        |
-| --------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| **"Apple Silicon (M1/M2/M3/M4) is required"**       | Intel Mac                                 | Apple Container doesn't support Intel. You need an M-series Mac.                                                                           |
-| **"Apple Container is not installed"**              | `container` CLI not found                 | Download from [github.com/apple/container/releases](https://github.com/apple/container/releases), install the `.pkg`, **restart Terminal** |
-| **"Apple Container runtime did not start in time"** | Background service didn't launch          | Run `container system start` manually. If that fails, try `sudo container system start` (requires admin password).                         |
-| **Keychain dialog: you clicked "Deny"**             | Token wasn't stored                       | Re-run the install command. Click **Allow** or **Always Allow** this time.                                                                 |
-| **Image pull hangs or fails**                       | Network / GitHub Container Registry issue | Check your internet connection. Try again. If behind a corporate proxy, the GHCR domain `ghcr.io` needs to be accessible.                  |
-| **"Container 'openclaw' already exists"**           | You ran install twice                     | Run `~/.openclaw/bin/openclaw-container.sh uninstall` first, then install again. Or use `upgrade` instead.                                 |
+- **"Apple Silicon (M1/M2/M3/M4) is required"** — you're on an Intel Mac. Apple Container doesn't support Intel; you need an M-series Mac.
+- **"Apple Container is not installed"** — the `container` CLI wasn't found. Download from [github.com/apple/container/releases](https://github.com/apple/container/releases), install the `.pkg`, and **restart Terminal**.
+- **"Apple Container runtime did not start in time"** — the background service didn't launch. Run `container system start` manually; if that fails, try `sudo container system start` (needs your admin password).
+- **Keychain dialog: you clicked "Deny"** — the token wasn't stored. Re-run the install command and click **Allow** or **Always Allow** this time.
+- **Image pull hangs or fails** — network or GitHub Container Registry issue. Check your connection and retry. Behind a corporate proxy, the `ghcr.io` domain must be reachable.
+- **"Container 'openclaw' already exists"** — you ran install twice. Run `~/.openclaw/bin/openclaw-container.sh uninstall` first, then install again (or just use `upgrade`).
 
 ### Runtime problems
 
-| Problem                          | Cause                                         | Fix                                                                                                                                                                                                                           |
-| -------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Gateway won't start**          | Config error or port conflict                 | Run the `logs` command. Common cause: invalid JSON in the in-container config. Check it with `container exec openclaw cat /home/node/.openclaw/openclaw.json \| python3 -m json.tool`.                                        |
-| **"AI doesn't respond"**         | No provider configured                        | Run `container exec -it openclaw openclaw onboard --mode local`, then restart the gateway.                                                                                                                                    |
-| **"Connection refused" in TUI**  | Gateway isn't running                         | Run `oc-run` first, wait for the ✓, then `oc`.                                                                                                                                                                                |
-| **Nothing works after a reboot** | Gateway doesn't auto-start                    | Run `oc-run` again.                                                                                                                                                                                                           |
-| **Keychain prompts every time**  | You clicked "Allow" instead of "Always Allow" | Next time the dialog appears, click **Always Allow**. Or: open Keychain Access → find "ai.openclaw.apple-container.gateway-token" → double-click → Access Control → add `/usr/bin/security`.                                  |
-| **`npx` not found**              | Node.js not installed on your Mac             | Either install it ([nodejs.org](https://nodejs.org) or `brew install node`), or use the container-based TUI: `container exec openclaw openclaw tui --url ws://127.0.0.1:18789 --token-file /home/node/.openclaw/bridge-token` |
-| **Port 18789 already in use**    | Another process on that port                  | Set `OPENCLAW_HOST_PORT=18790` before running, or stop the other process.                                                                                                                                                     |
+- **Gateway won't start** — config error or port conflict. Run the `logs` command. Common cause: invalid JSON in the in-container config. Validate it with `container exec openclaw cat /home/node/.openclaw/openclaw.json | python3 -m json.tool`.
+- **"AI doesn't respond"** — no provider configured. Run `container exec -it openclaw openclaw onboard --mode local`, then restart the gateway.
+- **"Connection refused" in the TUI** — the gateway isn't running. Run `oc-run` first, wait for the ✓, then `oc`.
+- **Nothing works after a reboot** — the gateway doesn't auto-start. Run `oc-run` again.
+- **Keychain prompts every time** — you clicked "Allow" instead of "Always Allow". Next time click **Always Allow**; or open Keychain Access → find "ai.openclaw.apple-container.gateway-token" → double-click → Access Control → add `/usr/bin/security`.
+- **`npx` not found** — Node.js isn't installed on your Mac. Either install it ([nodejs.org](https://nodejs.org) or `brew install node`), or use the container-based TUI: `container exec openclaw openclaw tui --url ws://127.0.0.1:18789 --token-file /home/node/.openclaw/bridge-token`.
+- **Port 18789 already in use** — another process is on that port. Set `OPENCLAW_HOST_PORT=18790` before running, or stop the other process.
 
 ### How to check if everything is working
 
@@ -247,27 +241,24 @@ curl -s http://localhost:18789/health
 
 All numbers below are measured from a live container (Apple Container 0.12.3, image built 2026-06-02):
 
-|                         | Details                                                                                               |
-| ----------------------- | ----------------------------------------------------------------------------------------------------- |
-| **Uncompressed image**  | ~1.2 GB (27 OCI layers, `node:24-bookworm-slim` base + OpenClaw)                                      |
-| **Compressed download** | ~400–500 MB (estimated from typical OCI compression ratio)                                            |
-| **App breakdown**       | `dist/` 149 MB · `node_modules/` 485 MB · `extensions/` 27 MB · `docs/` 17 MB                         |
-| **Idle RSS**            | ~330 MB (gateway process, 11 threads, includes V8 heap + buffers)                                     |
-| **Init RSS**            | ~13 MB (`.cz-init` signal handler, PID 1)                                                             |
-| **Memory cap**          | 1 GB (`--memory 1073741824`)                                                                          |
-| **CPU cap**             | 2 cores (`--cpus 2`)                                                                                  |
-| **Base image**          | `node:24-bookworm-slim` (pinned by SHA256 digest, not floating tag)                                   |
-| **Node.js**             | v24.14.1                                                                                              |
-| **Exposed port**        | `127.0.0.1:18789` (loopback only — verified from `container inspect`)                                 |
-| **JS runtime**          | Node.js 24 (default) or Bun (opt-in via `--runtime bun`)                                              |
-| **Process user**        | `node` uid=1000 gid=1000 — never root (verified with `id` inside container)                           |
-| **Filesystem**          | Read-only root (`readOnly: true`) + tmpfs for `/tmp`, `/home/node/.cache`, `/app/node_modules/.cache` |
-| **File permissions**    | App files: `root:root 0644/0755` · State dir: `node:node 0750` · Credentials: `node:node 0700`        |
-| **Entrypoint**          | `container-entrypoint` → `umask 0027` → `exec "$@"`                                                   |
-| **Network**             | Isolated network `openclaw-net`, MTU 1280, no IPv4 gateway exposure to host                           |
+- **Uncompressed image** — ~1.2 GB (27 OCI layers, `node:24-bookworm-slim` base + OpenClaw).
+- **Compressed download** — ~400–500 MB (estimated from the typical OCI compression ratio).
+- **App breakdown** — `dist/` 149 MB · `node_modules/` 485 MB · `extensions/` 27 MB · `docs/` 17 MB.
+- **Idle RSS** — ~330 MB (gateway process, 11 threads, includes V8 heap + buffers).
+- **Init RSS** — ~13 MB (`.cz-init` signal handler, PID 1).
+- **Memory cap** — 1 GB (`--memory 1073741824`).
+- **CPU cap** — 2 cores (`--cpus 2`).
+- **Base image** — `node:24-bookworm-slim`, pinned by SHA256 digest (not a floating tag).
+- **Node.js** — v24.14.1.
+- **Exposed port** — `127.0.0.1:18789` (loopback only — verified from `container inspect`).
+- **JS runtime** — Node.js 24 (default) or Bun (opt-in via `--runtime bun`).
+- **Process user** — `node` uid=1000 gid=1000 — never root (verified with `id` inside the container).
+- **Filesystem** — read-only root (`readOnly: true`) + tmpfs for `/tmp`, `/home/node/.cache`, and `/app/node_modules/.cache`.
+- **File permissions** — app files `root:root 0644/0755` · state dir `node:node 0750` · credentials `node:node 0700`.
+- **Entrypoint** — `container-entrypoint` → `umask 0027` → `exec "$@"`.
+- **Network** — isolated network `openclaw-net`, MTU 1280, no IPv4 gateway exposure to the host.
 
-<details>
-<summary>How to verify these yourself</summary>
+### How to verify these yourself
 
 ```bash
 # Container security config (read-only, caps, user, port binding)
@@ -290,8 +281,6 @@ curl -s http://127.0.0.1:18789/health
 # Verify port binding is loopback-only
 container inspect openclaw | python3 -c "import json,sys; d=json.load(sys.stdin); [print(f'{p[\"hostAddress\"]}:{p[\"hostPort\"]} -> :{p[\"containerPort\"]}') for p in d[0]['configuration']['publishedPorts']]"
 ```
-
-</details>
 
 ---
 
@@ -344,13 +333,11 @@ After the handshake:
 
 ### Rate limiting
 
-Three independent rate limiters, all sliding-window, loopback-exempt:
+Three independent rate limiters, all sliding-window and loopback-exempt:
 
-| Layer                     | Limit                                     | Purpose                               |
-| ------------------------- | ----------------------------------------- | ------------------------------------- |
-| **Connection rate**       | 30 connections / 10s per IP               | Prevent connection floods             |
-| **HTTP request rate**     | 120 requests / 60s per IP                 | Prevent HTTP-level abuse              |
-| **Malformed frame guard** | 3 invalid JSON frames → close with `1008` | Prevent slow-loris via garbage frames |
+- **Connection rate** — 30 connections / 10s per IP. Prevents connection floods.
+- **HTTP request rate** — 120 requests / 60s per IP. Prevents HTTP-level abuse.
+- **Malformed frame guard** — 3 invalid JSON frames → close with `1008`. Prevents slow-loris via garbage frames.
 
 WebSocket preauth payloads are size-limited (default 64 KB). Oversize frames are rejected with close code `1009`.
 
@@ -483,15 +470,13 @@ With the build-from-source path, config edits work differently: `run.sh` copies 
 
 ### Quick comparison
 
-|                             | One-liner (`bootstrap.sh`)                       | Build from source (`setup.sh` + `run.sh`)     |
-| --------------------------- | ------------------------------------------------ | --------------------------------------------- |
-| **Image**                   | Prebuilt pull from GHCR                          | Built locally from source (10–20 min)         |
-| **Setup time**              | 2–5 minutes                                      | 10–20 minutes                                 |
-| **Token delivery**          | Token volume (on disk)                           | Keychain bridge over localhost HTTP           |
-| **Config editing**          | `container exec … onboard` (in-container volume) | Edit host `~/.openclaw/openclaw.json`, re-run |
-| **Requires repo clone**     | No                                               | Yes                                           |
-| **Requires `node` on host** | No                                               | Yes                                           |
-| **Reverse proxy support**   | Manual                                           | Auto-detects Tailscale, syncs trustedProxies  |
+- **Image** — one-liner pulls a prebuilt image from GHCR; build-from-source compiles it locally (10–20 min).
+- **Setup time** — ~2–5 minutes (one-liner) vs 10–20 minutes (build-from-source).
+- **Token delivery** — one-liner stages it in a token volume (on disk); build-from-source uses the Keychain bridge over localhost HTTP.
+- **Config editing** — one-liner: `container exec … onboard` (writes to an in-container volume); build-from-source: edit host `~/.openclaw/openclaw.json` and re-run.
+- **Requires repo clone** — no (one-liner) vs yes (build-from-source).
+- **Requires `node` on host** — no (one-liner) vs yes (build-from-source).
+- **Reverse proxy support** — manual (one-liner) vs auto-detects Tailscale and syncs `trustedProxies` (build-from-source).
 
 > **Which one?** Use the **one-liner** for a personal Mac on loopback — it's the path this post is about. Use **build-from-source** if you want to verify the image, need an off-disk token, or are exposing the gateway through a reverse proxy, VPS, or Tailscale.
 
@@ -499,26 +484,65 @@ With the build-from-source path, config edits work differently: `run.sh` copies 
 
 ## What's hardened (audit summary)
 
-Every feature listed below exists in the codebase. The "Status" column reflects whether it's active in the production gateway or requires explicit opt-in.
+Every feature below exists in the codebase. The status reflects whether it's active in the production gateway or requires explicit opt-in.
 
-| Layer              | Protection                                                                         | Status                                                                      | Source                                                                                                                 |
-| ------------------ | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Container          | Read-only root, `--cap-drop ALL`, `umask 0027`                                     | ✅ Always on (Dockerfile + both scripts)                                    | `Dockerfile.apple_arm64`, `scripts/apple-container/{bootstrap,run}.sh`                                                 |
-| Container          | Non-root process (`USER node`)                                                     | ✅ Always on (Dockerfile)                                                   | `Dockerfile.apple_arm64`; `run.sh` adds explicit `--user 1000:1000`                                                    |
-| Credential storage | AES-256-GCM + scrypt encryption at rest                                            | ⚙️ Opt-in — requires `OPENCLAW_PASSPHRASE` env var                          | `src/infra/sealed-json-file.ts`                                                                                        |
-| Credential storage | HMAC-SHA256 config file integrity                                                  | ✅ Always on (when gateway token exists)                                    | `src/config/io.hmac-integrity.ts`                                                                                      |
-| Auth               | Token/password/Tailscale auth, credential strength logging                         | ✅ Always on                                                                | `src/gateway/auth.ts`                                                                                                  |
-| Startup checks     | TLS required, token ≥ 32, password ≥ 12, no-auth warns, bind-all warns             | ✅ Runs on every start (logs warnings)                                      | `packages/gateway-security-core/src/startup-security-checks.ts`                                                        |
-| Pre-handshake      | verifyClient with rate limiting, header validation, origin, IP, subprotocol checks | ⚠️ Code exists but not wired into production gateway                        | `src/gateway/server/verify-client.ts`                                                                                  |
-| WebSocket          | Preauth payload cap (64 KB), malformed frame counter (3 strikes)                   | ✅ Always on                                                                | `src/gateway/server/ws-connection/message-handler.ts`                                                                  |
-| HTTP               | Per-IP request rate limit (120/60s), healthz short-circuit, auto-HSTS              | ✅ Always on                                                                | `src/gateway/server-http.ts`                                                                                           |
-| Connection         | Per-IP rate (30/10s), per-device budget (8/identity)                               | ✅ Always on                                                                | `packages/gateway-security-core/src/connection-rate-limit.ts`, `src/gateway/server/authenticated-connection-budget.ts` |
-| Exec approval      | Allowlist + deny-path (glob) + heredoc + inline-eval + suppression detection       | ✅ Always on                                                                | `packages/gateway-security-core/src/exec-deny-paths.ts`, `src/infra/exec-approvals.ts`                                 |
-| Audit              | HMAC-signed auth + tool audit (per-entry, not chained)                             | ⚙️ Opt-in — `OPENCLAW_AUTH_AUDIT=1` or `gateway.security.toolAudit.enabled` | `packages/gateway-security-core/src/{auth-audit-log,tool-audit}.ts`                                                    |
-| Outbound           | Regex-based secret stripping (API keys, tokens, private keys)                      | ⚠️ Module exists, not wired into delivery pipeline                          | `src/security/outbound-redact.ts`, `src/infra/outbound/redaction.ts`                                                   |
-| Origin             | Wildcard `*` rejected, signed origin tokens, browser Origin matching               | ✅ Always on                                                                | `src/gateway/origin-check.ts`                                                                                          |
-| Forwarded headers  | Sensitive-header validation, cross-header consistency, proxy trust                 | ✅ Always on                                                                | `src/gateway/forwarded-headers.ts`, `src/gateway/net.ts`                                                               |
-| Per-message auth   | Capability checks for `secrets.*` / `config.set_protected` / `node.*`              | ⚙️ Opt-in — `gateway.security.messageAuth.enabled`                          | `packages/gateway-security-core/src/message-auth.ts`                                                                   |
+**Container**
+
+- ✅ **Read-only root, `--cap-drop ALL`, `umask 0027`** — always on (Dockerfile + both scripts). Source: `Dockerfile.apple_arm64`, `scripts/apple-container/{bootstrap,run}.sh`.
+- ✅ **Non-root process (`USER node`)** — always on (Dockerfile); `run.sh` also passes explicit `--user 1000:1000`.
+
+**Credential storage**
+
+- ⚙️ **AES-256-GCM + scrypt encryption at rest** — opt-in, requires the `OPENCLAW_PASSPHRASE` env var. Source: `src/infra/sealed-json-file.ts`.
+- ✅ **HMAC-SHA256 config file integrity** — always on when a gateway token exists. Source: `src/config/io.hmac-integrity.ts`.
+
+**Auth**
+
+- ✅ **Token / password / Tailscale auth, plus credential-strength logging** — always on. Source: `src/gateway/auth.ts`.
+
+**Startup checks**
+
+- ✅ **TLS required, token ≥ 32, password ≥ 12, no-auth warns, bind-all warns** — runs on every start and logs warnings. Source: `packages/gateway-security-core/src/startup-security-checks.ts`.
+
+**Pre-handshake**
+
+- ⚠️ **verifyClient with rate limiting, header validation, origin, IP, and subprotocol checks** — the code exists but isn't wired into the production gateway. Source: `src/gateway/server/verify-client.ts`.
+
+**WebSocket**
+
+- ✅ **Preauth payload cap (64 KB) + malformed-frame counter (3 strikes)** — always on. Source: `src/gateway/server/ws-connection/message-handler.ts`.
+
+**HTTP**
+
+- ✅ **Per-IP request rate limit (120/60s), healthz short-circuit, auto-HSTS** — always on. Source: `src/gateway/server-http.ts`.
+
+**Connection**
+
+- ✅ **Per-IP rate (30/10s) + per-device budget (8/identity)** — always on. Source: `packages/gateway-security-core/src/connection-rate-limit.ts`, `src/gateway/server/authenticated-connection-budget.ts`.
+
+**Exec approval**
+
+- ✅ **Allowlist + deny-path (glob) + heredoc + inline-eval + suppression detection** — always on. Source: `packages/gateway-security-core/src/exec-deny-paths.ts`, `src/infra/exec-approvals.ts`.
+
+**Audit**
+
+- ⚙️ **HMAC-signed auth + tool audit (per-entry, not chained)** — opt-in via `OPENCLAW_AUTH_AUDIT=1` or `gateway.security.toolAudit.enabled`. Source: `packages/gateway-security-core/src/{auth-audit-log,tool-audit}.ts`.
+
+**Outbound**
+
+- ⚠️ **Regex-based secret stripping (API keys, tokens, private keys)** — the module exists but isn't wired into the delivery pipeline. Source: `src/security/outbound-redact.ts`, `src/infra/outbound/redaction.ts`.
+
+**Origin**
+
+- ✅ **Wildcard `*` rejected, signed origin tokens, browser Origin matching** — always on. Source: `src/gateway/origin-check.ts`.
+
+**Forwarded headers**
+
+- ✅ **Sensitive-header validation, cross-header consistency, proxy trust** — always on. Source: `src/gateway/forwarded-headers.ts`, `src/gateway/net.ts`.
+
+**Per-message auth**
+
+- ⚙️ **Capability checks for `secrets.*` / `config.set_protected` / `node.*`** — opt-in via `gateway.security.messageAuth.enabled`. Source: `packages/gateway-security-core/src/message-auth.ts`.
 
 > **Three items need attention before this hardening is production-complete:**
 >
@@ -543,16 +567,14 @@ For a deep dive on the threat model, attacker surface, and proof-of-concept expl
 
 Upstream OpenClaw is the CLI/gateway you get from `npm install -g openclaw`. It does **not** ship an Apple Container image or these defaults. This fork adds the packaging and hardening layer:
 
-| Area                   | Upstream (npm install)                           | This Apple Container build                                                                                                                       |
-| ---------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Isolation**          | Runs as your user, full host access              | Sandboxed Linux container, read-only root, `--cap-drop ALL`, non-root (`1000:1000`)                                                              |
-| **Network**            | Binds however you configure it                   | Loopback-only (`127.0.0.1:18789`) by default                                                                                                     |
-| **Gateway token**      | Stored in config/env on disk                     | Generated, stored in **macOS Keychain**; staged in a container volume (build-from-source path keeps it off disk via a localhost Keychain bridge) |
-| **Resource limits**    | None                                             | CPU capped at 2 cores, memory 1 GB                                                                                                               |
-| **Image base**         | n/a                                              | `node:24-bookworm-slim`, pinned by **SHA256 digest** (not a floating tag)                                                                        |
-| **Install**            | `npm install -g openclaw` + manual gateway setup | One curl pipe; auto preflight, token, volumes, container create                                                                                  |
-| **Config integrity**   | Standard                                         | HMAC-SHA256 config verification; optional AES-256-GCM secrets at rest (`OPENCLAW_PASSPHRASE`)                                                    |
-| **Hardening defaults** | You opt in                                       | `--read-only`, dropped caps, `umask 0027`, init process — always on                                                                              |
+- **Isolation** — upstream runs as your user with full host access; this build runs in a sandboxed Linux container, read-only root, `--cap-drop ALL`, non-root (`1000:1000`).
+- **Network** — upstream binds however you configure it; this build is loopback-only (`127.0.0.1:18789`) by default.
+- **Gateway token** — upstream stores it in config/env on disk; this build generates it, stores it in the **macOS Keychain**, and stages it in a container volume (the build-from-source path keeps it off disk via a localhost Keychain bridge).
+- **Resource limits** — upstream has none; this build caps CPU at 2 cores and memory at 1 GB.
+- **Image base** — n/a upstream; this build uses `node:24-bookworm-slim`, pinned by **SHA256 digest** (not a floating tag).
+- **Install** — upstream is `npm install -g openclaw` + manual gateway setup; this build is one curl pipe with auto preflight, token, volumes, and container create.
+- **Config integrity** — upstream is standard; this build adds HMAC-SHA256 config verification and optional AES-256-GCM secrets at rest (`OPENCLAW_PASSPHRASE`).
+- **Hardening defaults** — upstream makes you opt in; this build turns on `--read-only`, dropped caps, `umask 0027`, and an init process by default.
 
 Same OpenClaw inside; the value is the **hardened, zero-Docker, Keychain-backed packaging** for a personal Mac.
 
