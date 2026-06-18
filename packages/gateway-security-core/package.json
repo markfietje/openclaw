@@ -108,6 +108,11 @@
       "types": "./dist/message-replay-guard.d.mts",
       "import": "./dist/message-replay-guard.mjs",
       "default": "./dist/message-replay-guard.mjs"
+    },
+    "./secret-equal": {
+      "types": "./dist/secret-equal.d.mts",
+      "import": "./dist/secret-equal.mjs",
+      "default": "./dist/secret-equal.mjs"
     }
   },
   "dependencies": {

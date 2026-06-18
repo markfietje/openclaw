@@ -625,6 +625,16 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: "@openclaw/gateway-security-core/secret-equal",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "secret-equal.ts",
+        ),
+      },
+      {
         find: "@openclaw/gateway-security-core/config-guard",
         replacement: path.join(
           repoRoot,

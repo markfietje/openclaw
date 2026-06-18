@@ -139,6 +139,9 @@
       "@openclaw/gateway-security-core/ws-frame-validator": [
         "./packages/gateway-security-core/src/ws-frame-validator.ts"
       ],
+      "@openclaw/gateway-security-core/secret-equal": [
+        "./packages/gateway-security-core/src/secret-equal.ts"
+      ],
 
       "@openclaw/media-generation-core": ["./packages/media-generation-core/src/index.ts"],
       "@openclaw/media-generation-core/capability-model-ref": [
