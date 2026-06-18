@@ -4884,4 +4884,71 @@ describe("embedded attempt session lock lifecycle", () => {
     expect(transcript).toContain("prompt-stream write");
     expect(controller.hasSessionTakeover()).toBe(false);
   });
+
+  // Regression coverage for upstream #90322. When a subagent spawned via
+  // sessions_yield runs longer than 60s, the main session's write lock
+  // acquisition would block until the subagent releases. Without the
+  // controller's defensive release on abort, the main session's reply
+  // hits SessionWriteLockTimeoutError and the user sees:
+  //   "Agent failed before reply: session file locked (timeout 60000ms)"
+  //
+  // The fork's controller exposes releaseHeldLockForAbort() so that when
+  // the subagent abort path fires, the held lock is released BEFORE the
+  // main session tries to acquire it. This test proves the timing:
+  //   1. Controller has a held lock (simulating a long-running subagent).
+  //   2. The abort signal fires.
+  //   3. releaseHeldLockForAbort() releases the held lock.
+  //   4. A concurrent write that would have blocked 60s in upstream
+  //      proceeds immediately through withSessionWriteLock.
+  it("releases the held lock on sessions_yield abort so the main session does not time out (#90322)", async () => {
+    const sessionFile = await createTempSessionFile();
+    const heldRelease = vi.fn(async () => {});
+    const cleanupRelease = vi.fn(async () => {});
+    const acquireSessionWriteLockForAbort = vi
+      .fn()
+      // First acquisition: the subagent's coarse attempt lock. Held for
+      // the entire subagent lifetime.
+      .mockResolvedValueOnce({ release: heldRelease })
+      // Second acquisition: the post-abort cleanup re-acquire.
+      .mockResolvedValueOnce({ release: cleanupRelease });
+
+    const controller = await createEmbeddedAttemptSessionLockController({
+      acquireSessionWriteLock: acquireSessionWriteLockForAbort,
+      lockOptions: { ...lockOptions, sessionFile },
+    });
+
+    // Simulate the subagent running for longer than the main session's
+    // 60s acquire timeout by holding the lock and never calling release
+    // (heldRelease is only invoked by the controller's abort path).
+    expect(heldRelease).not.toHaveBeenCalled();
+
+    // The abort signal arrives. The controller's defensive release fires
+    // BEFORE the main session's next acquisition.
+    await controller.releaseHeldLockForAbort();
+
+    // Now the main session writes its reply under a fresh acquisition. In
+    // upstream, this would either time out after 60s or surface a stale
+    // lock. In the fork, the abort released the held lock and the new
+    // acquisition succeeds immediately.
+    await controller.withSessionWriteLock(async () => {
+      await fs.appendFile(
+        sessionFile,
+        '{"type":"message","id":"main-reply-after-abort"}\n',
+        "utf8",
+      );
+    });
+
+    // The original subagent-held lock was released by the abort path,
+    // not by the post-abort writer.
+    expect(heldRelease).toHaveBeenCalledTimes(1);
+    // The post-abort writer acquired its own lock and released it on
+    // exit.
+    expect(cleanupRelease).toHaveBeenCalledTimes(1);
+    // The reply landed in the session file.
+    const transcript = await fs.readFile(sessionFile, "utf8");
+    expect(transcript).toContain("main-reply-after-abort");
+    // The controller acquired the lock exactly twice: once for the
+    // subagent, once for the post-abort write.
+    expect(acquireSessionWriteLockForAbort).toHaveBeenCalledTimes(2);
+  });
 });
