@@ -462,6 +462,14 @@ export const deviceHandlers: GatewayRequestHandlers = {
       },
       { dropIfSlow: true },
     );
+    // Approving a pairing mints new device authority for the approved device.
+    // Record a device-scoped generation bump so any in-flight session for the
+    // newly-approved device (or any stale snapshot for a re-paired identity)
+    // is rejected at the per-RPC staleness check. Without this, a session that
+    // authenticated before approval could land its first RPC after approval
+    // using the freshly-issued credentials' authority and the staleness check
+    // would not see a generation change.
+    context.invalidateDeviceAuthority?.({ deviceId: approved.device.deviceId });
     respond(true, { requestId, device: redactPairedDevice(approved.device) }, undefined);
   },
   "device.pair.reject": async ({ params, respond, context, client }) => {
@@ -605,6 +613,12 @@ export const deviceHandlers: GatewayRequestHandlers = {
     context.invalidateClientsForDevice?.(removed.deviceId, {
       reason: "device-pair-removed",
     });
+    // Record a device-scoped generation bump; the wraparound in
+    // server-methods.ts consumes this synchronously before respond(true, ...)
+    // so any pipelined RPC on the same connection sees the new generation
+    // and is rejected at the per-RPC staleness check. No role is supplied
+    // because pair.remove affects the device as a whole.
+    context.invalidateDeviceAuthority?.({ deviceId: removed.deviceId });
     respond(true, removed, undefined);
     queueMicrotask(() => {
       context.disconnectClientsForDevice?.(removed.deviceId);
@@ -724,6 +738,9 @@ export const deviceHandlers: GatewayRequestHandlers = {
       role: entry.role,
       reason: "device-token-rotated",
     });
+    // Record a role-scoped generation bump; only the rotated role is invalidated
+    // so node sessions on the same device remain valid.
+    context.invalidateDeviceAuthority?.({ deviceId: deviceId.trim(), role: entry.role });
     respond(
       true,
       {
@@ -839,6 +856,9 @@ export const deviceHandlers: GatewayRequestHandlers = {
       role: entry.role,
       reason: "device-token-revoked",
     });
+    // Record a role-scoped generation bump; only the revoked role is invalidated
+    // so other roles on the same device remain valid.
+    context.invalidateDeviceAuthority?.({ deviceId: normalizedDeviceId, role: entry.role });
     respond(
       true,
       {

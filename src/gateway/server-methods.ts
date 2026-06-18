@@ -655,17 +655,24 @@ export async function handleGatewayRequest(
   // response is already sent. By calling onBeforeRespond here, the generation counter
   // is bumped atomically with the response, eliminating the window where a concurrent
   // request on another connection could pass the staleness check before the bump.
+  //
+  // The bump is driven by `context.pendingInvalidation`, which the handler populated
+  // by calling `context.invalidateDeviceAuthority({ deviceId, role? })` during
+  // dispatch. The set of methods that invalidate authority is therefore
+  // handler-driven instead of enumerated, closing the structural gap where adding
+  // a new credential-mutating method that forgot to update the enumeration would
+  // re-open the same-connection race. If the handler did not record an
+  // invalidation, onBeforeRespond is not invoked and no bump occurs.
+  const ctxWithPending = context as unknown as {
+    pendingInvalidation?: { deviceId: string; role?: string };
+  };
   const wrappedRespond: RespondFn = (ok, payload, error, meta) => {
     if (ok && onBeforeRespond) {
-      const params = req.params as { deviceId?: unknown; role?: unknown } | undefined;
-      const deviceId =
-        params && typeof params.deviceId === "string" && params.deviceId.length > 0
-          ? params.deviceId
-          : undefined;
-      if (deviceId) {
+      const pending = ctxWithPending.pendingInvalidation;
+      if (pending?.deviceId) {
         onBeforeRespond({
-          deviceId,
-          role: typeof params?.role === "string" ? params.role : undefined,
+          deviceId: pending.deviceId,
+          role: pending.role,
         });
       }
     }

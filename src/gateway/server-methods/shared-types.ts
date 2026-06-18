@@ -91,6 +91,17 @@ export type GatewayRequestContext = {
     deviceId: string,
     opts?: { role?: string; reason?: string },
   ) => void;
+  /**
+   * Records a device-authority invalidation that the handler performed during
+   * dispatch. The wraparound in `server-methods.ts` consumes this synchronously
+   * before `respond(true, ...)` so the generation bump is atomic with the
+   * response. Handlers that mutate device authority should call this; handlers
+   * that only read authority should not. The set of methods that invalidate
+   * authority is therefore handler-driven instead of enumerated, closing the
+   * structural gap where adding a new credential-mutating method that forgot
+   * to update the enumeration would re-open the same-connection race.
+   */
+  invalidateDeviceAuthority?: (params: { deviceId: string; role?: string }) => void;
   disconnectClientsUsingSharedGatewayAuth?: () => void;
   enforceSharedGatewayAuthGenerationForConfigWrite?: (nextConfig: OpenClawConfig) => void;
   nodeRegistry: NodeRegistry;

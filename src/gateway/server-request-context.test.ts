@@ -166,3 +166,94 @@ describe("createGatewayRequestContext", () => {
     expect((secondary as { invalidated?: boolean }).invalidated).toBeUndefined();
   });
 });
+
+describe("createGatewayRequestContext pendingInvalidation buffer", () => {
+  it("starts undefined and is populated by invalidateDeviceAuthority", () => {
+    const context = createGatewayRequestContext(makeContextParams());
+
+    const ctx = context as unknown as {
+      pendingInvalidation?: { deviceId: string; role?: string };
+    };
+    expect(ctx.pendingInvalidation).toBeUndefined();
+
+    context.invalidateDeviceAuthority?.({ deviceId: "device-1", role: "operator" });
+
+    expect(ctx.pendingInvalidation).toEqual({ deviceId: "device-1", role: "operator" });
+  });
+
+  it("trims whitespace and rejects blank deviceId", () => {
+    const context = createGatewayRequestContext(makeContextParams());
+    const ctx = context as unknown as {
+      pendingInvalidation?: { deviceId: string; role?: string };
+    };
+
+    context.invalidateDeviceAuthority?.({ deviceId: "  device-1  ", role: "operator" });
+    expect(ctx.pendingInvalidation).toEqual({ deviceId: "device-1", role: "operator" });
+
+    // A blank deviceId after trim is a no-op; the previous record stays.
+    context.invalidateDeviceAuthority?.({ deviceId: "   ", role: "node" });
+    expect(ctx.pendingInvalidation).toEqual({ deviceId: "device-1", role: "operator" });
+  });
+
+  it("ignores non-string deviceId and non-string role", () => {
+    const context = createGatewayRequestContext(makeContextParams());
+    const ctx = context as unknown as {
+      pendingInvalidation?: { deviceId: string; role?: string };
+    };
+
+    // Non-string deviceId is a no-op.
+    context.invalidateDeviceAuthority?.({
+      deviceId: undefined as unknown as string,
+      role: "operator",
+    });
+    expect(ctx.pendingInvalidation).toBeUndefined();
+
+    context.invalidateDeviceAuthority?.({
+      deviceId: "device-1",
+      role: 42 as unknown as string,
+    });
+    expect(ctx.pendingInvalidation).toEqual({ deviceId: "device-1" });
+  });
+
+  it("the first role-scoped invalidation wins; later role-scoped writes are ignored", () => {
+    // First write is role-scoped; a same-device role-scoped write is
+    // a no-op because the buffer keeps the original focused scope.
+    const context = createGatewayRequestContext(makeContextParams());
+    const ctx = context as unknown as {
+      pendingInvalidation?: { deviceId: string; role?: string };
+    };
+
+    context.invalidateDeviceAuthority?.({ deviceId: "device-1", role: "operator" });
+    context.invalidateDeviceAuthority?.({ deviceId: "device-1", role: "node" });
+
+    expect(ctx.pendingInvalidation).toEqual({ deviceId: "device-1", role: "operator" });
+  });
+
+  it("a device-scoped invalidation is sticky once recorded", () => {
+    // The first write is device-scoped (no role); a later role-scoped write
+    // for the same device does not narrow back to role-scoped. This keeps
+    // a broad "remove the device" invalidation from being silently masked
+    // by a later focused write.
+    const context = createGatewayRequestContext(makeContextParams());
+    const ctx = context as unknown as {
+      pendingInvalidation?: { deviceId: string; role?: string };
+    };
+
+    context.invalidateDeviceAuthority?.({ deviceId: "device-1" });
+    context.invalidateDeviceAuthority?.({ deviceId: "device-1", role: "operator" });
+
+    expect(ctx.pendingInvalidation).toEqual({ deviceId: "device-1" });
+  });
+
+  it("clears between requests because each request gets a fresh context", () => {
+    const a = createGatewayRequestContext(makeContextParams());
+    const b = createGatewayRequestContext(makeContextParams());
+
+    a.invalidateDeviceAuthority?.({ deviceId: "device-1", role: "operator" });
+
+    const aCtx = a as unknown as { pendingInvalidation?: { deviceId: string; role?: string } };
+    const bCtx = b as unknown as { pendingInvalidation?: { deviceId: string; role?: string } };
+    expect(aCtx.pendingInvalidation).toEqual({ deviceId: "device-1", role: "operator" });
+    expect(bCtx.pendingInvalidation).toBeUndefined();
+  });
+});

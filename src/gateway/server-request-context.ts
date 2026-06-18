@@ -78,7 +78,9 @@ export function createGatewayRequestContext(
     return scopes.includes("operator.admin") || scopes.includes("operator.approvals");
   };
 
-  return {
+  const context: GatewayRequestContext & {
+    pendingInvalidation?: { deviceId: string; role?: string };
+  } = {
     deps: params.deps,
     // Keep cron reads live so config hot reload can swap cron/store state without rebuilding
     // every handler closure that already holds this request context.
@@ -171,6 +173,34 @@ export function createGatewayRequestContext(
         }
       }
     },
+    // Per-request buffer for handler-driven device-authority invalidation.
+    // The handler writes here during dispatch; the wraparound in
+    // server-methods.ts consumes it synchronously before respond(true, ...)
+    // so the generation bump is atomic with the response. Reading this field
+    // directly from outside the wraparound is unsupported; use
+    // invalidateDeviceAuthority to record an invalidation.
+    pendingInvalidation: undefined,
+    invalidateDeviceAuthority: (invalidation) => {
+      if (!invalidation || typeof invalidation.deviceId !== "string") {
+        return;
+      }
+      const deviceId = invalidation.deviceId.trim();
+      if (!deviceId) {
+        return;
+      }
+      // First write wins: a handler that calls invalidate more than once
+      // collapses to a single record so the wraparound performs one bump
+      // synchronously with the response. Subsequent writes are ignored.
+      if (context.pendingInvalidation) {
+        return;
+      }
+      context.pendingInvalidation = {
+        deviceId,
+        ...(typeof invalidation.role === "string" && invalidation.role
+          ? { role: invalidation.role }
+          : {}),
+      };
+    },
     disconnectClientsUsingSharedGatewayAuth: () => {
       disconnectAllSharedGatewayAuthClients(params.clients);
     },
@@ -210,4 +240,5 @@ export function createGatewayRequestContext(
     broadcastVoiceWakeRoutingChanged: params.broadcastVoiceWakeRoutingChanged,
     unavailableGatewayMethods: params.unavailableGatewayMethods,
   };
+  return context;
 }
