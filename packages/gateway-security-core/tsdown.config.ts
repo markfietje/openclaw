@@ -29,6 +29,7 @@ export default defineConfig({
     "src/ws-keepalive.ts",
     "src/security-config.ts",
     "src/message-replay-guard.ts",
+    "src/secret-equal.ts",
   ],
   platform: "node",
   format: "esm",

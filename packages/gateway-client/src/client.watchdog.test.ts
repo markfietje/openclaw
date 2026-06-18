@@ -657,4 +657,130 @@ r1USnb+wUdA7Zoj/mQ==
 
     expect(String(error)).toContain("tls fingerprint mismatch");
   });
+
+  test("accepts matching tls fingerprint via constant-time comparison", async () => {
+    // Same self-signed cert as the mismatch test above. The SHA-256
+    // fingerprint below is `node:x509.fingerprint256` for that cert,
+    // normalized the same way GatewayClient normalizes (strip colons,
+    // lowercase, trim). If either checkServerIdentity or the post-open
+    // validateTlsFingerprint path regresses to a plain `!==` (or to a
+    // broken constant-time helper), the matching pin would still pass —
+    // so this test's real job is to prove the accept path is reachable
+    // and does not produce a "tls fingerprint mismatch" error.
+    const key = [
+      "-----BEGIN PRIVATE KEY-----", // pragma: allowlist secret
+      "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDrur5CWp4psMMb",
+      "DTPY1aN46HPDxRchGgh8XedNkrlc4z1KFiyLUsXpVIhuyoXq1fflpTDz7++pGEDJ",
+      "Q5pEdChn3fuWgi7gC+pvd5VQ1eAX/7qVE72fhx14NxhaiZU3hCzXjG2SflTEEExk",
+      "UkQTm0rdHSjgLVMhTM3Pqm6Kzfdgtm9ZyXwlAsorE/pvgbUxG3Q4xKNBGzbirZ+1",
+      "EzPDwsjf3fitNtakZJkymu6Kg5lsUihQVXOP0U7f989FmevoTMvJmkvJzsoTRd7s",
+      "XNSOjzOwJr8da8C4HkXi21md1yEccyW0iSh7tWvDrpWDAgW6RMuMHC0tW4bkpDGr",
+      "FpbQOgzVAgMBAAECggEAIMhwf8Ve9CDVTWyNXpU9fgnj2aDOCeg3MGaVzaO/XCPt",
+      "KOHDEaAyDnRXYgMP0zwtFNafo3klnSBWmDbq3CTEXseQHtsdfkKh+J0KmrqXxval",
+      "YeikKSyvBEIzRJoYMqeS3eo1bddcXgT/Pr9zIL/qzivpPJ4JDttBzyTeaTbiNaR9",
+      "KphGNueo+MTQMLreMqw5VAyJ44gy7Z/2TMiMEc/d95wfubcOSsrIfpOKnMvWd/rl",
+      "vxIS33s95L7CjREkixskj5Yo5Wpt3Yf5b0Zi70YiEsCfAZUDrPW7YzMlylzmhMzm",
+      "MARZKfN1Tmo74SGpxUrBury+iPwf1sYcRnsHR+zO8QKBgQD6ISQHRzPboZ3J/60+",
+      "fRLETtrBa9WkvaH9c+woF7l47D4DIlvlv9D3N1KGkUmhMnp2jNKLIlalBNDxBdB+",
+      "iwZP1kikGz4629Ch3/KF/VYscLTlAQNPE42jOo7Hj7VrdQx9zQrK9ZBLteXmSvOh",
+      "bB3aXwXPF3HoTMt9gQ9thhXZJQKBgQDxQxUnQSw43dRlqYOHzPUEwnJkGkuW/qxn",
+      "aRc8eopP5zUaebiDFmqhY36x2Wd+HnXrzufy2o4jkXkWTau8Ns+OLhnIG3PIU9L/",
+      "LYzJMckGb75QYiK1YKMUUSQzlNCS8+TFVCTAvG2u2zCCk7oTIe8aT516BQNjWDjK",
+      "gWo2f87N8QKBgHoVANO4kfwJxszXyMPuIeHEpwquyijNEap2EPaEldcKXz4CYB4j",
+      "4Cc5TkM12F0gGRuRohWcnfOPBTgOYXPSATOoX+4RCe+KaCsJ9gIl4xBvtirrsqS+",
+      "42ue4h9O6fpXt9AS6sii0FnTnzEmtgC8l1mE9X3dcJA0I0HPYytOvY0tAoGAAYJj",
+      "7Xzw4+IvY/ttgTn9BmyY/ptTgbxSI8t6g7xYhStzH5lHWDqZrCzNLBuqFBXosvL2",
+      "bISFgx9z3Hnb6y+EmOUc8C2LyeMMXOBSEygmk827KRGUGgJiwsvHKDN0Ipc4BSwD",
+      "ltkW7pMceJSoA1qg/k8lMxA49zQkFtA8c97U0mECgYEAk2DDN78sRQI8RpSECJWy",
+      "l1O1ikVUAYVeh5HdZkpt++ddfpo695Op9OeD2Eq27Y5EVj8Xl58GFxNk0egLUnYq",
+      "YzSbjcNkR2SbVvuLaV1zlQKm6M5rfvhj4//YrzrrPUQda7Q4eR0as/3q91uzAO2O",
+      "++pfnSCVCyp/TxSkhEDEawU=",
+      "-----END PRIVATE KEY-----",
+    ].join("\n");
+    const cert = `-----BEGIN CERTIFICATE-----
+MIIDCTCCAfGgAwIBAgIUel0Lv05cjrViyI/H3tABBJxM7NgwDQYJKoZIhvcNAQEL
+BQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MDEyMDEyMjEzMloXDTI2MDEy
+MTEyMjEzMlowFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEF
+AAOCAQ8AMIIBCgKCAQEA67q+QlqeKbDDGw0z2NWjeOhzw8UXIRoIfF3nTZK5XOM9
+ShYsi1LF6VSIbsqF6tX35aUw8+/vqRhAyUOaRHQoZ937loIu4Avqb3eVUNXgF/+6
+lRO9n4cdeDcYWomVN4Qs14xtkn5UxBBMZFJEE5tK3R0o4C1TIUzNz6puis33YLZv
+Wcl8JQLKKxP6b4G1MRt0OMSjQRs24q2ftRMzw8LI3934rTbWpGSZMpruioOZbFIo
+UFVzj9FO3/fPRZnr6EzLyZpLyc7KE0Xe7FzUjo8zsCa/HWvAuB5F4ttZndchHHMl
+tIkoe7Vrw66VgwIFukTLjBwtLVuG5KQxqxaW0DoM1QIDAQABo1MwUTAdBgNVHQ4E
+FgQUwNdNkEQtd0n/aofzN7/EeYPPPbIwHwYDVR0jBBgwFoAUwNdNkEQtd0n/aofz
+N7/EeYPPPbIwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAnOnw
+o8Az/bL0A6bGHTYra3L9ArIIljMajT6KDHxylR4LhliuVNAznnhP3UkcZbUdjqjp
+MNOM0lej2pNioondtQdXUskZtqWy6+dLbTm1RYQh1lbCCZQ26o7o/oENzjPksLAb
+jRM47DYxRweTyRWQ5t9wvg/xL0Yi1tWq4u4FCNZlBMgdwAEnXNwVWTzRR9RHwy20
+lmUzM8uQ/p42bk4EvPEV4PI1h5G0khQ6x9CtkadCTDs/ZqoUaJMwZBIDSrdJJSLw
+4Vh8Lqzia1CFB4um9J4S1Gm/VZMBjjeGGBJk7VSYn4ZmhPlbPM+6z39lpQGEG0x4
+r1USnb+wUdA7Zoj/mQ==
+-----END CERTIFICATE-----`;
+
+    httpsServer = createHttpsServer({ key, cert });
+    wss = new WebSocketServer({ server: httpsServer, maxPayload: 1024 * 1024 });
+    const port = await new Promise<number>((resolve, reject) => {
+      httpsServer?.once("error", reject);
+      httpsServer?.listen(0, "127.0.0.1", () => {
+        const address = httpsServer?.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("https server address unavailable"));
+          return;
+        }
+        resolve(address.port);
+      });
+    });
+
+    // Real SHA-256 fingerprint of the cert above, normalized the same way
+    // GatewayClient.normalizeTlsFingerprint does (colons stripped, lowercased).
+    const matchingFingerprint = "f47793775215790277bbe822292297f3cbc7dec137e2fd1ab6db3c51bea67737";
+
+    let client: GatewayClient | null = null;
+    // The TLS check fires synchronously on ws 'open'. If the pin is accepted,
+    // no TLS error is raised and the client proceeds to the preauth
+    // handshake, which the test server does not speak — so we resolve on the
+    // first post-open state change and only fail if a TLS-specific error
+    // arrives.
+    const outcome = await new Promise<Error | null>((resolve) => {
+      let settled = false;
+      const finish = (result: Error | null) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(result);
+      };
+      const timeout = setTimeout(() => {
+        client?.stop();
+        // No TLS error within the window — pin was accepted.
+        finish(null);
+      }, 300);
+      client = new GatewayClient({
+        url: `wss://127.0.0.1:${port}`,
+        connectChallengeTimeoutMs: 0,
+        tlsFingerprint: matchingFingerprint,
+        onConnectError: (err) => {
+          clearTimeout(timeout);
+          client?.stop();
+          finish(err);
+        },
+        onClose: () => {
+          clearTimeout(timeout);
+          client?.stop();
+          finish(null);
+        },
+      });
+      client.start();
+    });
+
+    // The TLS fingerprint check fires synchronously on ws 'open'. If the
+    // matching pin is accepted, the client moves past TLS validation into
+    // the preauth handshake. The test server does not speak the gateway
+    // protocol, so the client then fails with a connect-challenge timeout
+    // — which is the success condition: it proves both checkServerIdentity
+    // and the post-open validateTlsFingerprint path accepted the pin. The
+    // only failure modes are messages containing "tls fingerprint".
+    const errorMessage = outcome?.message ?? "";
+    expect(errorMessage).not.toMatch(/tls fingerprint/i);
+  });
 });

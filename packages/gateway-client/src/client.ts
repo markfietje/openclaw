@@ -25,6 +25,7 @@ import {
   parseCanonicalIpAddress,
   type ParsedIpAddress,
 } from "@openclaw/net-policy/ip";
+import { safeEqualSecret } from "@openclaw/gateway-security-core/secret-equal";
 import { GATEWAY_WS_SUBPROTOCOL } from "@openclaw/gateway-security-core/ws-protocol";
 import { WebSocket, type ClientOptions, type CertMeta } from "ws";
 import {
@@ -604,7 +605,11 @@ export class GatewayClient {
         if (!fingerprint) {
           return new Error("Missing server TLS fingerprint");
         }
-        if (fingerprint !== expected) {
+        // Constant-time comparison: a plain `!==` would let a remote peer
+        // infer how many leading fingerprint bytes match via timing, easing
+        // pin-recovery attacks. safeEqualSecret fails closed on empty input
+        // and pads to equal length so no byte count leaks.
+        if (!safeEqualSecret(fingerprint, expected)) {
           return new Error("Server TLS fingerprint mismatch");
         }
         return undefined;
@@ -1222,7 +1227,9 @@ export class GatewayClient {
     if (!fingerprint) {
       return new Error("gateway tls fingerprint unavailable");
     }
-    if (fingerprint !== expected) {
+    // Constant-time comparison mirrors checkServerIdentity: plain `!==` would
+    // leak how many leading fingerprint bytes match, easing pin-recovery.
+    if (!safeEqualSecret(fingerprint, expected)) {
       return new Error("gateway tls fingerprint mismatch");
     }
     return null;
