@@ -21,6 +21,7 @@ import {
   HERMES_REASON_MODEL_PROVIDER_CONFLICT,
 } from "./items.js";
 import { resolveCurrentModelRef, resolveHermesModelRef } from "./model.js";
+import { runImportSafetyChecks } from "./safety.js";
 import { buildSecretItems } from "./secrets.js";
 import { buildSkillItems } from "./skills.js";
 import { discoverHermesSource, hasHermesSource } from "./source.js";
@@ -202,6 +203,33 @@ export async function buildHermesPlan(ctx: MigrationProviderContext): Promise<Mi
       ? ["Some Hermes settings require manual review before they can be activated safely."]
       : []),
   ];
+
+  // Run the import-safety check across every source file we are about to
+  // import and every archive path we are about to copy. Oversized files
+  // and out-of-bounds paths become additional warnings so the operator
+  // sees the risk before --apply runs.
+  const safetyFiles = items
+    .map((item) => item.source)
+    .filter((source): source is string => Boolean(source));
+  const safetyReport = await runImportSafetyChecks({
+    files: safetyFiles,
+    archivePaths: source.archivePaths.map((archive) => archive.path),
+    parentDir: source.root,
+  });
+  if (!safetyReport.ok) {
+    for (const over of safetyReport.oversized) {
+      warnings.push(
+        `Source file is oversized: ${over.path} is ${over.size} bytes (limit ${over.limit}). ` +
+          `Re-run with a higher --max-bytes, or remove the file before importing.`,
+      );
+    }
+    for (const out of safetyReport.outOfBounds) {
+      warnings.push(
+        `Source path is outside the Hermes root: ${out.path} (reason: ${out.reason}). ` +
+          `Refusing to import path-traversal candidates.`,
+      );
+    }
+  }
   return {
     providerId: "hermes",
     source: source.root,
