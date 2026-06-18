@@ -16,6 +16,7 @@ import {
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
+import { markReplyPayloadForSourceSuppressionDelivery } from "../reply-payload.js";
 import type { CommandHandler } from "./commands-types.js";
 import { stripMentions, stripStructuralPrefixes } from "./mentions.js";
 
@@ -326,11 +327,19 @@ export const handleCompactCommand: CommandHandler = async (params) => {
     ? `${compactLabel}: ${reason} • ${contextSummary}`
     : `${compactLabel} • ${contextSummary}`;
   runtime.enqueueSystemEvent(line, { sessionKey: params.sessionKey });
+  // Mark the reply so dispatch-from-config.ts delivers it even when
+  // sourceReplyDeliveryMode is "message_tool_only". The Telegram fix
+  // (#87107, commits 38a11944f4d / fff5261ade5) bypasses the dispatch
+  // pipeline for native Telegram /compact acks, but every other channel
+  // (Discord, Slack, WebChat, ...) still flows through the dispatcher.
+  // Without this marker the reply is silently dropped (upstream #90185:
+  // "replies=0" in gateway logs after a successful /compact).
+  const reply = markReplyPayloadForSourceSuppressionDelivery({
+    text: `⚙️ ${line}`,
+    isStatusNotice: true,
+  });
   return {
     shouldContinue: false,
-    reply: {
-      text: `⚙️ ${line}`,
-      isStatusNotice: true,
-    },
+    reply,
   };
 };

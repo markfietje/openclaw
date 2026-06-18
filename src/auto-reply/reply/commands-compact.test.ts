@@ -1,6 +1,7 @@
 // Tests compact command behavior for session compaction and reply status.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
+import { getReplyPayloadMetadata } from "../reply-payload.js";
 import {
   resolveAgentDirMock,
   resolveSessionAgentIdMock,
@@ -547,5 +548,45 @@ describe("handleCompactCommand", () => {
 
     expect(requireCompactEmbeddedAgentSessionCall().contextTokenBudget).toBe(258_000);
     expect(vi.mocked(formatContextUsageShort)).toHaveBeenLastCalledWith(56_000, 258_000);
+  });
+
+  // Regression coverage for upstream #90185 / #87107. The Telegram fix
+  // bypasses the dispatch pipeline for native /compact acks, but every
+  // other channel (Discord, Slack, WebChat) still flows through
+  // dispatch-from-config.ts. The dispatcher suppresses replies when
+  // sourceReplyDeliveryMode is "message_tool_only" UNLESS the payload has
+  // deliverDespiteSourceReplySuppression metadata. Without the marker,
+  // the user sees the compaction happen and the "Compacted ..." reply
+  // silently disappear (replies=0 in #90185's gateway logs).
+  it("marks the /compact reply for delivery even when source replies are suppressed (#90185)", async () => {
+    vi.mocked(compactEmbeddedAgentSession).mockResolvedValueOnce({
+      ok: true,
+      compacted: true,
+      result: {
+        summary: "compacted",
+        firstKeptEntryId: "first-kept",
+        tokensBefore: 76_000,
+        tokensAfter: 934,
+      },
+    });
+
+    const result = await handleCompactCommand(
+      {
+        ...buildCompactParams("/compact", {
+          commands: { text: true },
+          channels: { discord: { allowFrom: ["*"] } },
+        } as OpenClawConfig),
+        sessionEntry: {
+          sessionId: "session-1",
+          updatedAt: Date.now(),
+        },
+      } as HandleCommandsParams,
+      true,
+    );
+
+    expect(result?.reply).toBeDefined();
+    expect(result?.reply?.isStatusNotice).toBe(true);
+    const metadata = getReplyPayloadMetadata(result!.reply!);
+    expect(metadata?.deliverDespiteSourceReplySuppression).toBe(true);
   });
 });
