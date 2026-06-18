@@ -1042,6 +1042,65 @@ describe("maybeRepairLegacyCronStore", () => {
     expectNoteContaining("Unable to read cron job store at", "Cron");
     expectNoteContaining("later health checks will continue", "Cron");
   });
+
+  // Regression coverage for upstream #90510. After upgrading from a JSON-based
+  // cron store to the SQLite-backed store, the upstream migration only
+  // re-registered plugin-managed jobs (e.g. memory-core's "Memory Dreaming
+  // Promotion") and silently dropped every user-created job. The fork's
+  // migration reads every job from the legacy JSON and writes them to the
+  // SQLite cron_jobs table.
+  it("migrates every user-created job from a legacy JSON-only cron store (#90510)", async () => {
+    const storePath = await makeTempStorePath();
+    await writeCronStore(storePath, [
+      createLegacyCronJob({
+        jobId: "763c7e09-daily-token-report",
+        name: "Token 消耗报告",
+        schedule: { kind: "cron", cron: "0 8 * * *", tz: "UTC" },
+      }),
+      createLegacyCronJob({
+        jobId: "7d46d270-daily-focus-tracker",
+        name: "当前关注问题追踪",
+        schedule: { kind: "cron", cron: "30 8 * * *", tz: "UTC" },
+      }),
+      createLegacyCronJob({
+        jobId: "c19da8c4-weekly-subscription-check",
+        name: "机场订阅检查",
+        schedule: { kind: "cron", cron: "0 8 * * 1", tz: "UTC" },
+      }),
+      // Plugin-managed dreaming job that upstream DID re-register.
+      // It must also survive — the migration must not drop it either.
+      createLegacyCronJob({
+        jobId: "013a7d39-dreaming-promotion",
+        name: "Memory Dreaming Promotion",
+        schedule: { kind: "cron", cron: "0 3 * * *", tz: "UTC" },
+      }),
+    ]);
+
+    await maybeRepairLegacyCronStore({
+      cfg: createCronConfig(storePath),
+      options: {},
+      prompter: makePrompter(true),
+    });
+
+    const jobs = await readPersistedJobs(storePath);
+    const ids = jobs.map((job) => job.id).sort();
+    expect(ids).toEqual([
+      "013a7d39-dreaming-promotion",
+      "763c7e09-daily-token-report",
+      "7d46d270-daily-focus-tracker",
+      "c19da8c4-weekly-subscription-check",
+    ]);
+    // Each job keeps its user-defined name and schedule, not just the id.
+    const tokenReport = requirePersistedJob(
+      jobs.filter((job) => job.id === "763c7e09-daily-token-report"),
+      0,
+    );
+    expect(tokenReport.name).toBe("Token 消耗报告");
+    const schedule = requireRecord(tokenReport.schedule, "cron schedule");
+    expect(schedule.kind).toBe("cron");
+    expectNoteContaining("4 legacy JSON cron jobs will be imported into SQLite", "Cron");
+    expectNoteContaining("Cron store migrated to SQLite", "Doctor changes");
+  });
 });
 
 describe("legacy WhatsApp crontab health check", () => {
