@@ -2391,6 +2391,25 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         close(4001, "session authority changed");
         return;
       }
+      // Defensive guard: a device-token-auth client must carry an authority
+      // snapshot. The handshake fail-close (lines 2017-2050) ensures this is
+      // always true at construction; if a future refactor relaxes that
+      // precondition, log it loudly here so the regression is visible instead
+      // of silently no-oping the staleness check.
+      if (
+        deviceSessionAuthorityTracker &&
+        client?.isDeviceTokenAuth &&
+        !client?.deviceSessionAuthority
+      ) {
+        logGateway.error(
+          `device-token client without authority snapshot connId=${connId} deviceId=${client?.connect.device?.id ?? "<none>"} — handshake fail-close is not being enforced`,
+        );
+        setCloseCause("session-authority-missing", {
+          deviceId: client?.connect.device?.id,
+        });
+        close(4001, "session authority missing");
+        return;
+      }
 
       // After handshake, accept only req frames
       if (!validateRequestFrame(parsed)) {
@@ -2616,24 +2635,19 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         // This closes Gap G2: the race window between dispatch success and generation
         // bump is eliminated because they happen in the same synchronous turn.
         //
-        // The onBeforeRespond callback extracts role from req.params (Gap G3 fix)
-        // and passes it to invalidate() for role-scoped invalidation instead of
-        // always bumping the device-scoped counter.
-        // The wrapped respond in server-methods.ts calls onBeforeRespond
-        // SYNCHRONOUSLY before send() for ALL successful dispatches,
-        // bumping the generation atomically with the response.
-        // Only the three device-credential mutating methods bump the
-        // generation. server-methods.ts calls onBeforeRespond for ANY
-        // successful method whose params carry a non-empty deviceId, so the
-        // method gate must live here at construction time — otherwise a benign
-        // read method that happens to include deviceId would invalidate the
-        // authority and force reconnects (availability regression).
-        const onBeforeRespond =
-          deviceSessionAuthorityTracker && isDeviceCredentialInvalidatingMethod(req.method)
-            ? (params: { deviceId: string; role?: string }) => {
-                deviceSessionAuthorityTracker.invalidate(params);
-              }
-            : undefined;
+        // The bump is handler-driven via `context.invalidateDeviceAuthority(...)`.
+        // server-methods.ts reads `context.pendingInvalidation` and only invokes
+        // this callback when the handler recorded an invalidation during dispatch.
+        // The set of methods that invalidate authority is therefore not enumerated
+        // here — adding a new credential-mutating method is a one-line handler
+        // change instead of a multi-line enumeration update, and forgetting to
+        // update the set cannot re-open the same-connection race because the
+        // read-side generation check is universal on every RPC.
+        const onBeforeRespond = deviceSessionAuthorityTracker
+          ? (params: { deviceId: string; role?: string }) => {
+              deviceSessionAuthorityTracker.invalidate(params);
+            }
+          : undefined;
         await handleGatewayRequest({
           req,
           respond,
