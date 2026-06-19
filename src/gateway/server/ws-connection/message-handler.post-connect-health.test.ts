@@ -611,6 +611,8 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
         mode: "token",
         token: "gateway-token",
         allowTailscale: false,
+        allowLocalDirectNoAuth: true,
+        toolsInvokeMaxBodyBytes: 262144,
       },
       refreshHealthSnapshot: vi.fn(async () => createHealthSummary()),
       close,
