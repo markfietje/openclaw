@@ -45,6 +45,21 @@ export function buildNpmResolutionFields(resolution?: NpmSpecResolution): NpmRes
   };
 }
 
+/**
+ * Resolves a writable npm cache dir for metadata/pack commands.
+ *
+ * npm defaults its cache to `$HOME/.npm`. That path is not writable when the
+ * process home lives on a read-only root filesystem (Apple Container `--read-only`,
+ * Docker `--read-only`, some minimal containers), which makes `npm view`/`npm pack`
+ * fail with ENOENT/EROFS on cache mkdir before they ever reach the registry.
+ * `os.tmpdir()` is always writable (tmpfs or the host temp dir), so a stable
+ * subdir there gives npm a reliable cache home regardless of the root FS.
+ * npm creates the subdir itself via recursive mkdir; no pre-creation needed.
+ */
+function resolveNpmMetadataCacheDir(): string {
+  return path.join(os.tmpdir(), "openclaw-npm-metadata-cache");
+}
+
 /** Creates a script-free npm environment for metadata and pack commands. */
 export function createNpmMetadataEnv(
   scope: Pick<NpmProjectInstallEnvOptions, "npmConfigCwd"> = {},
@@ -52,6 +67,10 @@ export function createNpmMetadataEnv(
   const env: NodeJS.ProcessEnv = {
     COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
     NPM_CONFIG_IGNORE_SCRIPTS: "true",
+    // Pin npm's cache to a tmpdir-backed path so read-only-root containers
+    // (Apple Container, Docker --read-only) can run npm view/pack without a
+    // writable $HOME/.npm. Callers that need a specific cache still override.
+    npm_config_cache: resolveNpmMetadataCacheDir(),
   };
   applyNpmFreshnessBypassEnv(env, new Date(), scope);
   return env;

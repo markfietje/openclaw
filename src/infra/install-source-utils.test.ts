@@ -1,5 +1,6 @@
 // Covers npm install source packing and archive path resolution.
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTrackedTempDirs } from "../test-utils/tracked-temp-dirs.js";
@@ -276,6 +277,7 @@ describe("packNpmSpecToArchive", () => {
         env: {
           COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
           NPM_CONFIG_IGNORE_SCRIPTS: "true",
+          npm_config_cache: path.join(os.tmpdir(), "openclaw-npm-metadata-cache"),
           NPM_CONFIG_BEFORE: "",
           NPM_CONFIG_MIN_RELEASE_AGE: "",
           "NPM_CONFIG_MIN-RELEASE-AGE": "",
