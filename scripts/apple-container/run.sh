@@ -587,6 +587,12 @@ start_keychain_bridge() {
   require_existing_file "Keychain bridge script" "$KEYCHAIN_BRIDGE_SCRIPT"
   stop_keychain_bridge
 
+  # Optional per-ID keychain secret map. When the file exists, the bridge maps
+  # custom secret ids (e.g. model/minimax) to their own macOS Keychain items so
+  # arbitrary secrets can be resolved without ever landing on the container
+  # volume. Absence keeps the original gateway-token-only behavior.
+  KEYCHAIN_SECRET_MAP_FILE="${OPENCLAW_CONFIG_DIR}/apple-container-keychain-secret-map.json"
+
   # Reuse the token generated in do_run (before stage_runtime_volumes)
   # or generate a fresh one if called standalone.
   BRIDGE_TOKEN="${BRIDGE_TOKEN:-$(generate_token_hex_32)}"
@@ -627,6 +633,9 @@ OPENCLAW_KEYCHAIN_ACCOUNT=$KEYCHAIN_ACCOUNT
 OPENCLAW_KEYCHAIN_BRIDGE_KEYCHAIN_TIMEOUT_MS=$BRIDGE_TIMEOUT_MS
 OPENCLAW_KEYCHAIN_BRIDGE_ALLOWED_CIDRS=$bridge_allowed_cidrs
 BRIDGE_ENV
+  if [[ -f "$KEYCHAIN_SECRET_MAP_FILE" ]]; then
+    printf 'OPENCLAW_KEYCHAIN_SECRET_MAP_FILE=%s\n' "$KEYCHAIN_SECRET_MAP_FILE" >>"$BRIDGE_ENV_FILE"
+  fi
   chmod 600 "$BRIDGE_ENV_FILE"
 
   # Apple Container 0.12.3 vmnet NAT only delivers traffic to the network's
@@ -936,6 +945,7 @@ container_run_gateway() {
     --env "OPENCLAW_KEYCHAIN_BRIDGE_URL=http://${BRIDGE_HOST_IP}:${BRIDGE_PORT}" \
     --env "OPENCLAW_KEYCHAIN_BRIDGE_TOKEN_FILE=${BRIDGE_TOKEN_FILE_PATH}" \
     --env "OPENCLAW_KEYCHAIN_BRIDGE_TIMEOUT_MS=${BRIDGE_TIMEOUT_MS}" \
+    --env "NPM_CONFIG_CACHE=/home/node/.cache/npm" \
     --mount "type=volume,source=${STATE_VOLUME},target=/home/node/.openclaw" \
     --mount "type=volume,source=${WORKSPACE_VOLUME},target=/home/node/.openclaw/workspace" \
     "${NETWORK_ARGS[@]}" \
