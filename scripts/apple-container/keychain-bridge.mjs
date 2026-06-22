@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname } from "node:path";
@@ -31,6 +32,47 @@ const allowedClientCidrs = (process.env.OPENCLAW_KEYCHAIN_BRIDGE_ALLOWED_CIDRS |
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+
+// Optional per-ID secret map. When present, each entry maps a secret id to a
+// distinct macOS Keychain item (service + optional account). This lets the
+// bridge back arbitrary secrets (e.g. model provider API keys) without them
+// ever touching the container volume. IDs absent from the map continue to
+// resolve to the default gateway-token keychain item.
+const secretMapPath = process.env.OPENCLAW_KEYCHAIN_SECRET_MAP_FILE || "";
+const secretMap = (() => {
+  if (!secretMapPath) return {};
+  try {
+    const raw = readFileSync(secretMapPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      console.error(`OPENCLAW_KEYCHAIN_SECRET_MAP_FILE is not a JSON object: ${secretMapPath}`);
+      process.exit(1);
+    }
+    const normalized = {};
+    for (const [id, entry] of Object.entries(parsed)) {
+      if (typeof id !== "string" || !id) continue;
+      if (
+        !entry ||
+        typeof entry !== "object" ||
+        typeof entry.service !== "string" ||
+        !entry.service
+      ) {
+        console.error(`Invalid secret map entry for id "${id}": expected {service, account?}`);
+        process.exit(1);
+      }
+      normalized[id] = {
+        service: entry.service,
+        account: typeof entry.account === "string" && entry.account ? entry.account : account,
+      };
+    }
+    return normalized;
+  } catch (error) {
+    console.error(
+      `Failed to read OPENCLAW_KEYCHAIN_SECRET_MAP_FILE (${secretMapPath}): ${error.message}`,
+    );
+    process.exit(1);
+  }
+})();
 
 if (!authToken) {
   console.error("OPENCLAW_KEYCHAIN_BRIDGE_TOKEN is required.");
@@ -93,10 +135,10 @@ async function readRequestBody(request) {
   });
 }
 
-async function readGatewayTokenFromKeychain() {
+async function readKeychainItem(serviceName, accountName) {
   const { stdout } = await execFileAsync(
     "/usr/bin/security",
-    ["find-generic-password", "-a", account, "-s", service, "-w"],
+    ["find-generic-password", "-a", accountName, "-s", serviceName, "-w"],
     {
       encoding: "utf8",
       maxBuffer: 16 * 1024,
@@ -104,11 +146,17 @@ async function readGatewayTokenFromKeychain() {
       windowsHide: true,
     },
   );
-  const token = stdout.trim();
-  if (!token) {
-    throw new Error("keychain item is empty");
+  const value = stdout.trim();
+  if (!value) {
+    throw new Error(`keychain item is empty for service=${serviceName} account=${accountName}`);
   }
-  return token;
+  return value;
+}
+
+// Resolves the default gateway-token keychain item. Preserved verbatim for
+// backward compatibility with existing gateway-token / value callers.
+async function readGatewayTokenFromKeychain() {
+  return await readKeychainItem(service, account);
 }
 
 async function handleSecretRequest(request, response) {
@@ -130,17 +178,29 @@ async function handleSecretRequest(request, response) {
     return;
   }
 
+  // Allow IDs that are either explicitly allowlisted (gateway/token, value)
+  // or declared in the optional secret map. Map IDs are safe to expose because
+  // each resolves to its own keychain item, chosen by the operator.
   const requestedIds = payload.ids
-    .filter((id) => typeof id === "string" && allowedIds.has(id))
-    .slice(0, allowedIds.size);
+    .filter((id) => typeof id === "string" && (allowedIds.has(id) || Object.hasOwn(secretMap, id)))
+    .slice(0, allowedIds.size + Object.keys(secretMap).length);
   if (requestedIds.length === 0) {
     sendJson(response, 200, { protocolVersion: 1, values: {} });
     return;
   }
 
   try {
-    const token = await readGatewayTokenFromKeychain();
-    const values = Object.fromEntries(requestedIds.map((id) => [id, token]));
+    const values = {};
+    // Preserve the original gateway-token behavior: gateway/token and value
+    // both resolve to the default keychain item. Per-ID mapped secrets use
+    // their own keychain service via the optional secret map.
+    for (const id of requestedIds) {
+      if (id === "gateway/token" || id === "value") {
+        values[id] = await readGatewayTokenFromKeychain();
+      } else if (secretMap[id]) {
+        values[id] = await readKeychainItem(secretMap[id].service, secretMap[id].account);
+      }
+    }
     sendJson(response, 200, { protocolVersion: 1, values });
   } catch (error) {
     console.error(error && error.message ? error.message : String(error));
