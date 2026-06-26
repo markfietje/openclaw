@@ -143,6 +143,18 @@
       "@openclaw/gateway-security-core/secret-equal": [
         "./packages/gateway-security-core/src/secret-equal.ts"
       ],
+      "@openclaw/gateway-security-core/credential-vault": [
+        "./packages/gateway-security-core/src/credential-vault.ts"
+      ],
+      "@openclaw/gateway-security-core/credential-keystore": [
+        "./packages/gateway-security-core/src/credential-keystore.ts"
+      ],
+      "@openclaw/gateway-security-core/credential-vault-cache": [
+        "./packages/gateway-security-core/src/credential-vault-cache.ts"
+      ],
+      "@openclaw/gateway-security-core/credential-store-cell": [
+        "./packages/gateway-security-core/src/credential-store-cell.ts"
+      ],
 
       "@openclaw/media-generation-core": ["./packages/media-generation-core/src/index.ts"],
       "@openclaw/media-generation-core/capability-model-ref": [
