@@ -667,6 +667,46 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: "@openclaw/gateway-security-core/credential-vault",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "credential-vault.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/credential-keystore",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "credential-keystore.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/credential-vault-cache",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "credential-vault-cache.ts",
+        ),
+      },
+      {
+        find: "@openclaw/gateway-security-core/credential-store-cell",
+        replacement: path.join(
+          repoRoot,
+          "packages",
+          "gateway-security-core",
+          "src",
+          "credential-store-cell.ts",
+        ),
+      },
+      {
         find: "@openclaw/gateway-security-core",
         replacement: path.join(repoRoot, "packages", "gateway-security-core", "src", "index.ts"),
       },

@@ -16,3 +16,7 @@ export * from "./ws-frame-validator.js";
 export * from "./sliding-window-store.js";
 export * from "./ipv6-subnet.js";
 export * from "./secret-equal.js";
+export * from "./credential-vault.js";
+export * from "./credential-keystore.js";
+export * from "./credential-vault-cache.js";
+export * from "./credential-store-cell.js";
