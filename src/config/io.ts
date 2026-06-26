@@ -77,8 +77,9 @@ import {
 } from "./io.health-state.js";
 import {
   readGatewayToken,
+  verifyConfigHmac,
   verifyConfigHmacSync,
-  writeConfigHmacSigSync,
+  writeConfigHmacSig,
 } from "./io.hmac-integrity.js";
 import { throwInvalidConfig } from "./io.invalid-config.js";
 import { stampConfigWriteMetadata } from "./io.meta.js";
@@ -1804,8 +1805,15 @@ export function createConfigIO(
       // `no_token` (first run before a gateway token exists). Tampered content,
       // a missing/removed signature, or a verification error must not load.
       if (!hmacResult.ok && hmacResult.kind !== "no_token") {
+        // Surface the `suspicious` signal from a missing-signature result so the
+        // size-based heuristic is observable, not dead metadata. Fail-close is
+        // unchanged: a missing signature still rejects, suspicious or not.
+        const suspiciousNote =
+          hmacResult.kind === "no_sig" && hmacResult.suspicious
+            ? " (signature missing on a large config — possible signature-deletion attack)"
+            : "";
         deps.logger.error(
-          `[config-integrity] HMAC ${hmacResult.kind} on ${configPath}. Refusing to load config.`,
+          `[config-integrity] HMAC ${hmacResult.kind}${suspiciousNote} on ${configPath}. Refusing to load config.`,
         );
         return {};
       }
@@ -2017,10 +2025,16 @@ export function createConfigIO(
       // OWASP A04:2025 — Cryptographic Failures / A08:2025 — Data Integrity Failures.
       // Fail closed on any integrity failure except `no_token` (first run before
       // a gateway token exists); tampered/unsigned-after-sig/error must not load.
-      const hmacResult = verifyConfigHmacSync(configPath, raw, deps.env);
+      const hmacResult = await verifyConfigHmac(configPath, raw, deps.env);
       if (!hmacResult.ok && hmacResult.kind !== "no_token") {
+        // Surface the `suspicious` signal so the size-based heuristic is observable.
+        // Fail-close is unchanged: a missing signature still rejects, suspicious or not.
+        const suspiciousNote =
+          hmacResult.kind === "no_sig" && hmacResult.suspicious
+            ? " (signature missing on a large config — possible signature-deletion attack)"
+            : "";
         deps.logger.error(
-          `[config-integrity] HMAC ${hmacResult.kind} on ${configPath}. Config may have been tampered with.`,
+          `[config-integrity] HMAC ${hmacResult.kind}${suspiciousNote} on ${configPath}. Config may have been tampered with.`,
         );
         return await finalizeReadConfigSnapshotInternalResult(deps, {
           snapshot: createConfigFileSnapshot({
@@ -2033,7 +2047,7 @@ export function createConfigIO(
             runtimeConfig: {},
             hash: rawHash,
             issues: [
-              { path: "", message: `Config integrity check failed: HMAC ${hmacResult.kind}` },
+              { path: "", message: `Config integrity check failed: HMAC ${hmacResult.kind}${suspiciousNote}` },
             ],
             warnings: [],
             legacyIssues: [],
@@ -2801,7 +2815,7 @@ export function createConfigIO(
       if (token) {
         // OWASP A04:2025 — signing failure must fail the write so rollback runs;
         // never leave an unsigned config when a gateway token is present.
-        writeConfigHmacSigSync(configPath, json, token);
+        await writeConfigHmacSig(configPath, json, token);
       }
       logConfigOverwrite();
       logConfigWriteAnomalies();
