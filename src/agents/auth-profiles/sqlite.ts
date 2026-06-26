@@ -26,6 +26,11 @@ import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "../../state/openclaw-state-db.j
 import { resolveUserPath } from "../../utils.js";
 import { resolveRegisteredAgentIdForDir } from "../agent-dir-registry.js";
 import { resolveDefaultAgentDir } from "../agent-scope-config.js";
+// Vault seam: fork-only envelope encryption for the secrets-store cell. All
+// crypto/KEK/policy logic lives in @openclaw/gateway-security-core; this file
+// only calls the two cell-level helpers at the store_json chokepoint. State
+// cells (runtime, non-secret) are never sealed.
+import { openAuthProfileStoreCell, sealAuthProfileStoreCell } from "./vault-seam.js";
 
 type AuthProfileDatabase = Pick<
   OpenClawAgentKyselyDatabase,
@@ -160,6 +165,7 @@ function inspectAuthProfileJsonCellReadOnly(
     }
   } catch {
     return { status: "unreadable" };
+
   } finally {
     if (db) {
       clearNodeSqliteKyselyCacheForDatabase(db);
@@ -209,7 +215,7 @@ export function readPersistedAuthProfileStoreRaw(
         .select("store_json")
         .where("store_key", "=", PRIMARY_ROW_KEY),
     );
-    return parseJsonCell(row?.store_json);
+    return openAuthProfileStoreCell(row?.store_json);
   }
   const databasePath = resolveAuthProfileDatabasePath(agentDir);
   if (!fs.existsSync(databasePath)) {
@@ -247,6 +253,10 @@ export function writePersistedAuthProfileStoreRaw(
   agentDir?: string,
   database?: OpenClawAgentDatabase,
 ): void {
+  // Seal once for both the insert and the onConflict-update paths so a write
+  // is a single encryption operation regardless of which branch runs.
+  // When no KEK is configured this returns the plaintext JSON unchanged.
+  const storeJson = sealAuthProfileStoreCell(JSON.stringify(payload));
   const write = (target: OpenClawAgentDatabase) => {
     const db = getAuthProfileKysely(target.db);
     executeSqliteQuerySync(
@@ -255,12 +265,12 @@ export function writePersistedAuthProfileStoreRaw(
         .insertInto("auth_profile_store")
         .values({
           store_key: PRIMARY_ROW_KEY,
-          store_json: JSON.stringify(payload),
+          store_json: storeJson,
           updated_at: Date.now(),
         })
         .onConflict((conflict) =>
           conflict.column("store_key").doUpdateSet({
-            store_json: JSON.stringify(payload),
+            store_json: storeJson,
             updated_at: Date.now(),
           }),
         ),
