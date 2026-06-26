@@ -113,6 +113,26 @@
       "types": "./dist/secret-equal.d.mts",
       "import": "./dist/secret-equal.mjs",
       "default": "./dist/secret-equal.mjs"
+    },
+    "./credential-vault": {
+      "types": "./dist/credential-vault.d.mts",
+      "import": "./dist/credential-vault.mjs",
+      "default": "./dist/credential-vault.mjs"
+    },
+    "./credential-keystore": {
+      "types": "./dist/credential-keystore.d.mts",
+      "import": "./dist/credential-keystore.mjs",
+      "default": "./dist/credential-keystore.mjs"
+    },
+    "./credential-vault-cache": {
+      "types": "./dist/credential-vault-cache.d.mts",
+      "import": "./dist/credential-vault-cache.mjs",
+      "default": "./dist/credential-vault-cache.mjs"
+    },
+    "./credential-store-cell": {
+      "types": "./dist/credential-store-cell.d.mts",
+      "import": "./dist/credential-store-cell.mjs",
+      "default": "./dist/credential-store-cell.mjs"
     }
   },
   "dependencies": {
