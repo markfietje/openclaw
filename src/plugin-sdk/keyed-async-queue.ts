@@ -61,6 +61,11 @@ export class KeyedAsyncQueue {
     this.maxSize = options?.maxSize;
   }
 
+  /** Number of distinct keys with in-flight (or settled-but-uncollected) tails. */
+  get size(): number {
+    return this.tails.size;
+  }
+
   /**
    * @deprecated Retained for shipped Plugin SDK compatibility. New callers must
    * not depend on queue storage; remove in a declared Plugin SDK breaking window.
@@ -77,5 +82,33 @@ export class KeyedAsyncQueue {
       ...(hooks ? { hooks } : {}),
       ...(this.maxSize !== undefined ? { maxSize: this.maxSize } : {}),
     });
+  }
+
+  /**
+   * Defense-in-depth sweep that re-checks every in-flight tail for settlement.
+   * For tails that have already settled but whose cleanup callback did not run
+   * (edge case: the tail was superseded by a newer entry for the same key before
+   * the microtask fired), this re-attaches a cleanup handler that fires on the
+   * next microtask and removes the stale entry.
+   *
+   * This complements the per-entry cleanup in `enqueueKeyedTask` and the
+   * `maxSize` count-based eviction. Call periodically (e.g. every 60s) to reap
+   * settled-but-uncollected entries before they accumulate.
+   */
+  pruneSettled(): void {
+    for (const [key, tail] of this.tails) {
+      tail.then(
+        () => {
+          if (this.tails.get(key) === tail) {
+            this.tails.delete(key);
+          }
+        },
+        () => {
+          if (this.tails.get(key) === tail) {
+            this.tails.delete(key);
+          }
+        },
+      );
+    }
   }
 }
