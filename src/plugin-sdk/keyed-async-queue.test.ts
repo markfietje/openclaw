@@ -143,4 +143,57 @@ describe("KeyedAsyncQueue", () => {
     const queue = new KeyedAsyncQueue();
     expect(queue.getTailMapForTesting()).toBeInstanceOf(Map);
   });
+
+  it("exposes the current in-flight key count via size", async () => {
+    const queue = new KeyedAsyncQueue();
+    expect(queue.size).toBe(0);
+    const gate = createDeferred();
+    const pending = queue.enqueue("a", async () => {
+      await gate.promise;
+    });
+    expect(queue.size).toBe(1);
+    gate.resolve();
+    await pending;
+    // Cleanup fires on the next microtask after settle.
+    await Promise.resolve();
+    expect(queue.size).toBe(0);
+  });
+
+  it("pruneSettled reaps settled-but-uncollected entries", async () => {
+    const queue = new KeyedAsyncQueue();
+    // Enqueue and let the task settle normally.
+    await queue.enqueue("done", async () => undefined);
+    // The per-entry cleanup runs on a microtask; let it flush.
+    await Promise.resolve();
+    expect(queue.size).toBe(0);
+
+    // Now simulate a settled tail whose cleanup did not delete it by inserting
+    // a resolved promise directly into the tail map.
+    queue.getTailMapForTesting().set("stale", Promise.resolve());
+    expect(queue.size).toBe(1);
+
+    // pruneSettled re-attaches cleanup; the resolved promise fires on the next microtask.
+    queue.pruneSettled();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(queue.size).toBe(0);
+  });
+
+  it("pruneSettled leaves genuinely pending entries intact", async () => {
+    const queue = new KeyedAsyncQueue();
+    const gate = createDeferred();
+    const pending = queue.enqueue("hung", async () => {
+      await gate.promise;
+    });
+    expect(queue.size).toBe(1);
+
+    queue.pruneSettled();
+    await Promise.resolve();
+    expect(queue.size).toBe(1); // still in-flight, not pruned
+
+    gate.resolve();
+    await pending;
+    await Promise.resolve();
+    expect(queue.size).toBe(0);
+  });
 });

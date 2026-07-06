@@ -8,6 +8,19 @@ import { AUTH_RATE_LIMIT_SCOPE_DEFAULT, normalizeRateLimitClientIp } from "./aut
 const MAX_PENDING_ATTEMPTS = 10_000;
 const pendingAttempts = new KeyedAsyncQueue({ maxSize: MAX_PENDING_ATTEMPTS });
 
+// Defense-in-depth periodic cleanup. Reaps settled-but-uncollected entries every
+// 60s when the map is over half capacity. Complements the per-entry settle cleanup
+// and the maxSize count-based eviction. Unref'd so it never keeps the process alive.
+function startCleanupTimer(): void {
+  setInterval(() => {
+    if (pendingAttempts.size > MAX_PENDING_ATTEMPTS / 2) {
+      pendingAttempts.pruneSettled();
+    }
+  }, 60_000).unref?.();
+}
+
+startCleanupTimer();
+
 function normalizeScope(scope: string | undefined): string {
   return (scope ?? AUTH_RATE_LIMIT_SCOPE_DEFAULT).trim() || AUTH_RATE_LIMIT_SCOPE_DEFAULT;
 }
