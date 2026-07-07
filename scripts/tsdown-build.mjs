@@ -874,27 +874,45 @@ if (isMainModule()) {
   pruneStaleRuntimeSymlinks();
   cleanTsdownOutputRoots();
 
+  // @openclaw/ai must build first: the main graph externalizes it
+  // (explicitNeverBundleDependencies in tsdown.config.ts) and resolves
+  // @openclaw/ai/* from packages/ai/dist/ via the workspace symlink.
+  // The --stage refactor in c0618ae0f5d dropped this from the main path
+  // (it survived only in resolveTsdownBuildInvocations, used by tests),
+  // leaving every runtime @openclaw/ai/* import dangling.
+  //
   // When --stage is specified, run only that stage. When unset, run all configs
   // in a single tsdown invocation (backward compat). When --stage all is given,
   // run packages then root as separate processes so each gets its own heap.
   const stages =
     args.stage === "" ? [""] : args.stage === "all" ? ["packages", "root"] : [args.stage];
 
-  for (const stage of stages) {
-    if (stage) {
-      console.error(`[tsdown-build] stage: ${stage}`);
+  const builds = [
+    {
+      label: "ai",
+      invocation: resolveTsdownBuildInvocation({
+        args: ["--config", "tsdown.ai.config.ts", ...args.forwardedArgs],
+      }),
+      env: { ...process.env },
+    },
+    ...stages.map((stage) => {
+      const stageEnv = { ...process.env };
+      if (stage) {
+        stageEnv.OPENCLAW_TSDOWN_STAGE = stage;
+      }
+      return {
+        label: stage,
+        invocation: resolveTsdownBuildInvocation({ args: args.forwardedArgs, env: stageEnv }),
+        env: stageEnv,
+      };
+    }),
+  ];
+
+  for (const { label, invocation, env } of builds) {
+    if (label) {
+      console.error(`[tsdown-build] stage: ${label}`);
     }
-    const stageEnv = { ...process.env };
-    if (stage) {
-      stageEnv.OPENCLAW_TSDOWN_STAGE = stage;
-    }
-    const invocation = resolveTsdownBuildInvocation({
-      args: args.forwardedArgs,
-      env: stageEnv,
-    });
-    const result = await runTsdownBuildInvocation(invocation, {
-      env: stageEnv,
-    });
+    const result = await runTsdownBuildInvocation(invocation, { env });
 
     if (result.status === 0 && result.hasIneffectiveDynamicImport) {
       console.error(

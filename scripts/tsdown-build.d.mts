@@ -1,94 +1,126 @@
-#!/usr/bin/env node
-/**
- * Removes build output roots while preserving explicitly protected artifacts.
- */
-export function cleanTsdownOutputRoots(params?: Record<string, unknown>): void;
-export function pruneStaleRootChunkFiles(params?: Record<string, unknown>): void;
-export function listTsdownOutputRoots(): string[];
-export function pruneUntrackedGeneratedSourceDeclarations(params?: Record<string, unknown>): number;
-export function pruneSourceCheckoutBundledPluginNodeModules(params?: Record<string, unknown>): void;
-export function parseTsdownBuildArgs(argv: unknown): {
-  forwardedArgs: unknown;
+// Ambient declarations for scripts/tsdown-build.mjs consumed by tests.
+// Param types are intentionally loose (unknown for fs/spawn-like injectable
+// deps and mock child handles) so test doubles satisfy the signatures, mirroring
+// the style of scripts/run-node.d.mts.
+
+export type TsdownBuildInvocationOptions = {
+  stdio?: unknown;
+  shell?: boolean;
+  windowsVerbatimArguments?: boolean;
+  env: NodeJS.ProcessEnv;
+};
+
+export type TsdownBuildInvocation = {
+  command: string;
+  args: string[];
+  options: TsdownBuildInvocationOptions;
+};
+
+export type TsdownBuildInvocationParams = {
+  args?: string[];
+  env?: NodeJS.ProcessEnv;
+  nodeExecPath?: string;
+  npmExecPath?: string;
+  comSpec?: string;
+  platform?: NodeJS.Platform;
+  cgroupMemoryLimitPaths?: string[];
+  cgroupMemoryLimitBytes?: number;
+  procMeminfoPath?: string;
+  fs?: unknown;
+};
+
+export type TsdownBuildParsedArgs = {
+  forwardedArgs: string[];
+  stage: string;
   help: boolean;
 };
-export function createTsdownOutputScanner(params?: Record<string, unknown>): {
-  append(chunk: unknown): void;
-  finish(): {
-    captured: string;
-    hasIneffectiveDynamicImport: boolean;
-    fatalUnresolvedImport: unknown;
-  };
-};
-export function resolveTsdownBuildInvocation(params?: Record<string, unknown>):
-  | {
-      command: unknown;
-      args: unknown[];
-      options: {
-        stdio: string[];
-        shell: boolean;
-        windowsVerbatimArguments: undefined;
-        env: NodeJS.ProcessEnv;
-      };
-    }
-  | {
-      command: string;
-      args: string[];
-      options: {
-        stdio: string[];
-        shell: boolean;
-        windowsVerbatimArguments: boolean | undefined;
-        env: NodeJS.ProcessEnv;
-      };
-    };
-/** Builds AI package declarations first, then consumes them from the main graph. */
-export function resolveTsdownBuildInvocations(params?: Record<string, unknown>): (
-  | {
-      command: unknown;
-      args: unknown[];
-      options: {
-        stdio: string[];
-        shell: boolean;
-        windowsVerbatimArguments: undefined;
-        env: NodeJS.ProcessEnv;
-      };
-    }
-  | {
-      command: string;
-      args: string[];
-      options: {
-        stdio: string[];
-        shell: boolean;
-        windowsVerbatimArguments: boolean | undefined;
-        env: NodeJS.ProcessEnv;
-      };
-    }
-)[];
-export function signalTsdownBuildProcessTree(
-  child: { pid?: number; kill(signal?: NodeJS.Signals): unknown },
-  signal: NodeJS.Signals,
-  {
-    platform,
-    runTaskkill,
-    useProcessGroup,
-  }?: {
-    platform?: NodeJS.Platform | undefined;
-    runTaskkill?:
-      | ((
-          command: string,
-          args: string[],
-          options: { stdio: "ignore" },
-        ) => { error?: Error; status: number | null })
-      | undefined;
-    useProcessGroup?: boolean | undefined;
-  },
-): void;
-export function runTsdownBuildInvocation(
-  invocation: unknown,
-  params?: Record<string, unknown>,
-): Promise<{
+
+export type TsdownOutputScannerFinishResult = {
   captured: string;
   hasIneffectiveDynamicImport: boolean;
-  signal: NodeJS.Signals | null;
+  fatalUnresolvedImport: string | null;
+};
+
+export type TsdownOutputScanner = {
+  append(chunk: string | Buffer): void;
+  finish(): TsdownOutputScannerFinishResult;
+};
+
+export type TsdownBuildRunParams = {
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  cwd?: string;
+  stdout?: { write: (value: string) => void };
+  stderr?: { write: (value: string) => void };
+  scanner?: TsdownOutputScanner;
+  spawn?: unknown;
+  spawnSync?: unknown;
+  runTaskkill?: unknown;
+};
+
+export type TsdownBuildRunResult = {
   status: number | null;
+  signal: NodeJS.Signals | null;
   timedOut: boolean;
-}>;
+  hasIneffectiveDynamicImport: boolean;
+  fatalUnresolvedImport: string | null;
+  stdout: string;
+  stderr: string;
+};
+
+export function cleanTsdownOutputRoots(params?: {
+  cwd?: string;
+  fs?: unknown;
+  env?: NodeJS.ProcessEnv;
+}): void;
+
+export function pruneStaleRootChunkFiles(params?: {
+  cwd?: string;
+  fs?: unknown;
+}): void;
+
+export function listTsdownOutputRoots(): string[];
+
+export function pruneUntrackedGeneratedSourceDeclarations(params?: {
+  cwd?: string;
+  fs?: unknown;
+  spawnSync?: unknown;
+}): number;
+
+export function pruneSourceCheckoutBundledPluginNodeModules(params?: {
+  cwd?: string;
+  logger?: unknown;
+  packageRoot?: string;
+  fs?: unknown;
+}): void;
+
+export function tsdownBuildUsage(): string;
+
+export function parseTsdownBuildArgs(argv: string[]): TsdownBuildParsedArgs;
+
+export function createTsdownOutputScanner(params?: {
+  maxCaptureBytes?: number;
+}): TsdownOutputScanner;
+
+export function resolveTsdownBuildInvocation(
+  params?: TsdownBuildInvocationParams,
+): TsdownBuildInvocation;
+
+export function resolveTsdownBuildInvocations(
+  params?: TsdownBuildInvocationParams,
+): TsdownBuildInvocation[];
+
+export function signalTsdownBuildProcessTree(
+  child: { pid?: number | null; kill?: (signal?: NodeJS.Signals | number) => boolean | void },
+  signal: NodeJS.Signals | number,
+  options?: {
+    platform?: NodeJS.Platform;
+    runTaskkill?: unknown;
+    useProcessGroup?: boolean;
+  },
+): void;
+
+export function runTsdownBuildInvocation(
+  invocation: TsdownBuildInvocation,
+  params?: TsdownBuildRunParams,
+): Promise<TsdownBuildRunResult>;

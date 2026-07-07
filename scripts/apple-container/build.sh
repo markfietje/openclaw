@@ -355,7 +355,7 @@ copy_path .npmrc
 copy_path openclaw.mjs
 
 # Config files that may or may not exist — copy what's there.
-for glob in tsconfig.json tsconfig.*.json tsdown.config.* turbo.json vite.config.* vitest.config.* eslint.config.* oxlint.json; do
+for glob in tsconfig.json tsconfig.*.json tsdown.config.* tsdown.ai.config.* turbo.json vite.config.* vitest.config.* eslint.config.* oxlint.json; do
   # shellcheck disable=SC2086
   for f in "$REPO_ROOT"/$glob; do
     [[ -e "$f" ]] || continue
