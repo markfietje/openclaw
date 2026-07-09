@@ -57,6 +57,7 @@ export const rootVitestProjects = [
   "test/vitest/vitest.utils.config.ts",
   "test/vitest/vitest.wizard.config.ts",
   "test/vitest/vitest.channels.config.ts",
+  "test/vitest/vitest.extension-brain-server.config.ts",
   "test/vitest/vitest.extension-active-memory.config.ts",
   "test/vitest/vitest.extension-acpx.config.ts",
   "test/vitest/vitest.extension-diffs.config.ts",
