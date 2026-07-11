@@ -163,6 +163,8 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     handler: params,
     isWebchatConnect,
   });
+  const MAX_MALFORMED_FRAMES_BEFORE_CLOSE = 3;
+  let malformedFrameCount = 0;
   const browserSecurity = resolveHandshakeBrowserSecurityContext({
     requestOrigin,
     clientIp,
@@ -207,6 +209,22 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
     // Connect phases share cleanup ownership; the outer catch must release
     // any claim installed before a later phase fails.
     const pendingNodePairingCleanup: { value?: NodePairingCleanupClaim } = {};
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      malformedFrameCount += 1;
+      if (malformedFrameCount >= MAX_MALFORMED_FRAMES_BEFORE_CLOSE) {
+        setCloseCause("too-many-malformed-frames", {
+          count: malformedFrameCount,
+        });
+        logWsControl.warn(
+          `too many invalid frames conn=${connId} count=${malformedFrameCount} remote=${remoteAddr ?? "?"}`,
+        );
+        close(1008, "too many invalid frames");
+      }
+      return;
+    }
     const broadcastNodePairingResult = (result: RequestNodePairingResult) => {
       const context = buildRequestContext();
       const resolvedAt = Date.now();
@@ -243,7 +261,6 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
       }
     };
     try {
-      const parsed = JSON.parse(text);
       const client = getClient();
       if (
         !client &&
