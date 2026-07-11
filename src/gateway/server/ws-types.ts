@@ -2,6 +2,7 @@
 import type { WebSocket } from "ws";
 import type { ConnectParams } from "../../../packages/gateway-protocol/src/schema/frames.js";
 import type { AgentRuntimeIdentity } from "../agent-runtime-identity-token.js";
+import type { DeviceSessionAuthoritySnapshot } from "../device-session-authority.js";
 import type { PluginNodeCapabilityClient } from "../plugin-node-capability.js";
 import type { WorkerConnectionIdentity } from "../worker-environments/connection-identity.js";
 
@@ -27,6 +28,9 @@ export type GatewayWsClient = PluginNodeCapabilityClient & {
   connectionKind?: GatewayWsConnectionKind;
   worker?: WorkerConnectionIdentity;
   isDeviceTokenAuth?: boolean;
+  deviceSessionAuthority?: DeviceSessionAuthoritySnapshot;
+  invalidated?: boolean;
+  invalidatedReason?: string;
   usesSharedGatewayAuth: boolean;
   sharedGatewaySessionGeneration?: string;
   presenceKey?: string;
@@ -38,8 +42,6 @@ export type GatewayWsClient = PluginNodeCapabilityClient & {
   canvasHostUrl?: string;
   canvasCapability?: string;
   canvasCapabilityExpiresAtMs?: number;
-  invalidated?: boolean;
-  invalidatedReason?: string;
 };
 
 export const WS_HANDSHAKE_PHASES = [

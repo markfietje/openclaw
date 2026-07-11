@@ -122,7 +122,6 @@ function parseOrigin(
     // Hosted app schemes have an opaque URL.origin but a stable authority.
     const origin = url.origin === "null" ? `${url.protocol}//${url.host}` : url.origin;
     return {
-<<<<<<< HEAD
       origin: url.origin.toLowerCase(),
       host: url.host.toLowerCase(),
       hostname: url.hostname.toLowerCase(),
