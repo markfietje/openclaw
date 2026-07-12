@@ -1104,5 +1104,4 @@ export async function handleGatewayRequest(
     responded = true;
     deadline.removeEventListener("abort", onDeadline);
   }
-  }
 }

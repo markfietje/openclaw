@@ -201,7 +201,6 @@ function parseOrigin(
   if (!/^[a-z][a-z0-9+.-]*:\/\/[^/?#\\]+\/?$/i.test(trimmed)) {
     return null;
   }
-  }
   try {
     const url = new URL(trimmed);
     if (url.username || url.password || !url.protocol || !url.host) {
