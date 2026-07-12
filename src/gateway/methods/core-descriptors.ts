@@ -367,7 +367,7 @@ export function listCoreGatewayMethodNames(): string[] {
 }
 
 /** Looks up the raw core method scope, including node and dynamic sentinel scopes. */
-function resolveCoreGatewayMethodScope(method: string): GatewayMethodScope | undefined {
+export function resolveCoreGatewayMethodScope(method: string): GatewayMethodScope | undefined {
   return CORE_GATEWAY_METHOD_SPEC_BY_NAME.get(method)?.scope;
 }
 
