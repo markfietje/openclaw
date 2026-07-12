@@ -332,7 +332,6 @@ export function resolveApplicationStartupSettings(
         });
       }
     }
-    }
     params.delete("gatewayUrl");
     hashParams.delete("gatewayUrl");
     shouldCleanUrl = true;
