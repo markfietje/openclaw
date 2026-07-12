@@ -228,7 +228,7 @@ function resolveSessionKey(params: {
     if (isReservedSessionKeyOverride(explicit, params.agentId)) {
       throw new GatewaySessionKeyOverrideError();
     }
-    return sanitizeSessionKey(rawExplicit);
+    return sanitizeSessionKey(explicit);
   }
 
   const user = params.user?.trim();

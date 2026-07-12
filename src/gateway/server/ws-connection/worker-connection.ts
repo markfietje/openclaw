@@ -451,6 +451,7 @@ export function attachWorkerWsMessageHandler(params: WorkerWsMessageHandlerParam
       connectionKind: "worker",
       worker: admission.identity,
       usesSharedGatewayAuth: false,
+      inflightRpcCount: 0,
     };
     params.clearHandshakeTimer();
     params.advanceHandshakePhase("auth_validated");

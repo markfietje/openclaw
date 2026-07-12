@@ -20,10 +20,6 @@ import { toErrorObject } from "../infra/errors.js";
 import { logWarn } from "../logger.js";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
-import {
-  findJsonSchemaShapeError,
-  normalizeJsonSchemaForTypeBox,
-} from "../shared/json-schema-defaults.js";
 import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import { runTasksWithConcurrency } from "../utils/run-with-concurrency.js";
 import { matchesMcpToolFilterPattern } from "./agent-bundle-mcp-filter.js";
@@ -522,11 +518,7 @@ export function createSessionMcpRuntime(params: {
             session.recordedPid = stdioTransport.pid;
             try {
               const { db } = openOpenClawStateDatabase();
-              registerChildProcess(
-                db,
-                stdioTransport.pid,
-                `bundle-mcp:${session.serverName}`,
-              );
+              registerChildProcess(db, stdioTransport.pid, `bundle-mcp:${session.serverName}`);
             } catch {
               // Process registry is best-effort; log and continue.
             }
