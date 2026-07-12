@@ -842,6 +842,7 @@ export function createWatchNodeHttpRuntime(options: WatchNodeHttpRuntimeOptions)
           connId,
           isDeviceTokenAuth: true,
           usesSharedGatewayAuth: false,
+          inflightRpcCount: 0,
           clientIp,
         };
         const nodeSession = options.nodeRegistry.registerTransport(

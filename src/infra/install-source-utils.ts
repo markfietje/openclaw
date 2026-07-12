@@ -1,5 +1,6 @@
 // Resolves and packages install sources for plugin installs.
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";

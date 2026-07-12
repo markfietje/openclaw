@@ -11,10 +11,7 @@ import { createWsKeepalive } from "@openclaw/gateway-security-core/ws-keepalive"
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { RawData, WebSocket, WebSocketServer } from "ws";
 import { WORKER_PROTOCOL_MAX_PAYLOAD_BYTES } from "../../../packages/gateway-protocol/src/index.js";
-import {
-  GATEWAY_STARTUP_CLOSE_CODE,
-  GATEWAY_STARTUP_PENDING_CLOSE_CAUSE,
-} from "../../../packages/gateway-protocol/src/startup-unavailable.js";
+import { GATEWAY_STARTUP_PENDING_CLOSE_CAUSE } from "../../../packages/gateway-protocol/src/startup-unavailable.js";
 import { getRuntimeConfig } from "../../config/io.js";
 import { upsertPresence } from "../../infra/system-presence.js";
 import { logRejectedLargePayload } from "../../logging/diagnostic-payload.js";

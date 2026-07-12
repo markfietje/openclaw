@@ -364,16 +364,6 @@ function writeUpgradePreflightFailure(
   );
 }
 
-function writeUpgradeServiceUnavailable(socket: { write: (chunk: string) => void }, body: string) {
-  socket.write(
-    "HTTP/1.1 503 Service Unavailable\r\n" +
-      "Connection: close\r\n" +
-      "Content-Type: text/plain; charset=utf-8\r\n" +
-      `Content-Length: ${Buffer.byteLength(body, "utf-8")}\r\n` +
-      "\r\n" +
-      body,
-  );
-}
 // OWASP A01:2021 — Broken Access Control. Enforce maximum URL length
 // to prevent path traversal amplification and memory exhaustion attacks.
 const MAX_URL_LENGTH = 8192;

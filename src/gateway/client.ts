@@ -1,14 +1,7 @@
 // OpenClaw Gateway client facade.
 // Wraps the shared gateway-client package with OpenClaw host dependencies.
 import { WS_ENDPOINT } from "@openclaw/gateway-security-core/ws-endpoint";
-import {
-  GatewayClient as BaseGatewayClient,
-  GATEWAY_CLOSE_CODE_HINTS as BASE_GATEWAY_CLOSE_CODE_HINTS,
-  GatewayClientRequestError as BaseGatewayClientRequestError,
-  describeGatewayCloseCode as baseDescribeGatewayCloseCode,
-  isGatewayConnectAssemblyError as baseIsGatewayConnectAssemblyError,
-  resolveGatewayClientConnectChallengeTimeoutMs as baseResolveGatewayClientConnectChallengeTimeoutMs,
-} from "../../packages/gateway-client/src/index.js";
+import { GatewayClient as BaseGatewayClient } from "../../packages/gateway-client/src/index.js";
 import type {
   GatewayClientConnectionMetadata,
   GatewayClientHostDeps,
