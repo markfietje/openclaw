@@ -795,6 +795,13 @@ const fs = require("node:fs");
 const src = "/openclaw-host-config/openclaw.json";
 const dest = "/home/node/.openclaw/openclaw.json";
 const cfg = JSON.parse(fs.readFileSync(src, "utf8"));
+cfg.gateway ??= {};
+// The container gateway is a local single-user gateway reached through the
+// host port-forward / Tailscale Serve. setup.sh sets this on the host config;
+// enforce it on the staged copy too so a host config left in "remote" mode
+// cannot block container startup (gateway start is rejected unless mode=local
+// or --allow-unconfigured is passed).
+cfg.gateway.mode = "local";
 cfg.secrets ??= {};
 cfg.secrets.providers ??= {};
 cfg.secrets.providers.gateway_token ??= {};
