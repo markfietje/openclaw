@@ -764,6 +764,20 @@ stage_runtime_volumes() {
   printf '%s' "${BRIDGE_TOKEN}" >"${config_stage_dir}/bridge-token"
   chmod 600 "${config_stage_dir}/bridge-token"
 
+  # Stage the gateway token so the in-container `openclaw` CLI can authenticate
+  # to the local gateway as the operator (e.g. approve device pairing). The
+  # macOS app strips `gateway.remote.token` from the host config (it reads the
+  # token from the Keychain instead), so the staged container config would
+  # otherwise have no remote token and the gateway's own CLI could not reach
+  # it. Read it from the Keychain and stage it via a file (not env) like the
+  # bridge token above.
+  local staged_gw_token=""
+  staged_gw_token="$(read_keychain_token "$KEYCHAIN_SERVICE" "$KEYCHAIN_ACCOUNT" 2>/dev/null || true)"
+  if [[ -n "$staged_gw_token" ]]; then
+    printf '%s' "$staged_gw_token" >"${config_stage_dir}/.gateway-token"
+    chmod 600 "${config_stage_dir}/.gateway-token"
+  fi
+
   container delete "$temp_name" >/dev/null 2>&1 || true
   info "Preparing runtime volumes..."
   if ! container run \
@@ -775,6 +789,7 @@ stage_runtime_volumes() {
     --mount "type=volume,source=${STATE_VOLUME},target=/home/node/.openclaw" \
     --mount "type=volume,source=${WORKSPACE_VOLUME},target=/home/node/.openclaw/workspace" \
     --mount "type=bind,source=${config_stage_dir},target=/openclaw-host-config,readonly" \
+    --env "OPENCLAW_STAGED_GATEWAY_URL=ws://127.0.0.1:${CONTAINER_PORT}/gateway" \
     "$OPENCLAW_IMAGE" \
     sh -lc '
       set -eu
@@ -801,12 +816,28 @@ cfg.secrets.providers ??= {};
 cfg.secrets.providers.gateway_token ??= {};
 cfg.secrets.providers.gateway_token.source = "exec";
 cfg.secrets.providers.gateway_token.command = "/home/node/.openclaw/openclaw-gateway-token-resolver";
-cfg.secrets.providers.gateway_token.passEnv = [
-  "OPENCLAW_KEYCHAIN_BRIDGE_URL",
-  "OPENCLAW_KEYCHAIN_BRIDGE_TOKEN_FILE",
-  "OPENCLAW_KEYCHAIN_BRIDGE_TIMEOUT_MS",
-];
-fs.writeFileSync(dest, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o440 });
+ cfg.secrets.providers.gateway_token.passEnv = [
+   "OPENCLAW_KEYCHAIN_BRIDGE_URL",
+   "OPENCLAW_KEYCHAIN_BRIDGE_TOKEN_FILE",
+   "OPENCLAW_KEYCHAIN_BRIDGE_TIMEOUT_MS",
+ ];
+ // Embed the gateway token + a loopback gateway URL into the staged config so
+  // the in-container `openclaw` CLI can act as the local operator (device
+  // pairing approval, etc.). The host config remote.url may be stale or the
+  // token stripped, so set both explicitly from the staged values.
+ const stagedToken = (() => {
+   try { return fs.readFileSync("/openclaw-host-config/.gateway-token", "utf8").trim(); }
+   catch { return ""; }
+ })();
+ if (stagedToken) {
+   cfg.gateway ??= {};
+   cfg.gateway.remote ??= {};
+   cfg.gateway.remote.token = stagedToken;
+   if (process.env.OPENCLAW_STAGED_GATEWAY_URL) {
+     cfg.gateway.remote.url = process.env.OPENCLAW_STAGED_GATEWAY_URL;
+   }
+ }
+ fs.writeFileSync(dest, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o440 });
 NODE
       chown 0:1000 /home/node/.openclaw/openclaw.json
       chmod 0440 /home/node/.openclaw/openclaw.json
@@ -995,9 +1026,9 @@ do_run() {
 
   local runtime_command=()
   if [[ "$CONTAINER_RUNTIME" == "bun" ]]; then
-    runtime_command=(bun /app/openclaw.mjs gateway --bind lan --port "$CONTAINER_PORT")
+    runtime_command=(bun /app/openclaw.mjs gateway --allow-unconfigured --bind lan --port "$CONTAINER_PORT")
   else
-    runtime_command=(node /app/openclaw.mjs gateway --bind lan --port "$CONTAINER_PORT")
+    runtime_command=(node /app/openclaw.mjs gateway --allow-unconfigured --bind lan --port "$CONTAINER_PORT")
   fi
 
   if ! container_run_gateway "${detach_arg[*]}" "${runtime_command[@]}"; then
