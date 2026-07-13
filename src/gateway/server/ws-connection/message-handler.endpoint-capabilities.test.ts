@@ -63,4 +63,24 @@ describe("matchesEndpointCapabilities", () => {
     const ctx = createMessageAuthContext({ clientId: "c1", scopes: [], endpoint: "test" });
     expect(matchesEndpointCapabilities(ctx, ["admin:read"])).toBe(false);
   });
+
+  it("allows node-role connections through the endpoint gate (role-based auth)", () => {
+    const ctx = createMessageAuthContext({
+      clientId: "c1",
+      role: "node",
+      scopes: ["node.invoke"],
+      endpoint: "test",
+    });
+    expect(matchesEndpointCapabilities(ctx, ["admin:read", "admin:write"])).toBe(true);
+  });
+
+  it("allows node-role connections with empty scopes through the endpoint gate", () => {
+    const ctx = createMessageAuthContext({
+      clientId: "c1",
+      role: "node",
+      scopes: [],
+      endpoint: "test",
+    });
+    expect(matchesEndpointCapabilities(ctx, ["agent:read", "agent:execute"])).toBe(true);
+  });
 });

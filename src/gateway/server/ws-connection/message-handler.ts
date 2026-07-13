@@ -53,8 +53,8 @@ import {
 } from "../../../../packages/gateway-protocol/src/startup-unavailable.js";
 import { getRuntimeConfig } from "../../../config/io.js";
 import { resolveStateDir } from "../../../config/paths.js";
-import { sha256HexPrefix } from "../../../infra/crypto-digest.js";
 import type { OpenClawConfig } from "../../../config/types.js";
+import { sha256HexPrefix } from "../../../infra/crypto-digest.js";
 import {
   getBoundDeviceBootstrapProfile,
   getDeviceBootstrapTokenProfile,
@@ -3248,6 +3248,15 @@ function matchesEndpointCapabilities(
   allowed: readonly string[] | undefined,
 ): boolean {
   if (!allowed || allowed.length === 0) {
+    return true;
+  }
+  // Node connections are authorized per-method by role, not by endpoint
+  // capability. A node's scopes resolve to node.* caps that no WebSocket
+  // endpoint lists, so the coarse cap-based gate would reject every node
+  // connection (ws-connection connects nodes over the LEGACY endpoint). Node
+  // method authorization is enforced per-request by the role decision, so the
+  // endpoint segregation gate does not apply to node-role clients.
+  if (ctx.role === "node") {
     return true;
   }
   return allowed.some((cap) => hasMessageCapability(ctx, cap));
