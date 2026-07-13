@@ -13,7 +13,6 @@ OPENCLAW_HOME="${HOME:-}"
 OPENCLAW_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-${OPENCLAW_HOME}/.openclaw}"
 ENV_FILE="${OPENCLAW_CONFIG_DIR}/apple-container.env"
 CONFIG_JSON="${OPENCLAW_CONFIG_DIR}/openclaw.json"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEYCHAIN_BRIDGE_SCRIPT="${SCRIPT_DIR}/keychain-bridge.mjs"
 
 require_cmd() {
