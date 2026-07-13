@@ -22,6 +22,22 @@ import { prepareNodeHostRuntime, type NodeHostInventory } from "./runtime.js";
 export { buildNodeInvokeResultParams };
 export { buildNodeEventParams } from "./invoke.js";
 
+/**
+ * Scopes a node-host requests when connecting to the gateway. The gateway's
+ * `/gateway` (LEGACY) endpoint gate requires `agent:read/write/execute` +
+ * `admin:read/write`; an empty scope set fails with "endpoint capability
+ * mismatch" and the node can never connect. These scopes also become the
+ * node's device-token scopes on pairing, which authorize `node.invoke` and
+ * plugin/tool publication back to the gateway.
+ */
+export const NODE_HOST_GATEWAY_CONNECT_SCOPES = [
+  "agent:read",
+  "agent:write",
+  "agent:execute",
+  "admin:read",
+  "admin:write",
+] as const;
+
 type NodeHostRunOptions = {
   gatewayHost: string;
   gatewayPort: number;
@@ -239,7 +255,7 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
     deviceFamily: resolveNodeHostGatewayDeviceFamily(process.platform),
     mode: GATEWAY_CLIENT_MODES.NODE,
     role: "node",
-    scopes: [],
+    scopes: [...NODE_HOST_GATEWAY_CONNECT_SCOPES],
     // Pair the built-in MCP command family up front. Server inventory is
     // restart-scoped availability, not a capability upgrade requiring re-pairing.
     caps: preparedRuntime.manifest.caps,

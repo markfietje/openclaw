@@ -32,6 +32,14 @@ const OPERATOR_SCOPE_CAPABILITIES: Record<OperatorScope, readonly string[]> = {
   [TALK_SECRETS_SCOPE]: ["talk:secrets"],
 };
 
+// Node scopes (dot form, e.g. `node.exec`) are authorized by `role: "node"`
+// and translate into `node:*` capabilities so a node can satisfy the
+// `/gateway` endpoint capability gate without acquiring operator scopes.
+const NODE_SCOPE_CAPABILITIES: Record<string, readonly string[]> = {
+  "node.exec": ["node:exec"],
+  "node.invoke": ["node:invoke"],
+};
+
 // OWASP A01:2021 — Broken Access Control. Enforce maximum scope count
 // to prevent memory exhaustion via large scope sets.
 const MAX_MESSAGE_AUTH_SCOPES = 64;
@@ -63,6 +71,15 @@ function resolveCapabilitiesFromScopes(scopes: ReadonlySet<string>): Set<string>
     if (translated) {
       for (const cap of translated) {
         // Enforce maximum capability length.
+        if (cap.length <= MAX_CAPABILITY_LENGTH) {
+          caps.add(cap);
+        }
+      }
+      continue;
+    }
+    const nodeTranslated = NODE_SCOPE_CAPABILITIES[scope];
+    if (nodeTranslated) {
+      for (const cap of nodeTranslated) {
         if (cap.length <= MAX_CAPABILITY_LENGTH) {
           caps.add(cap);
         }

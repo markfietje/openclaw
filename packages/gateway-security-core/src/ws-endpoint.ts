@@ -44,6 +44,11 @@ export const ENDPOINT_SECURITY: Record<WsEndpoint, EndpointSecurityConfig> = {
       "agent:execute",
       "admin:read",
       "admin:write",
+      // Nodes connect here with `role: "node"` and `node.*` scopes, which map
+      // to `node:*` capabilities. Accepting them lets a node satisfy the gate
+      // without acquiring operator scopes (still role-gated per method).
+      "node:exec",
+      "node:invoke",
     ],
   },
 };
