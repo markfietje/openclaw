@@ -177,7 +177,7 @@ actor GatewayWizardClient {
     }
 
     func connect() async throws {
-        let socket = self.session.webSocketTask(with: self.url)
+        let socket = self.session.webSocketTask(with: self.url, protocols: [gatewayWebSocketSubprotocol])
         socket.maximumMessageSize = 16 * 1024 * 1024
         socket.resume()
         self.task = socket

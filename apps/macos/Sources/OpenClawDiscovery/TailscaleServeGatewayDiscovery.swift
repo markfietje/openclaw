@@ -254,7 +254,7 @@ enum TailscaleServeGatewayDiscovery {
         config.timeoutIntervalForRequest = max(0.5, timeout)
         config.timeoutIntervalForResource = max(0.5, timeout)
         let session = URLSession(configuration: config)
-        let task = session.webSocketTask(with: url)
+        let task = session.webSocketTask(with: url, protocols: [gatewayWebSocketSubprotocol])
         task.resume()
 
         defer {

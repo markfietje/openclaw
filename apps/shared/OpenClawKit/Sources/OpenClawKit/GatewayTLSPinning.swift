@@ -259,6 +259,13 @@ GatewayTLSFailureProviding, GatewayDeviceTokenRetryTrustProviding, @unchecked Se
     }
 
     public func makeWebSocketTask(request: URLRequest) -> WebSocketTaskBox {
+        // The gateway requires the `openclaw-gateway-v1` WebSocket subprotocol on
+        // the upgrade. This SDK only exposes the `protocols:` argument on the
+        // `URL` overload, not the `URLRequest` one, so set the header directly.
+        var request = request
+        if request.value(forHTTPHeaderField: "Sec-WebSocket-Protocol") == nil {
+            request.setValue(gatewayWebSocketSubprotocol, forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        }
         let task = self.session.webSocketTask(with: request)
         task.maximumMessageSize = 16 * 1024 * 1024
         return WebSocketTaskBox(task: task)
