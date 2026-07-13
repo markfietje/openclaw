@@ -291,12 +291,13 @@ func resolveGatewayEndpoint(opts: ConnectOptions, config: GatewayConfig) throws 
 
     let port = config.port ?? 18789
     let host = resolveLocalHost(bind: config.bind)
-    guard let url = URL(string: "ws://\(host):\(port)") else {
+    guard var url = URL(string: "ws://\(host):\(port)") else {
         throw NSError(
             domain: "Gateway",
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: "invalid url: ws://\(host):\(port)"])
     }
+    url = withDefaultGatewayPath(url)
     return GatewayEndpoint(
         url: url,
         token: resolvedToken(opts: opts, mode: resolvedMode, config: config),
@@ -318,8 +319,9 @@ private func gatewayEndpoint(
     guard let url = URL(string: raw) else {
         throw NSError(domain: "Gateway", code: 1, userInfo: [NSLocalizedDescriptionKey: "invalid url: \(raw)"])
     }
+    let effectiveURL = withDefaultGatewayPath(url)
     return GatewayEndpoint(
-        url: url,
+        url: effectiveURL,
         token: resolvedToken(
             opts: opts,
             mode: mode,
@@ -417,6 +419,19 @@ private func isSensitiveGatewayQueryItem(_ value: String) -> Bool {
         "jwt", "key", "pass", "passwd", "password", "private_key", "refresh_token",
         "secret", "session", "signature", "token", "x_amz_security_token", "x_amz_signature",
     ].contains(normalized)
+}
+
+/// The hardened gateway only accepts known WebSocket paths (e.g. `/gateway`).
+/// A bare `ws://host:port` URL resolves to path `/`, which the gateway rejects
+/// with "unknown ws path". Default a root/empty path to `/gateway` so operator
+/// and UI clients connect without manually suffixing the path.
+private func withDefaultGatewayPath(_ url: URL) -> URL {
+    var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    let path = components?.path ?? ""
+    if path.isEmpty || path == "/" {
+        components?.path = "/gateway"
+    }
+    return components?.url ?? url
 }
 
 private func resolveLocalHost(bind: String?) -> String {
