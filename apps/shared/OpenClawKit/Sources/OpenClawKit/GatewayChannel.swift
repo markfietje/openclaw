@@ -6,6 +6,13 @@ import OSLog
 /// Avoid ambiguity with the app's own AnyCodable type.
 private typealias ProtoAnyCodable = OpenClawProtocol.AnyCodable
 
+/// The gateway enforces a required WebSocket subprotocol
+/// (`security.requireSubprotocol`). URLSession negotiates the subprotocol from
+/// the `Sec-WebSocket-Protocol` request header, so it must be set on every
+/// upgrade regardless of scheme; otherwise the gateway rejects the socket with
+/// `verifyClient: missing required subprotocol`.
+private let gatewayWebSocketSubprotocol = "openclaw-gateway-v1"
+
 private func gatewayErrorDetails(_ error: ErrorShape?) -> [String: ProtoAnyCodable] {
     var details: [String: ProtoAnyCodable] = [:]
     if let nested = error?.details?.value as? [String: ProtoAnyCodable] {
@@ -234,6 +241,9 @@ public actor GatewayChannelActor {
     /// without re-pairing. Values are credentials: never log them.
     private func makeUpgradeRequest() -> URLRequest {
         var request = URLRequest(url: self.url)
+        // The gateway requires the openclaw-gateway-v1 subprotocol on the upgrade.
+        // Set it before the scheme guard so both `ws://` and `wss://` routes send it.
+        request.setValue(gatewayWebSocketSubprotocol, forHTTPHeaderField: "Sec-WebSocket-Protocol")
         // Custom headers can contain service tokens or Authorization values. Do not even read
         // the provider for cleartext routes, where credentials would be exposed in transit.
         guard self.url.scheme?.lowercased() == "wss" else { return request }
