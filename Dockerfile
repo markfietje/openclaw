@@ -67,7 +67,10 @@ ARG OPENCLAW_DOCKER_BUILD_SKIP_DTS
 # Copy pinned Bun binary from the official image instead of fetching via curl.
 COPY --from=bun-binary /usr/local/bin/bun /usr/local/bin/bun
 
-RUN corepack enable
+# NOTE: pnpm is installed via npm (not the corepack shim) just before the
+# `pnpm install` step below. The corepack shim bundled with this base image
+# cannot parse the `+sha512` hash suffix in `packageManager` and fails with
+# "expected a semver version", so we avoid corepack for the build.
 
 WORKDIR /app
 
@@ -84,6 +87,10 @@ COPY --from=workspace-deps /out/openclaw-selected-plugin-dirs /tmp/openclaw-sele
 
 # Reduce OOM risk on low-memory hosts during dependency installation.
 # Docker builds on small VMs may otherwise fail with "Killed" (exit 137).
+# Install the exact pnpm version from `packageManager` directly via npm so the
+# build does not depend on the corepack shim (which mishandles the `+sha512`
+# hash suffix in `packageManager`).
+RUN npm install -g "pnpm@$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
 RUN --mount=type=cache,id=openclaw-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \
     NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile \
       --config.supportedArchitectures.os=linux \
@@ -238,21 +245,9 @@ COPY --from=runtime-assets --chown=node:node /app/docs ./docs
 COPY --from=runtime-assets --chown=node:node /app/qa ./qa
 
 # Keep pnpm available in the runtime image for container-local workflows.
-# Use a shared Corepack home so the non-root `node` user does not need a
-# first-run network fetch when invoking pnpm.
-ENV COREPACK_HOME=/usr/local/share/corepack
-RUN install -d -m 0755 "$COREPACK_HOME" && \
-    corepack enable && \
-    for attempt in 1 2 3 4 5; do \
-      if corepack prepare "$(node -p "require('./package.json').packageManager")" --activate; then \
-        break; \
-      fi; \
-      if [ "$attempt" -eq 5 ]; then \
-        exit 1; \
-      fi; \
-      sleep $((attempt * 2)); \
-    done && \
-    chmod -R a+rX "$COREPACK_HOME"
+# Install the pinned pnpm version directly via npm; the corepack shim cannot
+# parse the `+sha512` hash suffix in `packageManager`.
+RUN npm install -g "pnpm@$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
 
 # Install additional system packages needed by your skills or extensions.
 # Example: docker build --build-arg OPENCLAW_IMAGE_APT_PACKAGES="python3 wget" .

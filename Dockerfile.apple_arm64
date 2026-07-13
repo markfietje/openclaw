@@ -25,7 +25,10 @@ FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS build
 ARG OPENCLAW_BUNDLED_PLUGIN_DIR
 
 COPY --from=bun-binary /usr/local/bin/bun /usr/local/bin/bun
-RUN corepack enable
+# NOTE: pnpm is installed via npm (not the corepack shim) just before the
+# `pnpm install` step below. The corepack shim bundled with this base image
+# cannot parse the `+sha512` hash suffix in `packageManager` and fails with
+# "expected a semver version", so we avoid corepack for the build.
 
 WORKDIR /app
 ENV npm_config_os=linux \
@@ -54,6 +57,10 @@ RUN set -eux; \
     echo "/* A2UI bundle unavailable in this build */" > extensions/canvas/src/host/a2ui/a2ui.bundle.js; \
     echo "stub" > extensions/canvas/src/host/a2ui/.bundle.hash; \
     rm -rf vendor/a2ui apps/shared/OpenClawKit/Tools/CanvasA2UI
+# Install the exact pnpm version from `packageManager` directly via npm so the
+# build does not depend on the corepack shim (which mishandles the `+sha512`
+# hash suffix in `packageManager`).
+RUN npm install -g "pnpm@$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
 RUN --mount=type=cache,id=openclaw-apple-pnpm-store,target=/pnpm/store,sharing=locked \
     NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile \
       --store-dir=/pnpm/store --os=linux --cpu=arm64 --libc=glibc \
@@ -165,19 +172,10 @@ COPY --from=runtime-assets --chown=root:root /app/skills ./skills
 COPY --from=runtime-assets --chown=root:root /app/docs ./docs
 COPY --from=runtime-assets --chown=root:root /app/qa ./qa
 
-ENV COREPACK_HOME=/usr/local/share/corepack
-RUN install -d -m 0755 "$COREPACK_HOME" && \
-    corepack enable && \
-    for attempt in 1 2 3 4 5; do \
-      if corepack prepare "$(node -p "require('./package.json').packageManager")" --activate; then \
-        break; \
-      fi; \
-      if [ "$attempt" -eq 5 ]; then \
-        exit 1; \
-      fi; \
-      sleep $((attempt * 2)); \
-    done && \
-    chmod -R a+rX "$COREPACK_HOME"
+# Keep pnpm available in the runtime image for container-local workflows.
+# Install the pinned pnpm version directly via npm; the corepack shim cannot
+# parse the `+sha512` hash suffix in `packageManager`.
+RUN npm install -g "pnpm@$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
 
 RUN find /app -type d -exec chmod 0755 {} + && \
     find /app -type f -exec chmod 0644 {} + && \

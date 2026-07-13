@@ -247,9 +247,51 @@ if $DO_ROLLBACK; then
   exit 0
 fi
 
+# Whether the resolved `pnpm` is a corepack shim. Corepack shims are JS
+# launchers that reference corepack; the standalone pnpm CLI does not. Older
+# corepack versions cannot parse the `+sha512` hash suffix in packageManager
+# and fail with "expected a semver version".
+is_corepack_pnpm_shim() {
+  local pnpm_path
+  pnpm_path="$(command -v pnpm 2>/dev/null || true)"
+  [[ -n "$pnpm_path" ]] || return 1
+  head -c 4096 "$pnpm_path" 2>/dev/null | grep -q "corepack"
+}
+
+# Resolve a pnpm binary that can build the repo. The repo pins pnpm with a
+# `+sha512` hash suffix in packageManager (e.g. pnpm@11.12.0+sha512....);
+# a corepack shim rejects that hash. Mirror the Dockerfile.apple_arm64 build
+# workaround: when the available pnpm is a corepack shim, install the pinned
+# pnpm directly via npm (under .local/, gitignored) and use that instead.
+# Users with a standalone pnpm keep using the system binary unchanged.
+PNPM_BIN=""
+resolve_build_pnpm() {
+  if [[ -n "$PNPM_BIN" ]]; then
+    return 0
+  fi
+  if command -v pnpm >/dev/null 2>&1 && ! is_corepack_pnpm_shim; then
+    PNPM_BIN="pnpm"
+    return 0
+  fi
+  local pinned pnpm_dir pnpm_bin
+  pinned="$(node -p "require('${REPO_ROOT}/package.json').packageManager.split('@')[1].split('+')[0]" 2>/dev/null || true)"
+  [[ -n "$pinned" ]] || fail "Could not determine pinned pnpm version from package.json packageManager."
+  pnpm_dir="${REPO_ROOT}/.local/apple-container/pnpm"
+  pnpm_bin="${pnpm_dir}/node_modules/.bin/pnpm"
+  if [[ ! -x "$pnpm_bin" ]]; then
+    require_cmd npm
+    info "Installing pinned pnpm@${pinned} for the host build (bypasses corepack hash parsing)..."
+    install -d -m 700 "$pnpm_dir"
+    ( cd "$pnpm_dir" && npm install "pnpm@${pinned}" --no-save --prefix "$pnpm_dir" >/dev/null 2>&1 ) ||
+      fail "Failed to install pnpm@${pinned} via npm for the host build."
+    [[ -x "$pnpm_bin" ]] || fail "pnpm@${pinned} install did not produce a usable binary."
+  fi
+  PNPM_BIN="$pnpm_bin"
+}
+
 # ── Build on host ────────────────────────────────────────────────
 if $DO_BUILD; then
-  require_cmd pnpm
+  resolve_build_pnpm
   info "Building on macOS host..."
   cd "$REPO_ROOT"
 
@@ -258,17 +300,17 @@ if $DO_BUILD; then
   fi
 
   info "  pnpm build..."
-  if ! pnpm build 2>&1; then
+  if ! "${PNPM_BIN}" build 2>&1; then
     fail "pnpm build failed. Fix errors and retry."
   fi
 
   info "  pnpm ui:build..."
-  if ! pnpm ui:build 2>&1; then
+  if ! "${PNPM_BIN}" ui:build 2>&1; then
     fail "pnpm ui:build failed. Fix errors and retry."
   fi
 
   info "  pnpm qa:lab:build..."
-  if ! pnpm qa:lab:build 2>&1; then
+  if ! "${PNPM_BIN}" qa:lab:build 2>&1; then
     fail "pnpm qa:lab:build failed. Fix errors and retry."
   fi
 
