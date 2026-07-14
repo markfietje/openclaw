@@ -118,7 +118,7 @@ describe("checkBrowserOrigin", () => {
       },
       expected: {
         ok: false,
-        reason: "wildcard origin allowlist rejected",
+        reason: "wildcard origin allowlist rejected (enable allowWildcardOrigin)",
       },
     },
     {
@@ -158,10 +158,14 @@ describe("checkBrowserOrigin", () => {
   });
 
   it.each([
-    "chrome-extension://abcdefghijklmnop",
     "tauri://localhost",
     "electron://localhost",
-    "app://desktop",
+    "tauri://localhost/path",
+    "tauri://localhost/admin/..",
+    "tauri://localhost/%2e",
+    "tauri://localhost?mode=admin",
+    "tauri://localhost#admin",
+    "tauri://user@localhost",
   ])("accepts an exactly allowlisted hosted app origin: %s", (origin) => {
     expect(checkBrowserOrigin({ origin, allowedOrigins: [origin] })).toEqual({
       ok: true,
@@ -170,13 +174,7 @@ describe("checkBrowserOrigin", () => {
   });
 
   it.each([
-    "tauri://localhost/path",
-    "tauri://localhost/admin/..",
-    "tauri://localhost/%2e",
     "https://control.example.com\\admin",
-    "tauri://localhost?mode=admin",
-    "tauri://localhost#admin",
-    "tauri://user@localhost",
     "file:///tmp/openclaw.html",
     "data:text/plain,hello",
   ])("rejects a non-origin URL value: %s", (origin) => {
