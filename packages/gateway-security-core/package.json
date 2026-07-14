@@ -19,11 +19,6 @@
       "import": "./dist/auth-audit-log.mjs",
       "default": "./dist/auth-audit-log.mjs"
     },
-    "./audit-log-base": {
-      "types": "./dist/audit-log-base.d.mts",
-      "import": "./dist/audit-log-base.mjs",
-      "default": "./dist/audit-log-base.mjs"
-    },
     "./connection-rate-limit": {
       "types": "./dist/connection-rate-limit.d.mts",
       "import": "./dist/connection-rate-limit.mjs",
@@ -98,11 +93,6 @@
       "types": "./dist/sliding-window-store.d.mts",
       "import": "./dist/sliding-window-store.mjs",
       "default": "./dist/sliding-window-store.mjs"
-    },
-    "./ipv6-subnet": {
-      "types": "./dist/ipv6-subnet.d.mts",
-      "import": "./dist/ipv6-subnet.mjs",
-      "default": "./dist/ipv6-subnet.mjs"
     },
     "./message-replay-guard": {
       "types": "./dist/message-replay-guard.d.mts",

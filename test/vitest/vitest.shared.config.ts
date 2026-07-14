@@ -481,16 +481,6 @@ export const sharedVitestConfig = {
           "auth-audit-log.ts",
         ),
       },
-      {
-        find: "@openclaw/gateway-security-core/audit-log-base",
-        replacement: path.join(
-          repoRoot,
-          "packages",
-          "gateway-security-core",
-          "src",
-          "audit-log-base.ts",
-        ),
-      },
 
       {
         find: "@openclaw/gateway-security-core/connection-rate-limit",
@@ -654,16 +644,6 @@ export const sharedVitestConfig = {
           "gateway-security-core",
           "src",
           "config-guard.ts",
-        ),
-      },
-      {
-        find: "@openclaw/gateway-security-core/ipv6-subnet",
-        replacement: path.join(
-          repoRoot,
-          "packages",
-          "gateway-security-core",
-          "src",
-          "ipv6-subnet.ts",
         ),
       },
       {

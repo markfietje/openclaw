@@ -2034,7 +2034,7 @@ export function createConfigIO(
             ? " (signature missing on a large config — possible signature-deletion attack)"
             : "";
         deps.logger.error(
-          `[config-integrity] HMAC ${hmacResult.kind}${suspiciousNote} on ${configPath}. Config may have been tampered with.`,
+          `[config-integrity] HMAC ${hmacResult.kind}${suspiciousNote} on ${configPath}. Refusing to load config.`,
         );
         return await finalizeReadConfigSnapshotInternalResult(deps, {
           snapshot: createConfigFileSnapshot({
@@ -2047,7 +2047,10 @@ export function createConfigIO(
             runtimeConfig: {},
             hash: rawHash,
             issues: [
-              { path: "", message: `Config integrity check failed: HMAC ${hmacResult.kind}${suspiciousNote}` },
+              {
+                path: "",
+                message: `Config integrity check failed: HMAC ${hmacResult.kind}${suspiciousNote}`,
+              },
             ],
             warnings: [],
             legacyIssues: [],

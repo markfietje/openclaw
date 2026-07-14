@@ -88,9 +88,6 @@
       "@openclaw/gateway-security-core/auth-audit-log": [
         "./packages/gateway-security-core/src/auth-audit-log.ts"
       ],
-      "@openclaw/gateway-security-core/audit-log-base": [
-        "./packages/gateway-security-core/src/audit-log-base.ts"
-      ],
 
       "@openclaw/gateway-security-core/config-guard": [
         "./packages/gateway-security-core/src/config-guard.ts"
