@@ -62,6 +62,7 @@ import {
 } from "./server/preauth-connection-budget.js";
 import type { ReadinessChecker } from "./server/readiness.js";
 import type { GatewayTlsRuntime } from "./server/tls.js";
+import { createGatewayVerifyClient } from "./server/verify-client.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
 type GatewayPluginRequestHandler = (
@@ -271,6 +272,10 @@ export async function createGatewayRuntimeState(params: {
     const wss = new WebSocketServer({
       noServer: true,
       maxPayload: MAX_PREAUTH_PAYLOAD_BYTES,
+      verifyClient: createGatewayVerifyClient({
+        log: params.log,
+        getConfigSnapshot: () => params.cfg,
+      }),
     });
     const preauthConnectionBudget = createPreauthConnectionBudget();
     const workerPreauthConnectionBudget = createPreauthConnectionBudget();
