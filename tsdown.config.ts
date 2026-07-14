@@ -397,6 +397,15 @@ function buildNetPolicyDistEntries(): Record<string, string> {
   };
 }
 
+function buildGatewaySecurityCoreDistEntries(): Record<string, string> {
+  return {
+    // Imports from src/gateway/forwarded-headers.ts reference the package
+    // subpath export. Keep the build list adjacent to package.json exports.
+    index: "packages/gateway-security-core/src/index.ts",
+    ip: "packages/gateway-security-core/src/ip.ts",
+  };
+}
+
 function buildMediaGenerationCoreDistEntries(): Record<string, string> {
   return {
     index: "packages/media-generation-core/src/index.ts",
@@ -592,6 +601,10 @@ function shouldExternalizeNetPolicyDependency(id: string): boolean {
   return id === "ipaddr.js" || id.startsWith("ipaddr.js/");
 }
 
+function shouldExternalizeGatewaySecurityCoreDependency(id: string): boolean {
+  return id === "@openclaw/net-policy" || id.startsWith("@openclaw/net-policy/");
+}
+
 function shouldExternalizeSpeechCoreDependency(id: string): boolean {
   return id === "openclaw" || id.startsWith("openclaw/");
 }
@@ -701,6 +714,15 @@ const configs = [
     outDir: tsdownPackageOutputRoot("net-policy"),
     deps: {
       neverBundle: shouldExternalizeNetPolicyDependency,
+    },
+  }),
+  nodeWorkspacePackageBuildConfig({
+    clean: true,
+    dts: TSDOWN_DECLARATIONS,
+    entry: buildGatewaySecurityCoreDistEntries(),
+    outDir: tsdownPackageOutputRoot("gateway-security-core"),
+    deps: {
+      neverBundle: shouldExternalizeGatewaySecurityCoreDependency,
     },
   }),
   nodeWorkspacePackageBuildConfig({

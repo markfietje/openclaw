@@ -225,6 +225,9 @@
       "@openclaw/net-policy/url-protocol": ["./packages/net-policy/src/url-protocol.ts"],
       "@openclaw/net-policy/url-userinfo": ["./packages/net-policy/src/url-userinfo.ts"],
       "@openclaw/net-policy/*": ["./packages/net-policy/src/*"],
+      "@openclaw/gateway-security-core": ["./packages/gateway-security-core/src/index.ts"],
+      "@openclaw/gateway-security-core/ip": ["./packages/gateway-security-core/src/ip.ts"],
+      "@openclaw/gateway-security-core/*": ["./packages/gateway-security-core/src/*"],
       "@openclaw/web-content-core": ["./packages/web-content-core/src/index.ts"],
       "@openclaw/web-content-core/provider-runtime-shared": [
         "./packages/web-content-core/src/provider-runtime-shared.ts"

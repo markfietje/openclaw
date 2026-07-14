@@ -1,0 +1,29 @@
+{
+  "name": "@openclaw/gateway-security-core",
+  "version": "0.0.0-private",
+  "private": true,
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    },
+    "./ip": {
+      "types": "./dist/ip.d.mts",
+      "import": "./dist/ip.mjs",
+      "default": "./dist/ip.mjs"
+    }
+  },
+  "dependencies": {
+    "@openclaw/net-policy": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsdown"
+  }
+}

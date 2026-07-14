@@ -4,6 +4,7 @@ const TSDOWN_PACKAGE_NAMES = [
   "ai",
   "gateway-client",
   "gateway-protocol",
+  "gateway-security-core",
   "llm-core",
   "markdown-core",
   "media-core",
