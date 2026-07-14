@@ -1,0 +1,227 @@
+# syntax=docker/dockerfile:1.7
+ARG OPENCLAW_EXTENSIONS=""
+ARG OPENCLAW_BUNDLED_PLUGIN_DIR=extensions
+ARG OPENCLAW_NODE_BOOKWORM_IMAGE="node:24-bookworm@sha256:392e1e23f34da768d8d1f4e502b64f200d3be3465934d4b7930f57d7e2fc1989"
+ARG OPENCLAW_NODE_BOOKWORM_DIGEST="sha256:392e1e23f34da768d8d1f4e502b64f200d3be3465934d4b7930f57d7e2fc1989"
+ARG OPENCLAW_NODE_BOOKWORM_SLIM_IMAGE="node:24-bookworm-slim@sha256:cb4e8f7c443347358b7875e717c29e27bf9befc8f5a26cf18af3c3dec80e58c5"
+ARG OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST="sha256:cb4e8f7c443347358b7875e717c29e27bf9befc8f5a26cf18af3c3dec80e58c5"
+ARG OPENCLAW_BUN_IMAGE="oven/bun:1.3.13@sha256:87416c977a612a204eb54ab9f3927023c2a3c971f4f345a01da08ea6262ae30e"
+
+FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS ext-deps
+ARG OPENCLAW_EXTENSIONS
+ARG OPENCLAW_BUNDLED_PLUGIN_DIR
+RUN --mount=type=bind,source=${OPENCLAW_BUNDLED_PLUGIN_DIR},target=/tmp/${OPENCLAW_BUNDLED_PLUGIN_DIR},readonly \
+    mkdir -p /out && \
+    for ext in $(printf '%s\n' "$OPENCLAW_EXTENSIONS" | tr ',' ' '); do \
+      if [ -f "/tmp/${OPENCLAW_BUNDLED_PLUGIN_DIR}/$ext/package.json" ]; then \
+        mkdir -p "/out/$ext" && \
+        cp "/tmp/${OPENCLAW_BUNDLED_PLUGIN_DIR}/$ext/package.json" "/out/$ext/package.json"; \
+      fi; \
+    done
+
+FROM ${OPENCLAW_BUN_IMAGE} AS bun-binary
+
+FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS build
+ARG OPENCLAW_BUNDLED_PLUGIN_DIR
+
+COPY --from=bun-binary /usr/local/bin/bun /usr/local/bin/bun
+# NOTE: pnpm is installed via npm (not the corepack shim) just before the
+# `pnpm install` step below. The corepack shim bundled with this base image
+# cannot parse the `+sha512` hash suffix in `packageManager` and fails with
+# "expected a semver version", so we avoid corepack for the build.
+
+WORKDIR /app
+ENV npm_config_os=linux \
+    npm_config_cpu=arm64 \
+    npm_config_libc=glibc
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY patches ./patches
+
+RUN printf '\nsupportedArchitectures:\n  os:\n    - linux\n  cpu:\n    - arm64\n  libc:\n    - glibc\n' >> pnpm-workspace.yaml
+
+COPY . .
+
+RUN printf '\nsupportedArchitectures:\n  os:\n    - linux\n  cpu:\n    - arm64\n  libc:\n    - glibc\n' >> pnpm-workspace.yaml
+
+RUN for dir in /app/${OPENCLAW_BUNDLED_PLUGIN_DIR} /app/.agent /app/.agents; do \
+      if [ -d "$dir" ]; then \
+        find "$dir" -type d -exec chmod 755 {} +; \
+        find "$dir" -type f -exec chmod 644 {} +; \
+      fi; \
+    done
+
+RUN set -eux; \
+    echo "A2UI bundle: forced stub for Apple Container linux/arm64 build"; \
+    mkdir -p extensions/canvas/src/host/a2ui; \
+    echo "/* A2UI bundle unavailable in this build */" > extensions/canvas/src/host/a2ui/a2ui.bundle.js; \
+    echo "stub" > extensions/canvas/src/host/a2ui/.bundle.hash; \
+    rm -rf vendor/a2ui apps/shared/OpenClawKit/Tools/CanvasA2UI
+# Install the exact pnpm version from `packageManager` directly via npm so the
+# build does not depend on the corepack shim (which mishandles the `+sha512`
+# hash suffix in `packageManager`).
+RUN npm install -g "pnpm@$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
+RUN --mount=type=cache,id=openclaw-apple-pnpm-store,target=/pnpm/store,sharing=locked \
+    NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile \
+      --store-dir=/pnpm/store --os=linux --cpu=arm64 --libc=glibc \
+      --fetch-retries=5 --fetch-retry-factor=2 \
+      --fetch-retry-mintimeout=10000 --fetch-retry-maxtimeout=120000
+RUN set -eux; \
+    echo "==> Verifying critical native addons..."; \
+    for attempt in 1 2 3 4 5; do \
+      if find /app/node_modules -name "matrix-sdk-crypto*.node" 2>/dev/null | grep -q .; then \
+        exit 0; \
+      fi; \
+      echo "matrix-sdk-crypto native addon missing; retrying download (${attempt}/5)"; \
+      node /app/node_modules/@matrix-org/matrix-sdk-crypto-nodejs/download-lib.js || true; \
+      sleep $((attempt * 2)); \
+    done; \
+    find /app/node_modules -name "matrix-sdk-crypto*.node" 2>/dev/null | grep -q . || \
+      (echo "ERROR: matrix-sdk-crypto native addon missing after retries" >&2 && exit 1)
+ENV OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=1
+RUN node scripts/tsdown-build.mjs --stage all
+RUN node scripts/check-cli-bootstrap-imports.mjs && \
+    node scripts/runtime-postbuild.mjs && \
+    node scripts/build-stamp.mjs && \
+    node scripts/runtime-postbuild-stamp.mjs && \
+    pnpm plugins:assets:build && \
+    pnpm plugins:assets:copy && \
+    node --import tsx scripts/copy-hook-metadata.ts && \
+    node --import tsx scripts/copy-export-html-templates.ts && \
+    node --import tsx scripts/write-build-info.ts && \
+    node --import tsx scripts/write-cli-startup-metadata.ts
+ENV OPENCLAW_PREFER_PNPM=1
+RUN pnpm ui:build
+RUN pnpm qa:lab:build
+
+FROM build AS runtime-assets
+ARG OPENCLAW_EXTENSIONS
+ARG OPENCLAW_BUNDLED_PLUGIN_DIR
+RUN node --input-type=module -e "import fs from 'node:fs';import YAML from 'yaml';const doc=YAML.parse(fs.readFileSync('pnpm-workspace.yaml','utf8'));const exts=String(process.env.OPENCLAW_EXTENSIONS||'').split(',').map((value)=>value.trim()).filter(Boolean);doc.packages=['.','ui',...exts.map((ext)=>String(process.env.OPENCLAW_BUNDLED_PLUGIN_DIR||'extensions')+'/'+ext)];fs.writeFileSync('pnpm-workspace.yaml',YAML.stringify(doc));" && \
+    CI=true NPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod && \
+    node scripts/postinstall-bundled-plugins.mjs && \
+    OPENCLAW_EXTENSIONS="$OPENCLAW_EXTENSIONS" node scripts/prune-docker-plugin-dist.mjs && \
+    find dist -type f \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o -name '*.map' \) -delete && \
+    if [ -L /app/node_modules/@openclaw/ai ]; then \
+      ai_runtime_target="$(readlink -f /app/node_modules/@openclaw/ai)" && \
+      ai_runtime_tmp="$(mktemp -d)" && \
+      cp -a "$ai_runtime_target" "$ai_runtime_tmp/ai" && \
+      rm /app/node_modules/@openclaw/ai && \
+      mv "$ai_runtime_tmp/ai" /app/node_modules/@openclaw/ai && \
+      rmdir "$ai_runtime_tmp"; \
+    fi && \
+    node scripts/check-package-dist-imports.mjs /app
+
+FROM ${OPENCLAW_NODE_BOOKWORM_SLIM_IMAGE} AS base-runtime
+ARG OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST
+LABEL org.opencontainers.image.base.name="docker.io/library/node:24-bookworm-slim" \
+  org.opencontainers.image.base.digest="${OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST}"
+
+FROM base-runtime
+ARG OPENCLAW_BUNDLED_PLUGIN_DIR
+ARG OPENCLAW_DOCKER_APT_PACKAGES=""
+ARG OPENCLAW_INSTALL_BUN_RUNTIME=""
+
+LABEL org.opencontainers.image.source="https://github.com/openclaw/openclaw" \
+  org.opencontainers.image.url="https://openclaw.ai" \
+  org.opencontainers.image.documentation="https://docs.openclaw.ai/install/docker" \
+  org.opencontainers.image.licenses="MIT" \
+  org.opencontainers.image.title="OpenClaw" \
+  org.opencontainers.image.description="OpenClaw gateway (Apple Container, ARM64, security-hardened)" \
+  org.opencontainers.image.architecture="arm64" \
+  org.opencontainers.image.os="linux"
+
+WORKDIR /app
+
+RUN --mount=type=cache,id=openclaw-apple-bookworm-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=openclaw-apple-bookworm-apt-lists,target=/var/lib/apt,sharing=locked \
+    set -eux; \
+    for attempt in 1 2 3 4 5; do \
+      rm -rf /var/lib/apt/lists/*; \
+      if apt-get update -o Acquire::Retries=3 && \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          ca-certificates procps hostname curl openssl python3 openssh-client; then \
+        if [ -z "$OPENCLAW_DOCKER_APT_PACKAGES" ] || \
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $OPENCLAW_DOCKER_APT_PACKAGES; then \
+          break; \
+        fi; \
+      fi; \
+      if [ "$attempt" -eq 5 ]; then \
+        exit 1; \
+      fi; \
+      echo "apt-get install failed; retrying (${attempt}/5)" >&2; \
+      sleep $((attempt * 5)); \
+    done && \
+    update-ca-certificates && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN --mount=type=bind,from=bun-binary,source=/usr/local/bin/bun,target=/tmp/openclaw-bun,readonly \
+    if [ -n "$OPENCLAW_INSTALL_BUN_RUNTIME" ]; then \
+      cp /tmp/openclaw-bun /usr/local/bin/bun && \
+      chmod 0755 /usr/local/bin/bun; \
+    fi
+
+COPY --from=runtime-assets --chown=root:root /app/dist ./dist
+COPY --from=runtime-assets --chown=root:root /app/node_modules ./node_modules
+COPY --from=runtime-assets --chown=root:root /app/package.json .
+COPY --from=runtime-assets --chown=root:root /app/patches ./patches
+COPY --from=runtime-assets --chown=root:root /app/openclaw.mjs .
+COPY --from=runtime-assets --chown=root:root /app/src/agents/templates ./src/agents/templates
+COPY --from=runtime-assets --chown=root:root /app/${OPENCLAW_BUNDLED_PLUGIN_DIR} ./${OPENCLAW_BUNDLED_PLUGIN_DIR}
+COPY --from=runtime-assets --chown=root:root /app/skills ./skills
+COPY --from=runtime-assets --chown=root:root /app/docs ./docs
+COPY --from=runtime-assets --chown=root:root /app/qa ./qa
+
+# Keep pnpm available in the runtime image for container-local workflows.
+# Install the pinned pnpm version directly via npm; the corepack shim cannot
+# parse the `+sha512` hash suffix in `packageManager`.
+RUN npm install -g "pnpm@$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
+
+RUN find /app -type d -exec chmod 0755 {} + && \
+    find /app -type f -exec chmod 0644 {} + && \
+    find /app/node_modules -path '*/bin/*' -type f -exec chmod 0755 {} + && \
+    find /app/node_modules/.bin -type f -exec chmod 0755 {} + && \
+    chmod 0755 /app/openclaw.mjs
+
+COPY <<'OPENCLAW_WRAPPER' /usr/local/bin/openclaw
+#!/bin/sh
+if command -v bun >/dev/null 2>&1; then
+  if [ "${OPENCLAW_PREFER_BUN:-}" = "1" ]; then
+    exec bun ${BUN_RUNTIME_FLAGS:-} /app/openclaw.mjs "$@"
+  fi
+  if [ "${1:-}" = "tui" ] && [ "${OPENCLAW_TUI_RUNTIME:-bun}" != "node" ]; then
+    exec bun ${BUN_RUNTIME_FLAGS:-} /app/openclaw.mjs "$@"
+  fi
+fi
+exec node /app/openclaw.mjs "$@"
+OPENCLAW_WRAPPER
+RUN chmod 0755 /usr/local/bin/openclaw
+
+RUN install -d -m 0750 -o node -g node /home/node/.openclaw && \
+    install -d -m 0700 -o node -g node /home/node/.openclaw/credentials && \
+    install -d -m 0750 -o node -g node /home/node/.openclaw/agents && \
+    install -d -m 0750 -o node -g node /home/node/.openclaw/workspace && \
+    stat -c '%U:%G %a' /home/node/.openclaw | grep -qx 'node:node 750'
+
+COPY <<'ENTRYPOINT' /usr/local/bin/container-entrypoint
+#!/bin/sh
+umask 0027
+if [ "${1:-}" = "bun" ] && [ -n "${BUN_RUNTIME_FLAGS:-}" ]; then
+  shift
+  exec bun ${BUN_RUNTIME_FLAGS} "$@"
+fi
+exec "$@"
+ENTRYPOINT
+RUN chmod 0755 /usr/local/bin/container-entrypoint
+
+ENV NODE_ENV=production \
+    NODE_OPTIONS="--max-old-space-size=256" \
+    BUN_RUNTIME_FLAGS="--smol"
+
+USER node
+
+ENTRYPOINT ["/usr/local/bin/container-entrypoint"]
+CMD ["node", "openclaw.mjs", "gateway", "--allow-unconfigured"]
+
+HEALTHCHECK --interval=3m --timeout=10s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
