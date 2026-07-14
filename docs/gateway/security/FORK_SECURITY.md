@@ -90,11 +90,11 @@ surface is minimized because the security logic lives in the independent package
 | `src/gateway/forwarded-headers.ts`                       | RFC 7239 `Forwarded` header parsing, cross-header consistency, proto mismatch                                     | Medium     |
 | `src/gateway/net.ts`                                     | `validateSensitiveHeaders()`, `isTrustedProxyAddress()`                                                           | Medium     |
 | `src/gateway/origin-check.ts`                            | `timingSafeEqual` for HMAC, double-lock origin validation, port normalization                                     | Medium     |
-| `src/gateway/auth.ts`                                    | `timingSafeEqual` for HMAC verification, signed token defaults                                                    | Low        |
+| `src/gateway/auth.ts`                                    | `safeEqualSecret` for constant-time connect-token/password comparison                                             | Low        |
 | `src/gateway/server/ws-connection.ts`                    | Ping/pong keep-alive, close-code-aware reconnect                                                                  | Medium     |
 | `src/gateway/server-methods/config.ts`                   | `isProtectedConfigPath()` gate on `config.set`/`config.patch`                                                     | Medium     |
 | `src/gateway/server-constants.ts`                        | `resolveMaxPayloadBytes()` with safe clamping                                                                     | Low        |
-| `src/gateway/device-auth.ts`                             | Signed token verification hardening                                                                               | Low        |
+| `src/gateway/device-auth.ts`                             | Re-export shim for device-auth helpers from `gateway-client` (no verification logic in this file)                 | Low        |
 | `packages/gateway-protocol/src/connect-error-details.ts` | Timestamp removed from challenge payload (moved from `src/gateway/protocol/` into the `gateway-protocol` package) | Low        |
 | `packages/gateway-protocol/src/schema/error-codes.ts`    | New error codes for security rejections (moved from `src/gateway/protocol/schema/`)                               | Low        |
 | `src/config/types.gateway.ts`                            | Re-exports `GatewaySecurityConfig` from the package                                                               | Low        |
@@ -193,10 +193,9 @@ Runs after the WebSocket is established. Each message is checked individually.
 
 ```
   ┌─────────────────────────────────────────┐
-  │ 6. Nonce challenge (auth)                │
-  │    • Signed token verification           │
-  │      (origin-check.ts)                   │
-  │    • timingSafeEqual for HMAC compare    │
+  │ 6. Pre-handshake origin check (verify-client.ts) │
+  │    • Sec-Fetch-Site cross-site detection          │
+  │    • X-Forwarded-Proto mismatch validation         │
   ├─────────────────────────────────────────┤
   │ 7. Message authorization                 │
   │    • Per-message-type capability mapping │
@@ -1121,28 +1120,28 @@ Additional gateway authorization coverage lives in `server-methods/*` (for examp
 
 ### Upstream-touched files (fork modifications)
 
-| File                                                     | Changes                                                                                                                                                              |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/gateway/net.ts`                                     | `validateSensitiveHeaders`, `validateForwardedHeaderConsistency`; uses local IP resolution helpers                                                                   |
-| `src/gateway/origin-check.ts`                            | `verifySignedOriginToken()` with Zod validation, `timingSafeEqual` for HMAC, `Sec-Fetch-Site` cross-site detection, protocol mismatch validation                     |
-| `src/gateway/forwarded-headers.ts`                       | RFC 7239 `Forwarded` header parsing, `validateProtoMismatch()`, cross-header consistency                                                                             |
-| `src/gateway/server-runtime-state.ts`                    | `createConnectionRateLimiter()`, `createRuntimeVerifyClient()`, `perMessageDeflate: false`                                                                           |
-| `src/gateway/server/verify-client.ts`                    | 6-step pre-handshake pipeline (new file) — see `createGatewayVerifyClient` JSDoc for check order                                                                     |
-| `src/gateway/server/ws-connection/message-handler.ts`    | verifyClient integration, protected config check, IP restriction forwarding, device credential invalidation                                                          |
-| `src/gateway/server/ws-connection.ts`                    | ping/pong keep-alive, close-code-aware reconnect                                                                                                                     |
-| `src/gateway/server-methods/config.ts`                   | `isProtectedConfigPath()` gate on `config.set`/`config.patch`                                                                                                        |
-| `src/gateway/auth.ts`                                    | `validateCredentialStrength()`, Tailscale whois timeout (5s), audit logger integration, IP restriction check before auth mode, trusted proxy user charset validation |
-| `src/gateway/method-scopes.ts`                           | Dynamic params default to DENY when unparseable (prevents silent auth bypass)                                                                                        |
-| `src/gateway/rate-limit-attempt-serialization.ts`        | Periodic cleanup timer (60s) to prevent memory leaks from pending attempt map                                                                                        |
-| `src/gateway/server-constants.ts`                        | `resolveMaxPayloadBytes` with safe clamping                                                                                                                          |
-| `src/gateway/control-plane-rate-limit.ts`                | LRU eviction instead of insertion-order, prune/dispose lifecycle                                                                                                     |
-| `src/gateway/device-auth.ts`                             | Signed token verification hardening                                                                                                                                  |
-| `packages/gateway-protocol/src/connect-error-details.ts` | Timestamp removed from challenge payload (moved out of `src/gateway/protocol/`)                                                                                      |
-| `packages/gateway-protocol/src/schema/error-codes.ts`    | New error codes for security rejections (moved out of `src/gateway/protocol/`)                                                                                       |
-| `src/config/types.gateway.ts`                            | Re-exports `GatewaySecurityConfig` from package                                                                                                                      |
-| `src/config/zod-schema.ts`                               | `GatewaySecurityConfigSchema` — Zod validation for all security fields                                                                                               |
-| `src/config/validation.ts`                               | Config validation for security fields                                                                                                                                |
-| `Dockerfile*`                                            | `NODE_TLS_REJECT_UNAUTHORIZED` not set (upstream also omits it; not a fork-only fix); silent install fallback                                                        |
+| File                                                     | Changes                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/gateway/net.ts`                                     | `validateSensitiveHeaders`, `validateForwardedHeaderConsistency`; uses local IP resolution helpers                                                                                                                                                                                                                 |
+| `src/gateway/origin-check.ts`                            | `Sec-Fetch-Site` cross-site detection, `X-Forwarded-Proto` mismatch (SSL-strip) validation, forwarded-host spoof rejection, host-header validation, and wildcard-origin rejection (all wired via `checkBrowserOrigin`); the earlier signed-origin-token verifier was removed as dead code (never wired, no issuer) |
+| `src/gateway/forwarded-headers.ts`                       | RFC 7239 `Forwarded` header parsing, `validateProtoMismatch()`, cross-header consistency                                                                                                                                                                                                                           |
+| `src/gateway/server-runtime-state.ts`                    | `createConnectionRateLimiter()`, `createRuntimeVerifyClient()`, `perMessageDeflate: false`                                                                                                                                                                                                                         |
+| `src/gateway/server/verify-client.ts`                    | 6-step pre-handshake pipeline (new file) — see `createGatewayVerifyClient` JSDoc for check order                                                                                                                                                                                                                   |
+| `src/gateway/server/ws-connection/message-handler.ts`    | verifyClient integration, protected config check, IP restriction forwarding, device credential invalidation                                                                                                                                                                                                        |
+| `src/gateway/server/ws-connection.ts`                    | ping/pong keep-alive, close-code-aware reconnect                                                                                                                                                                                                                                                                   |
+| `src/gateway/server-methods/config.ts`                   | `isProtectedConfigPath()` gate on `config.set`/`config.patch`                                                                                                                                                                                                                                                      |
+| `src/gateway/auth.ts`                                    | `validateCredentialStrength()`, Tailscale whois timeout (5s), audit logger integration, IP restriction check before auth mode, trusted proxy user charset validation                                                                                                                                               |
+| `src/gateway/method-scopes.ts`                           | Dynamic params default to DENY when unparseable (prevents silent auth bypass)                                                                                                                                                                                                                                      |
+| `src/gateway/rate-limit-attempt-serialization.ts`        | Periodic cleanup timer (60s) to prevent memory leaks from pending attempt map                                                                                                                                                                                                                                      |
+| `src/gateway/server-constants.ts`                        | `resolveMaxPayloadBytes` with safe clamping                                                                                                                                                                                                                                                                        |
+| `src/gateway/control-plane-rate-limit.ts`                | LRU eviction instead of insertion-order, prune/dispose lifecycle                                                                                                                                                                                                                                                   |
+| `src/gateway/device-auth.ts`                             | Re-export shim for device-auth helpers from `gateway-client` (no verification logic in this file)                                                                                                                                                                                                                  |
+| `packages/gateway-protocol/src/connect-error-details.ts` | Timestamp removed from challenge payload (moved out of `src/gateway/protocol/`)                                                                                                                                                                                                                                    |
+| `packages/gateway-protocol/src/schema/error-codes.ts`    | New error codes for security rejections (moved out of `src/gateway/protocol/`)                                                                                                                                                                                                                                     |
+| `src/config/types.gateway.ts`                            | Re-exports `GatewaySecurityConfig` from package                                                                                                                                                                                                                                                                    |
+| `src/config/zod-schema.ts`                               | `GatewaySecurityConfigSchema` — Zod validation for all security fields                                                                                                                                                                                                                                             |
+| `src/config/validation.ts`                               | Config validation for security fields                                                                                                                                                                                                                                                                              |
+| `Dockerfile*`                                            | `NODE_TLS_REJECT_UNAUTHORIZED` not set (upstream also omits it; not a fork-only fix); silent install fallback                                                                                                                                                                                                      |
 
 ---
 
@@ -1179,6 +1178,23 @@ These genuinely do not exist upstream (verified: no equivalent found).
 | Startup security checks (fail-closed)     | Critical findings block boot                                  | CWE-1188 | `startup-security-checks.ts` → `server.impl.ts`                |
 | `perMessageDeflate` explicitly disabled   | `false`                                                       | CWE-502  | `server-runtime-state.ts`                                      |
 | `NODE_TLS_REJECT_UNAUTHORIZED=0` not set  | Not set in fork (also absent upstream)                        | CWE-295  | `Dockerfile*`                                                  |
+
+### Proxy and origin support features
+
+The fork hardens browser-origin and reverse-proxy handling on top of upstream's `checkBrowserOrigin` allowlist. These are wired into the pre-handshake `verifyClient` path (`src/gateway/server/verify-client.ts` → `checkBrowserOrigin`) and are active whenever a browser `Origin` header is present:
+
+- **Trusted-proxy model:** upstream `authorizeTrustedProxy` is retained; the fork adds cross-header consistency so `X-Forwarded-For` / `X-Forwarded-Host` / `X-Forwarded-Proto` must agree (`net.ts` → `forwarded-headers.ts`).
+- **RFC 7239 `Forwarded` parsing:** protocol and client-IP (`for`) are parsed; the fork extracts the forwarded protocol to detect SSL stripping (`extractProtoFromForwardedHeader`).
+- **Forwarded-host spoof rejection:** if `X-Forwarded-Host` is present but the connection is not from a trusted proxy, the request is rejected outright (no allowlist bypass via header spoofing).
+- **Protocol mismatch (SSL-strip) validation:** when behind a trusted proxy with `strictProtoValidation` (default on), the origin protocol is checked against the forwarded protocol and `X-Forwarded-Proto`; a mismatch is rejected.
+- **Host-header validation:** when enabled, the `Host` header must match the `Origin` or the allowlist; otherwise the request is rejected.
+- **`Sec-Fetch-Site` cross-site rejection:** a `cross-site` Fetch Metadata header is rejected (defense-in-depth against CSRF-style WS upgrades).
+- **Wildcard-origin rejection:** a `*` allowlist entry is only honored when `allowWildcardOrigin` is enabled AND the request is local or behind a trusted proxy AND not cross-site.
+- **Localhost-privilege disable behind proxy:** `autoDisableLocalhostBehindProxy` / `disableLocalhostPrivilege` remove the loopback privilege grant when proxy headers are present, so a proxied request cannot claim localhost trust.
+- **Explicit host-header fallback:** `dangerouslyAllowHostHeaderOriginFallback` gates whether the direct `Host` may substitute for `X-Forwarded-Host` in trusted-proxy mode.
+- **Client IP from socket, not header:** when the source is not a trusted proxy, the connection IP is taken from the socket, never from proxy headers (`verify-client.ts` IP restriction).
+
+Non-browser clients (CLI, agent) do not send an `Origin` header, so these checks are skipped for them by design; they authenticate via device token, shared secret, or Tailscale instead.
 
 ### Features upstream ALSO has (do not claim as fork-only)
 

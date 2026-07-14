@@ -152,32 +152,9 @@ originated from a trusted proxy. Unauthenticated inputs from non-proxy sources
 are physically impossible to observe at that point — the connection is already
 closed.
 
-### Evidence 2b: timingSafeEqual for HMAC verification
+### Evidence 2b: removed (signed-origin-token verifier was dead code)
 
-`src/gateway/origin-check.ts` — `verifySignedOriginToken`
-
-```typescript
-export function verifySignedOriginToken(
-  token: string,
-  sharedSecret: string,
-  expectedOrigin: string,
-): SignedTokenVerificationResult {
-  // ...
-  const expectedSig = createHmac("sha256", sharedSecret).update(payloadB64).digest("base64url");
-
-  const sigBuf = Buffer.from(sigB64, "base64url");
-  const expectedBuf = Buffer.from(expectedSig, "base64url");
-  if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) {
-    return { ok: false, reason: "invalid signature" };
-  }
-  // ...
-}
-```
-
-**Why this satisfies P2:** The HMAC comparison uses `timingSafeEqual` — the
-comparison duration is independent of how many bytes match. An attacker cannot
-use timing side-channels to incrementally guess a valid signed origin token.
-The upstream used `===` on strings, which leaks comparison progress via timing.
+The signed-origin-token verifier (`verifySignedOriginToken`) was removed from the fork. It was never wired into the handshake: no issuer signed these tokens and no client delivered them, so it protected no live traffic. It is no longer claimed as a security control. The wired origin defenses are `Sec-Fetch-Site` cross-site rejection and `X-Forwarded-Proto` mismatch validation inside `checkBrowserOrigin`.
 
 ### Evidence 2c: Origin validation does not depend on unauthenticated headers alone
 
@@ -435,9 +412,7 @@ const wss = new WebSocketServer({
   noServer: true,
   maxPayload: MAX_PREAUTH_PAYLOAD_BYTES,
   perMessageDeflate: false, // CRIME/BREACH class mitigation
-  verifyClient: createGatewayVerifyClient({
-    /* ... */
-  }),
+  verifyClient: createGatewayVerifyClient({/* ... */}),
 });
 ```
 
@@ -468,9 +443,7 @@ export function resolveMaxPayloadBytes(configValue?: number): number {
 
 ```typescript
 if (connectionRateLimiter) {
-  const clientIpForRateLimit = resolveClientIp({
-    /* ... */
-  });
+  const clientIpForRateLimit = resolveClientIp({/* ... */});
   const rateCheck = connectionRateLimiter.check(clientIpForRateLimit);
   if (!rateCheck.allowed) {
     callback(false, 1013, "too many connections");
