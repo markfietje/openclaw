@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "paths": {
+      "@openclaw/net-policy/ip": ["../../packages/net-policy/dist/ip.d.mts"]
+    }
+  },
+  "include": ["src/**/*"]
+}
