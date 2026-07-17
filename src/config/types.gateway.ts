@@ -532,6 +532,29 @@ export type GatewayToolsConfig = {
   allow?: string[];
 };
 
+export type GatewaySecurityConfig = {
+  /**
+   * Reject duplicate or comma-chained sensitive proxy headers. Off by default
+   * because comma-chained `x-forwarded-for` is common behind real proxies.
+   */
+  strictHeaderValidation?: boolean;
+  /**
+   * Reject proxy headers arriving from a non-trusted peer. Off by default;
+   * enable only when `trustedProxies` is configured. Default: false.
+   */
+  rejectUntrustedProxyHeaders?: boolean;
+  /**
+   * Reject browser WebSocket upgrades whose `Sec-Fetch-Site` is cross-site or
+   * cross-origin (CSRF-class defense). Default: true.
+   */
+  rejectCrossSiteWebSocketRequests?: boolean;
+  /**
+   * Allow deriving the expected origin from the Host header when no allowed
+   * origins are configured. Dangerous; weakens origin checks. Default: false.
+   */
+  dangerouslyAllowHostHeaderOriginFallback?: boolean;
+};
+
 export type GatewayConfig = {
   /** Single multiplexed port for Gateway WS + HTTP (default: 18789). */
   port?: number;
@@ -574,6 +597,12 @@ export type GatewayConfig = {
    * Default: false (safer fail-closed behavior).
    */
   allowRealIpFallback?: boolean;
+  /**
+   * Opt-in WebSocket/proxy hardening for the Gateway upgrade handshake.
+   * Origin and cross-site defenses are on by default; these toggles add
+   * stricter behavior for reverse-proxy deployments.
+   */
+  security?: GatewaySecurityConfig;
   /** Tool access restrictions for HTTP /tools/invoke endpoint. */
   tools?: GatewayToolsConfig;
   /**
